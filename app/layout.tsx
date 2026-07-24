@@ -9,9 +9,9 @@ export async function generateMetadata(): Promise<Metadata> {
     requestHeaders.get("x-forwarded-proto") ??
     (host.startsWith("localhost") ? "http" : "https");
   const origin = `${protocol}://${host}`;
-  const title = "달무티 — 왕관의 계급전";
+  const title = "달무티 — DCLab의 계급전";
   const description =
-    "낮은 숫자로 계급을 뒤집는 5인용 달무티 웹게임 플레이어 대 AI 체험판.";
+    "낮은 숫자로 계급을 뒤집는 달무티 웹게임. 혼자 연습하거나 초대 코드로 4~8명이 함께 플레이하세요.";
 
   return {
     title,

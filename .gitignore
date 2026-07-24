@@ -14,6 +14,7 @@
 
 # testing
 /coverage
+/artifacts/
 
 # next.js
 /.next/
@@ -38,7 +39,11 @@ yarn-error.log*
 
 # typescript
 next-env.d.ts
+*.tsbuildinfo
 /dist/
 /.wrangler/
 /outputs/
 /work/
+
+# generated caches
+/scripts/__pycache__/

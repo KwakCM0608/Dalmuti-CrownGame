@@ -1,98 +1,38 @@
-# vinext-starter
+# DCLab 달무티
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+달무티를 혼자 연습하거나 초대 코드로 4~8명이 함께 플레이할 수 있는
+웹 게임입니다.
 
-## Prerequisites
+## 실행
 
-- Node.js `>=22.13.0`
-
-## Quick Start
+Node.js 22.13 이상과 pnpm이 필요합니다.
 
 ```bash
-npm install
-npm run dev
-npm run build
+pnpm install
+pnpm dev
 ```
 
-This starter does not use `wrangler.jsonc`.
+- `/`: 5인 플레이어 대 AI 연습 모드
+- `/online`: 초대 코드형 온라인 멀티플레이
 
-## Included Shape
+## 온라인 게임 구조
 
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+- 브라우저는 자신의 패와 공개 정보만 받습니다.
+- 셔플, 세금, 카드 제출, 패스, 순위 계산은 서버의 공용 게임 엔진이
+  검증합니다.
+- 방 상태와 재접속 세션은 Cloudflare D1에 보관됩니다.
+- 클라이언트는 짧은 폴링으로 새 상태와 공개/개인 이벤트를 받습니다.
 
-## Workspace Auth Headers
+온라인 모드는 최소 4명, 최대 8명입니다. 모든 플레이어가 준비하면
+패가 서버에서 미리 배분되고, 방장이 PLAY를 누른 뒤 각자의 패만
+공개됩니다.
 
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
+## 검증
 
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```bash
+pnpm test
+pnpm lint
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
-
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
-
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
-
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
-
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+테스트에는 덱 분배, 비공개 패, 세금 정보 공개 범위, 중복 명령 방지,
+서버 렌더링 검사가 포함됩니다.
