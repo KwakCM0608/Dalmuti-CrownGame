@@ -18,8 +18,13 @@ const MIN_PLAYERS = 4;
 const MAX_PLAYERS = 8;
 const MAX_EVENTS = 240;
 const MAX_PROCESSED_COMMANDS = 512;
-const PUBLIC_ACTION_LOCK_MS = 1_500;
+const PASS_ACTION_LOCK_MS = 1_500;
+const PLAY_ACTION_LOCK_MS = 3_600;
+const DALMUTI_ACTION_LOCK_MS = 5_600;
 const RANK_COUNTDOWN_MS = 3_000;
+const TURN_DURATION_MS = 30_000;
+const EMPTY_TABLE_TIMEOUT_CYCLE_MS =
+  PASS_ACTION_LOCK_MS + TURN_DURATION_MS;
 
 const DEFAULT_DURATIONS: OnlinePhaseDurations = {
   rankChoiceIntroMs: 6_000,
@@ -102,6 +107,11 @@ function normalizePlayer(
 function cloneRoom(state: OnlineRoomState): OnlineRoomState {
   return {
     ...state,
+    turnDeadline:
+      typeof state.turnDeadline === "number" &&
+      Number.isFinite(state.turnDeadline)
+        ? state.turnDeadline
+        : null,
     players: state.players.map((player) => ({ ...player })),
     hands: Object.fromEntries(
       Object.entries(state.hands).map(([id, hand]) => [id, [...hand]]),
@@ -303,6 +313,7 @@ function resetRoomToLobby(state: OnlineRoomState): void {
   state.dealSealed = false;
   state.phase = "lobby";
   state.phaseEndsAt = null;
+  state.turnDeadline = null;
   state.round = 0;
   state.currentIndex = 0;
   state.table = null;
@@ -361,6 +372,7 @@ function beginRankSelection(
   state.round = 1;
   state.phase = "rank-intro";
   state.phaseEndsAt = countdownEndsAt;
+  state.turnDeadline = null;
   state.rankSelection = {
     cards: shuffledRankCards.map((card, slotIndex) => ({
       slotIndex,
@@ -590,6 +602,7 @@ function startRound(
   state.round = round;
   state.phase = "reveal-intro";
   state.phaseEndsAt = at + state.durations.revealIntroMs;
+  state.turnDeadline = null;
   state.currentIndex = 0;
   state.table = null;
   state.lastPlayedId = null;
@@ -823,6 +836,7 @@ function enterTaxReturn(state: OnlineRoomState, at: number): void {
 function enterPlayIntro(state: OnlineRoomState, at: number): void {
   state.phase = "play-intro";
   state.phaseEndsAt = at + state.durations.playIntroMs;
+  state.turnDeadline = null;
   state.taxExchanges = [];
   state.revolutionHolderId = null;
   state.currentIndex = 0;
@@ -837,8 +851,10 @@ function enterPlaying(state: OnlineRoomState, at: number): void {
   state.phaseEndsAt = null;
   state.actionLockUntil = null;
   state.currentIndex = 0;
+  state.turnDeadline = at + TURN_DURATION_MS;
   appendEvent(state, "TURN_STARTED", at, {
     playerId: state.players[state.currentIndex].id,
+    endsAt: state.turnDeadline,
   });
 }
 
@@ -959,7 +975,15 @@ function nextActiveIndex(state: OnlineRoomState, fromIndex: number): number {
 
 function addTurnStartedEvent(state: OnlineRoomState, at: number): void {
   const player = state.players[state.currentIndex];
-  if (player) appendEvent(state, "TURN_STARTED", at, { playerId: player.id });
+  if (!player) {
+    state.turnDeadline = null;
+    return;
+  }
+  state.turnDeadline = at + TURN_DURATION_MS;
+  appendEvent(state, "TURN_STARTED", at, {
+    playerId: player.id,
+    endsAt: state.turnDeadline,
+  });
 }
 
 function finishRoundIfNeeded(
@@ -973,6 +997,7 @@ function finishRoundIfNeeded(
   if (last) state.finishOrder.push(last.id);
   state.phase = "round-end";
   state.phaseEndsAt = null;
+  state.turnDeadline = null;
   appendEvent(state, "ROUND_ENDED", at, {
     round: state.round,
     finishOrder: [...state.finishOrder],
@@ -1028,8 +1053,9 @@ function handlePlayCards(
   state.lastPlayedId = actorId;
   state.passedPlayerIds = [];
   appendEvent(state, "CARDS_PLAYED", at, { ...table });
-  state.actionLockUntil = at + PUBLIC_ACTION_LOCK_MS;
   const isDalmutiEffect = normalized.rank === 1;
+  state.actionLockUntil =
+    at + (isDalmutiEffect ? DALMUTI_ACTION_LOCK_MS : PLAY_ACTION_LOCK_MS);
   const automaticallyPassedPlayerIds = isDalmutiEffect
     ? state.players
         .filter(
@@ -1086,17 +1112,22 @@ function handlePlayCards(
       reason: "dalmuti",
       automatic: true,
     });
-    addTurnStartedEvent(state, at);
+    addTurnStartedEvent(state, state.actionLockUntil);
     return;
   }
   state.currentIndex = nextActiveIndex(state, state.currentIndex);
-  addTurnStartedEvent(state, at);
+  addTurnStartedEvent(state, state.actionLockUntil);
 }
 
 function handlePass(
   state: OnlineRoomState,
   actorId: string,
   at: number,
+  options: {
+    allowEmptyTable?: boolean;
+    automatic?: boolean;
+    reason?: string;
+  } = {},
 ): void {
   if (state.phase !== "playing") {
     fail("WRONG_PHASE", "passing is only allowed during the playing phase");
@@ -1106,13 +1137,25 @@ function handlePass(
   }
   const current = state.players[state.currentIndex];
   if (current?.id !== actorId) fail("NOT_YOUR_TURN", "it is not your turn");
-  if (!state.table) fail("CANNOT_PASS", "the leading player cannot pass");
+  if (!state.table && !options.allowEmptyTable) {
+    fail("CANNOT_PASS", "the leading player cannot pass");
+  }
 
   state.passedPlayerIds = [
     ...new Set([...state.passedPlayerIds, actorId]),
   ];
-  appendEvent(state, "PLAYER_PASSED", at, { playerId: actorId });
-  state.actionLockUntil = at + PUBLIC_ACTION_LOCK_MS;
+  appendEvent(state, "PLAYER_PASSED", at, {
+    playerId: actorId,
+    ...(options.automatic ? { automatic: true } : {}),
+    ...(options.reason ? { reason: options.reason } : {}),
+  });
+  state.actionLockUntil = at + PASS_ACTION_LOCK_MS;
+
+  if (!state.table) {
+    state.currentIndex = nextActiveIndex(state, state.currentIndex);
+    addTurnStartedEvent(state, state.actionLockUntil);
+    return;
+  }
 
   const active = state.players.filter(
     (player) => state.hands[player.id].length > 0,
@@ -1141,12 +1184,30 @@ function handlePass(
       previousLeaderId,
       nextPlayerId: state.players[state.currentIndex].id,
     });
-    addTurnStartedEvent(state, at);
+    addTurnStartedEvent(state, state.actionLockUntil);
     return;
   }
 
   state.currentIndex = nextActiveIndex(state, state.currentIndex);
-  addTurnStartedEvent(state, at);
+  addTurnStartedEvent(state, state.actionLockUntil);
+}
+
+function handleTurnTimeout(state: OnlineRoomState, at: number): void {
+  if (state.phase !== "playing") {
+    state.turnDeadline = null;
+    return;
+  }
+  const current = state.players[state.currentIndex];
+  if (!current || (state.hands[current.id]?.length ?? 0) === 0) {
+    state.currentIndex = nextActiveIndex(state, state.currentIndex);
+    addTurnStartedEvent(state, at);
+    return;
+  }
+  handlePass(state, current.id, at, {
+    allowEmptyTable: true,
+    automatic: true,
+    reason: "timeout",
+  });
 }
 
 export function createOnlineRoom(
@@ -1165,6 +1226,7 @@ export function createOnlineRoom(
     revision: 0,
     phase: "lobby",
     phaseEndsAt: null,
+    turnDeadline: null,
     round: 0,
     hostId: host.id,
     players: [host],
@@ -1225,23 +1287,140 @@ export function joinOnlineRoom(
   return commit(next, now);
 }
 
+function finiteDeadline(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function fastForwardExpiredEmptyTurns(
+  state: OnlineRoomState,
+  now: number,
+): void {
+  const deadline = finiteDeadline(state.turnDeadline);
+  if (
+    state.phase !== "playing" ||
+    state.table !== null ||
+    deadline === null ||
+    deadline > now
+  ) {
+    return;
+  }
+
+  const overdueTimeouts =
+    Math.floor((now - deadline) / EMPTY_TABLE_TIMEOUT_CYCLE_MS) + 1;
+  // Two public events are emitted per timeout (PASS and the next turn). Retain
+  // enough recent turns to fill the bounded event window, while skipping old
+  // cycles that no connected client could receive from the retained history.
+  const retainedTimeouts = Math.ceil(MAX_EVENTS / 2);
+  const skippedTimeouts = overdueTimeouts - retainedTimeouts;
+  if (skippedTimeouts <= 0) return;
+
+  const activeIndices = state.players.flatMap((player, index) =>
+    (state.hands[player.id]?.length ?? 0) > 0 ? [index] : [],
+  );
+  const currentPosition = activeIndices.indexOf(state.currentIndex);
+  if (activeIndices.length === 0 || currentPosition < 0) return;
+
+  const timedOutIds =
+    skippedTimeouts >= activeIndices.length
+      ? activeIndices.map((index) => state.players[index].id)
+      : Array.from({ length: skippedTimeouts }, (_, offset) => {
+          const index =
+            activeIndices[
+              (currentPosition + offset) % activeIndices.length
+            ];
+          return state.players[index].id;
+        });
+  state.passedPlayerIds = [
+    ...new Set([...state.passedPlayerIds, ...timedOutIds]),
+  ];
+  state.currentIndex =
+    activeIndices[
+      (currentPosition + skippedTimeouts) % activeIndices.length
+    ];
+
+  const lastSkippedAt =
+    deadline + (skippedTimeouts - 1) * EMPTY_TABLE_TIMEOUT_CYCLE_MS;
+  state.turnDeadline =
+    deadline + skippedTimeouts * EMPTY_TABLE_TIMEOUT_CYCLE_MS;
+  state.actionLockUntil = lastSkippedAt + PASS_ACTION_LOCK_MS;
+  state.revision += skippedTimeouts;
+  state.updatedAt = lastSkippedAt;
+
+  const skippedEventCount = skippedTimeouts * 2;
+  state.nextEventSeq += skippedEventCount;
+  const retainedOldEventCount = Math.max(0, MAX_EVENTS - skippedEventCount);
+  state.events =
+    retainedOldEventCount > 0
+      ? state.events.slice(-retainedOldEventCount)
+      : [];
+}
+
 export function advanceOnlineRoom(
   state: OnlineRoomState,
   now: number,
   deps?: OnlineEngineDeps,
 ): OnlineRoomState {
   assertNow(now);
-  if (state.phaseEndsAt === null || state.phaseEndsAt > now) return state;
+  const phaseDeadline = finiteDeadline(state.phaseEndsAt);
+  const persistedTurnDeadline = finiteDeadline(state.turnDeadline);
+  const needsTurnDeadline =
+    state.phase === "playing" && persistedTurnDeadline === null;
+  const hasStaleTurnDeadline =
+    state.phase !== "playing" && persistedTurnDeadline !== null;
+  const hasExpiredPhase =
+    phaseDeadline !== null && phaseDeadline <= now;
+  const hasExpiredTurn =
+    state.phase === "playing" &&
+    persistedTurnDeadline !== null &&
+    persistedTurnDeadline <= now;
+  if (
+    !needsTurnDeadline &&
+    !hasStaleTurnDeadline &&
+    !hasExpiredPhase &&
+    !hasExpiredTurn
+  ) {
+    return state;
+  }
 
   const next = cloneRoom(state);
   next.durations = resolveDurations(next.durations, deps);
+  if (needsTurnDeadline) {
+    // Give rooms persisted by the pre-timer release a full first turn instead
+    // of timing them out immediately on their first request after deployment.
+    next.turnDeadline = now + TURN_DURATION_MS;
+    next.updatedAt = now;
+  } else if (hasStaleTurnDeadline) {
+    next.turnDeadline = null;
+    next.updatedAt = now;
+  }
+
   let transitions = 0;
-  while (next.phaseEndsAt !== null && next.phaseEndsAt <= now) {
-    if (transitions >= 16) {
+  while (true) {
+    fastForwardExpiredEmptyTurns(next, now);
+    const nextPhaseDeadline = finiteDeadline(next.phaseEndsAt);
+    const nextTurnDeadline =
+      next.phase === "playing"
+        ? finiteDeadline(next.turnDeadline)
+        : null;
+    const transitionAt =
+      nextPhaseDeadline === null
+        ? nextTurnDeadline
+        : nextTurnDeadline === null
+          ? nextPhaseDeadline
+          : Math.min(nextPhaseDeadline, nextTurnDeadline);
+    if (transitionAt === null || transitionAt > now) break;
+
+    if (transitions >= 256) {
       fail("TRANSITION_LOOP", "too many timed room transitions");
     }
-    const transitionAt = next.phaseEndsAt;
-    advanceOneTimedPhase(next, transitionAt, deps);
+    if (
+      nextPhaseDeadline !== null &&
+      nextPhaseDeadline <= (nextTurnDeadline ?? Number.POSITIVE_INFINITY)
+    ) {
+      advanceOneTimedPhase(next, transitionAt, deps);
+    } else {
+      handleTurnTimeout(next, transitionAt);
+    }
     commit(next, transitionAt);
     transitions += 1;
   }
@@ -1588,6 +1767,10 @@ export function projectOnlineRoom(
     revision: state.revision,
     phase: state.phase,
     phaseEndsAt: state.phaseEndsAt,
+    turnDeadline:
+      state.phase === "playing"
+        ? finiteDeadline(state.turnDeadline)
+        : null,
     round: state.round,
     viewerId: actorId,
     hostId: state.hostId,

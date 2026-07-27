@@ -1396,6 +1396,62 @@
   animation: rankSeatChange 1.55s ease both;
 }
 
+.playerSeatDalmuti {
+  z-index: 10;
+  border-color: rgba(255, 222, 126, 0.96);
+  background:
+    linear-gradient(120deg, rgba(225, 177, 62, 0.2), transparent 66%),
+    rgba(48, 24, 20, 0.97);
+  box-shadow:
+    0 0 0 3px rgba(242, 199, 88, 0.24),
+    0 0 29px rgba(239, 187, 52, 0.64),
+    0 15px 34px rgba(0, 0, 0, 0.42);
+  filter: saturate(1.18) brightness(1.1);
+  opacity: 1;
+}
+
+.playerSeatDalmuti::before {
+  position: absolute;
+  inset: -8px;
+  z-index: -1;
+  border: 2px solid rgba(255, 222, 126, 0.68);
+  border-radius: 16px;
+  box-shadow:
+    inset 0 0 18px rgba(255, 213, 104, 0.16),
+    0 0 26px rgba(240, 188, 54, 0.42);
+  content: "";
+  pointer-events: none;
+  animation: dalmutiSeatAura 1.2s ease-in-out infinite;
+}
+
+.playerSeatDalmuti::after {
+  position: absolute;
+  bottom: -11px;
+  left: 50%;
+  z-index: 5;
+  padding: 2px 8px;
+  border: 1px solid rgba(255, 224, 139, 0.76);
+  border-radius: 999px;
+  background: #5a3b14;
+  color: #ffe39b;
+  content: "DALMUTI";
+  font-size: 6px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+@keyframes dalmutiSeatAura {
+  50% {
+    border-color: rgba(255, 235, 174, 0.98);
+    box-shadow:
+      inset 0 0 24px rgba(255, 218, 123, 0.22),
+      0 0 40px rgba(247, 201, 72, 0.72);
+    transform: scale(1.055);
+  }
+}
+
 @keyframes rankSeatChange {
   0%,
   100% {
@@ -1529,6 +1585,162 @@
   z-index: 7;
   width: min(860px, 88%);
   min-height: 390px;
+}
+
+.turnCountdown {
+  --turn-angle: 360deg;
+
+  position: relative;
+  z-index: 4;
+  display: flex;
+  min-width: 154px;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 10px;
+  padding: 6px 12px 6px 7px;
+  border: 1px solid rgba(220, 190, 124, 0.4);
+  border-radius: 999px;
+  background: rgba(10, 30, 25, 0.9);
+  box-shadow:
+    0 0 0 3px rgba(17, 55, 45, 0.48),
+    0 11px 26px rgba(0, 0, 0, 0.34);
+  text-align: left;
+  animation: turnCountdownArrival 420ms cubic-bezier(0.2, 0.76, 0.22, 1) both;
+}
+
+.turnCountdownRing {
+  position: relative;
+  display: grid;
+  width: 52px;
+  height: 52px;
+  flex: 0 0 52px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: conic-gradient(
+    from -90deg,
+    #d9b259 0 var(--turn-angle),
+    rgba(219, 193, 132, 0.14) var(--turn-angle) 360deg
+  );
+  box-shadow:
+    0 0 16px rgba(211, 169, 72, 0.16),
+    inset 0 0 0 1px rgba(255, 232, 177, 0.18);
+  place-items: center;
+}
+
+.turnCountdownRing::before {
+  position: absolute;
+  inset: 5px;
+  border: 1px solid rgba(225, 197, 132, 0.18);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 36%, rgba(55, 104, 86, 0.42), transparent 52%),
+    #112f28;
+  content: "";
+}
+
+.turnCountdownRing b,
+.turnCountdownRing small {
+  position: relative;
+  z-index: 1;
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.turnCountdownRing b {
+  align-self: center;
+  color: #f4dc9a;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 22px;
+  line-height: 1;
+  transform: translateY(-3px);
+}
+
+.turnCountdownRing small {
+  align-self: end;
+  margin-bottom: 9px;
+  color: rgba(232, 207, 149, 0.56);
+  font-size: 5px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.turnCountdownCopy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.turnCountdownCopy small {
+  color: rgba(224, 201, 148, 0.5);
+  font-size: 6px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.turnCountdownCopy strong {
+  overflow: hidden;
+  max-width: 118px;
+  color: #ead6ab;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turnCountdownSelf {
+  border-color: rgba(247, 211, 122, 0.68);
+  background:
+    linear-gradient(110deg, rgba(190, 139, 35, 0.18), transparent 62%),
+    rgba(51, 30, 14, 0.94);
+  box-shadow:
+    0 0 0 4px rgba(225, 177, 66, 0.1),
+    0 0 30px rgba(225, 177, 66, 0.25),
+    0 11px 26px rgba(0, 0, 0, 0.34);
+}
+
+.turnCountdownSelf .turnCountdownCopy strong {
+  color: #ffe5a4;
+}
+
+.turnCountdownUrgent {
+  border-color: rgba(235, 116, 102, 0.76);
+  background: rgba(65, 20, 23, 0.94);
+}
+
+.turnCountdownUrgent .turnCountdownRing {
+  background: conic-gradient(
+    from -90deg,
+    #f08070 0 var(--turn-angle),
+    rgba(240, 128, 112, 0.14) var(--turn-angle) 360deg
+  );
+  box-shadow:
+    0 0 21px rgba(230, 80, 70, 0.42),
+    inset 0 0 0 1px rgba(255, 194, 179, 0.25);
+  animation: turnCountdownUrgent 650ms ease-in-out infinite;
+}
+
+.turnCountdownUrgent .turnCountdownRing::before {
+  background: #421c20;
+}
+
+.turnCountdownUrgent .turnCountdownRing b {
+  color: #ffd3c8;
+}
+
+@keyframes turnCountdownArrival {
+  from {
+    filter: blur(4px);
+    opacity: 0;
+    transform: translateY(-9px) scale(0.93);
+  }
+}
+
+@keyframes turnCountdownUrgent {
+  50% {
+    box-shadow:
+      0 0 30px rgba(239, 89, 73, 0.68),
+      inset 0 0 0 1px rgba(255, 210, 197, 0.38);
+    transform: scale(1.055);
+  }
 }
 
 .tableCenter > small {
@@ -2756,6 +2968,13 @@
 }
 
 .dalmutiEffectOverlay {
+  display: flex;
+  overflow-y: auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: safe center;
+  overscroll-behavior: contain;
+  pointer-events: auto;
   background:
     radial-gradient(circle at 50% 44%, rgba(197, 151, 52, 0.28), transparent 36%),
     rgba(10, 4, 7, 0.78);
@@ -2766,6 +2985,24 @@
   font-size: 9px;
   font-weight: 900;
   letter-spacing: 0.23em;
+}
+
+.dalmutiEffectActorSeat {
+  position: relative;
+  z-index: 2;
+  width: min(210px, 76vw);
+  margin-bottom: 19px;
+  animation: dalmutiActorSeatArrival 900ms 180ms
+    cubic-bezier(0.2, 0.76, 0.22, 1) both;
+}
+
+.dalmutiEffectActorSeat .playerSeat {
+  position: relative;
+  top: auto;
+  left: auto;
+  display: grid;
+  width: 100%;
+  transform: none;
 }
 
 .dalmutiEffectCard {
@@ -2833,11 +3070,43 @@
   }
 }
 
+@keyframes dalmutiActorSeatArrival {
+  from {
+    filter: blur(5px);
+    opacity: 0;
+    transform: translateY(-18px) scale(0.9);
+  }
+}
+
 @keyframes dalmutiTitleArrival {
   from {
     filter: blur(8px);
     opacity: 0;
     transform: scale(1.18);
+  }
+}
+
+@media (max-height: 700px) {
+  .dalmutiEffectOverlay {
+    justify-content: flex-start;
+    padding-block: 16px;
+  }
+
+  .dalmutiEffectActorSeat {
+    margin-bottom: 9px;
+  }
+
+  .dalmutiEffectCard {
+    margin-block: 8px 6px;
+  }
+
+  .dalmutiEffectCard .card {
+    width: 94px;
+    height: 145px;
+  }
+
+  .dalmutiEffectOverlay > strong {
+    font-size: clamp(32px, 8vh, 48px);
   }
 }
 
@@ -3468,6 +3737,32 @@
     width: 86%;
   }
 
+  .turnCountdown {
+    min-width: 139px;
+    gap: 7px;
+    margin-bottom: 7px;
+    padding: 5px 9px 5px 6px;
+  }
+
+  .turnCountdownRing {
+    width: 46px;
+    height: 46px;
+    flex-basis: 46px;
+  }
+
+  .turnCountdownRing b {
+    font-size: 19px;
+  }
+
+  .turnCountdownRing small {
+    margin-bottom: 7px;
+  }
+
+  .turnCountdownCopy strong {
+    max-width: 96px;
+    font-size: 8px;
+  }
+
   .tableRankSelection .tableCenter {
     top: 57%;
     width: 96%;
@@ -3603,5 +3898,10 @@
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+
+  .eventOverlay {
+    opacity: 1 !important;
+    animation: none !important;
   }
 }

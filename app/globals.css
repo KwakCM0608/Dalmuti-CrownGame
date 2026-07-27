@@ -4361,3 +4361,891 @@ button:focus-visible {
     animation: none !important;
   }
 }
+
+/* Shared online visual system for the five-player quick match. */
+.game-shell {
+  --wine-950: #16080c;
+  --wine-900: #250d14;
+  --wine-800: #3b121d;
+  --wine-700: #5b1b2b;
+  --wine-600: #75283b;
+  --gold-500: #d5aa4e;
+  --gold-400: #ebcb7c;
+  --gold-300: #f5dda2;
+  --ivory: #f5eedc;
+
+  background:
+    radial-gradient(circle at 12% 8%, rgba(161, 66, 85, 0.22), transparent 28%),
+    radial-gradient(circle at 86% 84%, rgba(105, 69, 25, 0.18), transparent 30%),
+    linear-gradient(135deg, var(--wine-950), #230b12 52%, #17080c);
+  color: var(--ivory);
+}
+
+.game-shell .paper-grain {
+  opacity: 0.42;
+  background-image:
+    repeating-linear-gradient(
+      8deg,
+      transparent 0 4px,
+      rgba(255, 239, 202, 0.018) 4px 5px
+    ),
+    radial-gradient(circle, rgba(255, 235, 180, 0.08) 0 0.7px, transparent 0.8px);
+  background-size: auto, 8px 8px;
+  mix-blend-mode: soft-light;
+}
+
+.game-shell .topbar {
+  min-height: 76px;
+  padding: 12px 28px;
+  border-bottom-color: rgba(226, 190, 105, 0.2);
+  background: rgba(20, 7, 11, 0.66);
+  color: var(--ivory);
+}
+
+.game-shell .brand-button {
+  color: var(--ivory);
+}
+
+.game-shell .brand-seal {
+  width: 43px;
+  height: 43px;
+  border-color: #967131;
+  box-shadow:
+    0 5px 16px rgba(0, 0, 0, 0.38),
+    inset 0 0 0 2px rgba(255, 240, 178, 0.35);
+}
+
+.game-shell .brand small {
+  color: #ad9c83;
+  font-size: 9px;
+}
+
+.game-shell .round-chip {
+  border-color: transparent;
+  background: transparent;
+  color: #a99b88;
+  font-size: 9px;
+}
+
+.game-shell .round-chip span:first-child {
+  color: var(--gold-400);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 13px;
+}
+
+.game-shell .round-chip i {
+  background: #786752;
+}
+
+.game-shell .top-actions button {
+  border-color: rgba(224, 197, 134, 0.24);
+  background: rgba(255, 255, 255, 0.03);
+  color: #d9caaa;
+}
+
+.game-shell .top-actions button:hover {
+  border-color: rgba(235, 203, 124, 0.6);
+  background: rgba(235, 203, 124, 0.08);
+  color: var(--gold-300);
+}
+
+.game-shell .game-stage {
+  grid-template-columns: 178px minmax(620px, 1fr) 184px;
+  min-height: calc(100vh - 76px);
+}
+
+.game-shell .score-rail,
+.game-shell .history-rail {
+  padding: 23px 15px;
+  background: rgba(20, 7, 11, 0.56);
+}
+
+.game-shell .score-rail {
+  border-right-color: rgba(222, 188, 110, 0.15);
+}
+
+.game-shell .history-rail {
+  border-left-color: rgba(222, 188, 110, 0.15);
+}
+
+.game-shell .rail-heading {
+  padding-bottom: 13px;
+  border-bottom-color: rgba(222, 188, 110, 0.15);
+}
+
+.game-shell .rail-heading span {
+  color: var(--ivory);
+  font-size: 14px;
+}
+
+.game-shell .rail-heading small {
+  color: var(--gold-500);
+  font-size: 7px;
+  letter-spacing: 0.12em;
+}
+
+.game-shell .score-rail ol,
+.game-shell .history-rail ul {
+  padding-top: 11px;
+}
+
+.game-shell .score-rail li {
+  grid-template-columns: 20px 1fr auto;
+  gap: 7px;
+  padding: 9px 5px;
+  border-bottom-color: rgba(222, 188, 110, 0.07);
+}
+
+.game-shell .score-rail li > span {
+  color: #9e7c39;
+  font-size: 16px;
+}
+
+.game-shell .score-rail b {
+  color: #ddcfb9;
+  font-size: 9px;
+}
+
+.game-shell .score-rail small {
+  color: #817366;
+  font-size: 7px;
+}
+
+.game-shell .score-rail em {
+  color: #9e8f7b;
+  font-size: 9px;
+}
+
+.game-shell .score-rail li.is-you {
+  margin-inline: -5px;
+  padding-inline: 10px;
+  border: 1px solid rgba(223, 185, 96, 0.25);
+  background: rgba(210, 162, 54, 0.08);
+  box-shadow: none;
+}
+
+.game-shell .rail-note {
+  border-color: rgba(223, 185, 96, 0.18);
+  background: rgba(213, 170, 78, 0.05);
+}
+
+.game-shell .rail-note span {
+  color: var(--gold-500);
+}
+
+.game-shell .rail-note p {
+  color: #8f8171;
+}
+
+.game-shell .history-rail li {
+  border-bottom-color: rgba(222, 188, 110, 0.07);
+}
+
+.game-shell .history-rail li > span {
+  color: #6f6258;
+}
+
+.game-shell .history-rail p {
+  color: #9d8f7d;
+}
+
+.game-shell .history-rail li:first-child p {
+  color: #ead8ae;
+}
+
+.game-shell .legend {
+  border-top-color: rgba(222, 188, 110, 0.15);
+  color: #887b6b;
+}
+
+.game-shell .table-column {
+  padding: 14px 20px 12px;
+  border-radius: 24px;
+  background: transparent;
+}
+
+.game-shell .table-column.is-human-turn {
+  background:
+    radial-gradient(ellipse at 50% 46%, rgba(226, 183, 78, 0.12), transparent 69%);
+  box-shadow: inset 0 0 52px rgba(220, 174, 66, 0.055);
+}
+
+.game-shell .table-column.is-human-turn::after {
+  inset: 5px;
+  border-color: rgba(239, 198, 83, 0.38);
+  border-radius: 24px;
+}
+
+.game-shell .felt-table {
+  min-height: 480px;
+  flex: 1 1 auto;
+  border: 9px solid #4b332c;
+  border-radius: 48% / 17%;
+  background:
+    radial-gradient(circle at 50% 48%, rgba(44, 104, 84, 0.74), transparent 46%),
+    repeating-linear-gradient(
+      38deg,
+      rgba(255, 255, 255, 0.017) 0 2px,
+      transparent 2px 5px
+    ),
+    #102f28;
+  box-shadow:
+    inset 0 0 0 3px #7c5b3c,
+    inset 0 0 58px rgba(0, 0, 0, 0.5),
+    0 22px 42px rgba(0, 0, 0, 0.28);
+}
+
+.game-shell .felt-table::before {
+  inset: 12px;
+  border-color: rgba(232, 199, 117, 0.2);
+}
+
+.game-shell .table-column.is-human-turn .felt-table {
+  border-color: #9b763e;
+  box-shadow:
+    inset 0 0 0 3px #c59a4c,
+    inset 0 0 74px rgba(238, 194, 90, 0.15),
+    0 0 0 4px rgba(229, 181, 73, 0.14),
+    0 0 44px rgba(225, 174, 58, 0.25),
+    0 22px 42px rgba(0, 0, 0, 0.3);
+}
+
+.game-shell .opponent-row {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: block;
+  width: auto;
+  max-width: none;
+  height: auto;
+  margin: 0;
+  pointer-events: none;
+}
+
+.game-shell .player-seat {
+  position: absolute;
+  top: var(--seat-y);
+  left: var(--seat-x);
+  display: grid;
+  grid-template-columns: 35px minmax(62px, 1fr) auto;
+  width: clamp(126px, 15vw, 158px);
+  min-height: 53px;
+  gap: 7px;
+  padding: 7px 8px;
+  border-color: rgba(228, 206, 154, 0.2);
+  background: rgba(25, 12, 14, 0.9);
+  color: #e5d7be;
+  box-shadow: 0 9px 20px rgba(0, 0, 0, 0.25);
+  translate: -50% -50%;
+  transition:
+    border-color 180ms ease,
+    background 180ms ease,
+    box-shadow 180ms ease;
+  pointer-events: auto;
+}
+
+.game-shell .player-seat.is-current {
+  border-color: #d8aa49;
+  box-shadow:
+    0 0 0 3px rgba(214, 170, 73, 0.16),
+    0 12px 26px rgba(0, 0, 0, 0.3);
+}
+
+.game-shell .player-seat.is-changing-rank {
+  border-color: rgba(243, 204, 111, 0.88);
+  background: rgba(46, 18, 24, 0.98);
+  box-shadow:
+    0 0 0 4px rgba(225, 178, 70, 0.18),
+    0 0 30px rgba(225, 174, 58, 0.34),
+    0 14px 28px rgba(0, 0, 0, 0.4);
+}
+
+.game-shell .player-seat.is-tax-source {
+  background: linear-gradient(135deg, rgba(91, 29, 29, 0.98), rgba(35, 12, 17, 0.95));
+}
+
+.game-shell .player-seat.is-tax-destination {
+  background: linear-gradient(135deg, rgba(25, 71, 54, 0.98), rgba(21, 13, 17, 0.95));
+}
+
+.game-shell .player-avatar {
+  width: 33px;
+  height: 33px;
+  background: #4a3131;
+  color: #e7d7bc;
+}
+
+.game-shell .role-great-dalmuti .player-avatar {
+  background: #123a2f;
+}
+
+.game-shell .player-avatar i {
+  border-color: #a87d30;
+  background: #2b1419;
+  color: var(--gold-400);
+}
+
+.game-shell .player-copy strong {
+  color: #ede0c8;
+  font-size: 9px;
+}
+
+.game-shell .player-copy span {
+  color: #8b7d6c;
+  font-size: 7px;
+}
+
+.game-shell .player-count b {
+  color: #e5d7be;
+  font-size: 11px;
+}
+
+.game-shell .player-count span {
+  color: #786d61;
+  font-size: 6px;
+}
+
+.game-shell .opponent-card-stack {
+  filter: drop-shadow(0 5px 6px rgba(0, 0, 0, 0.38));
+}
+
+.game-shell .player-seat.is-dalmuti-highlighted,
+.game-shell .human-zone.is-dalmuti-highlighted .human-status {
+  border-color: rgba(255, 220, 117, 0.92);
+  opacity: 1;
+  box-shadow:
+    0 0 0 4px rgba(232, 184, 65, 0.2),
+    0 0 34px rgba(242, 195, 74, 0.48),
+    0 14px 28px rgba(0, 0, 0, 0.42);
+  animation: quickDalmutiPlayerGlow 3.1s ease both;
+}
+
+@keyframes quickDalmutiPlayerGlow {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  18%,
+  78% {
+    filter: brightness(1.34) saturate(1.18);
+  }
+}
+
+.game-shell .play-area {
+  width: min(560px, 72%);
+}
+
+.game-shell .felt-table:has(.opening-rank-board, .opening-rank-intro) .play-area {
+  width: min(860px, 90%);
+}
+
+.turn-countdown {
+  position: absolute;
+  top: 24px;
+  right: 28px;
+  z-index: 12;
+  display: grid;
+  justify-items: center;
+  color: #e7d8bc;
+  pointer-events: none;
+}
+
+.turn-countdown > div {
+  position: relative;
+  display: grid;
+  width: 72px;
+  height: 72px;
+  place-items: center;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, #211015 55%, transparent 57%),
+    conic-gradient(
+      var(--gold-400) 0 var(--turn-angle),
+      rgba(235, 203, 124, 0.14) var(--turn-angle) 360deg
+    );
+  box-shadow:
+    0 0 0 1px rgba(240, 207, 126, 0.34),
+    0 11px 25px rgba(0, 0, 0, 0.34);
+}
+
+.turn-countdown > div::before {
+  position: absolute;
+  width: 54px;
+  height: 54px;
+  border: 1px solid rgba(243, 211, 135, 0.18);
+  border-radius: 50%;
+  content: "";
+}
+
+.turn-countdown span,
+.turn-countdown b,
+.turn-countdown small {
+  display: block;
+  text-align: center;
+}
+
+.turn-countdown b {
+  color: #fff0bc;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 25px;
+  line-height: 0.9;
+}
+
+.turn-countdown small {
+  margin-top: 3px;
+  color: #9f8b67;
+  font-size: 6px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.turn-countdown p {
+  max-width: 112px;
+  margin: 6px 0 0;
+  overflow: hidden;
+  color: #baaa91;
+  font-size: 7px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turn-countdown.is-mine > div {
+  animation: quickTurnTimerPulse 1.1s ease-in-out infinite;
+}
+
+.turn-countdown.is-mine p {
+  color: var(--gold-400);
+}
+
+.turn-countdown.is-urgent > div {
+  background:
+    radial-gradient(circle, #2a0e13 55%, transparent 57%),
+    conic-gradient(
+      #df6d5e 0 var(--turn-angle),
+      rgba(223, 109, 94, 0.13) var(--turn-angle) 360deg
+    );
+  animation: quickTurnTimerUrgent 620ms ease-in-out infinite alternate;
+}
+
+@keyframes quickTurnTimerPulse {
+  50% {
+    box-shadow:
+      0 0 0 4px rgba(231, 186, 77, 0.13),
+      0 0 28px rgba(227, 178, 59, 0.24),
+      0 11px 25px rgba(0, 0, 0, 0.34);
+  }
+}
+
+@keyframes quickTurnTimerUrgent {
+  to {
+    filter: brightness(1.22);
+    transform: scale(1.045);
+  }
+}
+
+.game-shell .human-zone {
+  min-height: 157px;
+  margin-top: -17px;
+  padding: 9px 10px 0;
+  border-radius: 16px 16px 0 0;
+  background: linear-gradient(180deg, transparent, rgba(47, 13, 22, 0.32));
+}
+
+.game-shell .human-zone.is-active {
+  background:
+    linear-gradient(180deg, transparent, rgba(194, 143, 45, 0.075));
+  box-shadow: inset 0 -2px 0 rgba(222, 178, 73, 0.23);
+}
+
+.game-shell .human-zone.is-tax-selecting,
+.game-shell .human-zone.is-tax-source,
+.game-shell .human-zone.is-tax-destination {
+  background:
+    linear-gradient(180deg, transparent, rgba(194, 143, 45, 0.09)),
+    rgba(44, 13, 21, 0.4);
+}
+
+.game-shell .human-status {
+  min-width: 154px;
+  padding: 7px 8px;
+  border: 1px solid rgba(223, 185, 96, 0.42);
+  border-radius: 11px;
+  background: #38141e;
+  box-shadow: 0 9px 20px rgba(0, 0, 0, 0.25);
+}
+
+.game-shell .human-avatar {
+  border-color: #a77c31;
+  background: #251016;
+  color: var(--gold-400);
+  box-shadow: none;
+}
+
+.game-shell .human-status div:nth-child(2) span {
+  color: #8b7d6c;
+  font-size: 7px;
+}
+
+.game-shell .human-status div:nth-child(2) strong {
+  color: #ede0c8;
+  font-size: 11px;
+}
+
+.game-shell .human-status em {
+  background: rgba(216, 171, 68, 0.16);
+  color: var(--gold-400);
+}
+
+.game-shell .hand-wrap {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-color: rgba(215, 170, 72, 0.3) transparent;
+  scrollbar-width: thin;
+}
+
+.game-shell .turn-controls {
+  border-color: rgba(221, 186, 102, 0.17);
+  background: rgba(29, 9, 15, 0.84);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.2);
+}
+
+.game-shell .selection-hint span {
+  color: #ead8ae;
+}
+
+.game-shell .selection-hint.is-valid span {
+  color: var(--gold-400);
+}
+
+.game-shell .selection-hint.has-error span {
+  color: #bcae9c;
+}
+
+.game-shell .selection-hint small {
+  color: #8f8171;
+}
+
+.game-shell .pass-button {
+  border-color: rgba(221, 186, 102, 0.2);
+  background: rgba(255, 255, 255, 0.035);
+  color: #c9bda8;
+}
+
+.game-shell .play-button {
+  border-color: #d3a94e;
+  background: linear-gradient(140deg, #d0a344, #8f6522);
+  color: #241308;
+}
+
+.game-shell .play-button span {
+  color: #2a160a;
+}
+
+.game-shell .human-zone.is-finished {
+  background:
+    linear-gradient(180deg, rgba(55, 117, 87, 0.02), rgba(24, 74, 54, 0.2)),
+    rgba(35, 12, 18, 0.5);
+}
+
+.game-shell .finished-hand-state {
+  border-color: rgba(95, 168, 122, 0.35);
+  background:
+    radial-gradient(circle at 50% 0, rgba(69, 144, 94, 0.15), transparent 54%),
+    rgba(25, 12, 16, 0.88);
+  color: #a9d8b9;
+  box-shadow:
+    0 0 0 3px rgba(78, 143, 99, 0.08),
+    0 12px 27px rgba(0, 0, 0, 0.22);
+}
+
+.game-shell .finished-hand-state::before {
+  background: rgba(19, 55, 38, 0.62);
+  color: #a9d8b9;
+}
+
+.game-shell .welcome-layer,
+.game-shell .modal-layer {
+  inset: 76px 0 0;
+  background:
+    radial-gradient(circle at 50% 40%, rgba(117, 40, 59, 0.18), transparent 46%),
+    rgba(13, 4, 8, 0.72);
+  backdrop-filter: blur(12px);
+}
+
+.game-shell .welcome-card,
+.game-shell .decision-card,
+.game-shell .result-card,
+.game-shell .rules-card {
+  border-color: rgba(222, 188, 110, 0.28);
+  background:
+    radial-gradient(circle at 50% 0, rgba(122, 48, 67, 0.22), transparent 42%),
+    linear-gradient(145deg, #35121c, #1c0a10);
+  color: var(--ivory);
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.54),
+    inset 0 0 0 5px rgba(255, 230, 171, 0.025);
+}
+
+.game-shell .welcome-card::before,
+.game-shell .result-card::before,
+.game-shell .rules-card::before {
+  border-color: rgba(232, 198, 116, 0.14);
+}
+
+.game-shell .welcome-crown {
+  width: 72px;
+  height: 72px;
+  border: 2px solid #967131;
+  background: #75539a url("/brand-dalmuti-crown.png") center / cover no-repeat;
+  box-shadow:
+    0 0 0 5px rgba(214, 170, 73, 0.1),
+    0 14px 30px rgba(0, 0, 0, 0.38),
+    inset 0 0 0 2px rgba(255, 240, 178, 0.35);
+}
+
+.game-shell .eyebrow {
+  color: var(--gold-500);
+}
+
+.game-shell .welcome-card h1 {
+  color: var(--ivory);
+}
+
+.game-shell .welcome-card h1 em {
+  color: var(--gold-400);
+}
+
+.game-shell .welcome-card > p {
+  color: #b6a995;
+}
+
+.game-shell .welcome-features span {
+  border-color: rgba(226, 192, 111, 0.2);
+  background: rgba(255, 255, 255, 0.035);
+  color: #c8bba4;
+}
+
+.game-shell .start-button {
+  border-color: #d3a94e;
+  background: linear-gradient(140deg, #d0a344, #8f6522);
+  color: #241308;
+  box-shadow:
+    inset 0 0 0 3px rgba(255, 255, 255, 0.045),
+    0 12px 28px rgba(0, 0, 0, 0.26);
+}
+
+.game-shell .start-button i {
+  color: rgba(42, 22, 10, 0.64);
+}
+
+.game-shell .start-button b {
+  color: #321b0b;
+}
+
+.game-shell .start-button:hover {
+  background: linear-gradient(140deg, #dfb657, #9d7027);
+}
+
+.game-shell .online-start-link {
+  border-color: rgba(216, 171, 68, 0.34);
+  background:
+    linear-gradient(135deg, rgba(216, 171, 68, 0.1), transparent 62%),
+    rgba(255, 255, 255, 0.03);
+  color: #eadcc4;
+  box-shadow: inset 0 0 0 3px rgba(255, 233, 180, 0.025);
+}
+
+.game-shell .online-start-link i {
+  color: #9d8e79;
+}
+
+.game-shell .online-start-link b {
+  color: var(--gold-400);
+}
+
+.game-shell .online-start-link:hover {
+  border-color: var(--gold-500);
+  background:
+    linear-gradient(135deg, rgba(216, 171, 68, 0.16), transparent 62%),
+    rgba(255, 255, 255, 0.055);
+}
+
+.game-shell .welcome-note {
+  color: #827568;
+}
+
+.game-shell .decision-card > small,
+.game-shell .result-card > .eyebrow,
+.game-shell .rules-card > .eyebrow {
+  color: var(--gold-500);
+}
+
+.game-shell .decision-card p,
+.game-shell .rules-grid p {
+  color: #a99c89;
+}
+
+.game-shell .secondary-button,
+.game-shell .close-button {
+  border-color: rgba(221, 186, 102, 0.22);
+  background: rgba(255, 255, 255, 0.04);
+  color: #d6c8b0;
+}
+
+.game-shell .result-card li,
+.game-shell .rules-grid article {
+  border-color: rgba(222, 188, 110, 0.13);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.game-shell .result-card li.is-you {
+  border-color: rgba(223, 185, 96, 0.45);
+  background: rgba(210, 162, 54, 0.1);
+}
+
+.game-shell .result-card li.is-first-place {
+  background: linear-gradient(105deg, rgba(133, 91, 17, 0.55), rgba(62, 30, 20, 0.72));
+}
+
+.game-shell .result-card li.is-second-place {
+  background: linear-gradient(105deg, rgba(75, 97, 108, 0.46), rgba(46, 29, 34, 0.72));
+}
+
+.game-shell .rule-detail {
+  background: rgba(235, 203, 124, 0.08);
+  color: #b8aa95;
+}
+
+@media (max-width: 1120px) {
+  .game-shell .game-stage {
+    grid-template-columns: 158px minmax(570px, 1fr);
+  }
+}
+
+@media (max-width: 800px) {
+  .game-shell .topbar {
+    min-height: 66px;
+    padding: 10px 13px;
+  }
+
+  .game-shell .brand-seal {
+    width: 37px;
+    height: 37px;
+  }
+
+  .game-shell .table-column {
+    padding: 9px 6px 8px;
+  }
+
+  .game-shell .felt-table {
+    min-height: 460px;
+    border-width: 6px;
+    border-radius: 36% / 11%;
+  }
+
+  .game-shell .opponent-row {
+    top: 15px;
+    right: 8px;
+    bottom: auto;
+    left: 8px;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  .game-shell .player-seat {
+    position: relative;
+    top: auto;
+    left: auto;
+    display: flex;
+    width: auto;
+    min-width: 0;
+    min-height: 66px;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 3px;
+    text-align: center;
+    translate: none;
+    grid-column: var(--seat-grid-column);
+    grid-row: var(--seat-grid-row);
+  }
+
+  .game-shell .player-copy strong {
+    max-width: 70px;
+    font-size: 8px;
+  }
+
+  .game-shell .player-copy span,
+  .game-shell .player-count span {
+    display: none;
+  }
+
+  .game-shell .turn-countdown {
+    top: 104px;
+    right: 13px;
+  }
+
+  .game-shell .turn-countdown > div {
+    width: 60px;
+    height: 60px;
+  }
+
+  .game-shell .turn-countdown > div::before {
+    width: 44px;
+    height: 44px;
+  }
+
+  .game-shell .turn-countdown b {
+    font-size: 21px;
+  }
+
+  .game-shell .play-area {
+    top: auto;
+    width: 74%;
+  }
+
+  .game-shell .human-zone {
+    min-height: 150px;
+    margin-top: -12px;
+    padding-inline: 2px;
+  }
+
+  .game-shell .welcome-layer,
+  .game-shell .modal-layer {
+    inset: 66px 0 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .game-shell .felt-table {
+    min-height: 420px;
+  }
+
+  .game-shell .player-seat {
+    min-height: 59px;
+  }
+
+  .game-shell .turn-countdown {
+    top: 96px;
+    right: 9px;
+  }
+
+  .game-shell .turn-countdown > div {
+    width: 54px;
+    height: 54px;
+  }
+
+  .game-shell .turn-countdown > div::before {
+    width: 40px;
+    height: 40px;
+  }
+
+  .game-shell .turn-countdown b {
+    font-size: 19px;
+  }
+
+  .game-shell .turn-countdown p {
+    max-width: 84px;
+  }
+}

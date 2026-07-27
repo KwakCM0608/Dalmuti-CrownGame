@@ -57,6 +57,7 @@ type PublicTurnAction = {
   player: Player;
   cards: Card[];
   previousTable: PlayedSet | null;
+  automatic?: boolean;
 };
 
 type TaxExchange = {
@@ -141,6 +142,7 @@ const REVOLUTION_INTRO_DURATION_MS = 3300;
 const PUBLIC_ACTION_DURATION_MS = 2250;
 const PASS_ACTION_DURATION_MS = 1500;
 const DALMUTI_ACTION_DURATION_MS = 3300;
+const TURN_LIMIT_MS = 30_000;
 const CARD_ART_VERSION = "2026-07-24-2x";
 
 function createTaxAnimationId() {
@@ -220,6 +222,18 @@ function assignRoles(players: Omit<Player, "role">[] | Player[]): Player[] {
     ...player,
     role: roleForIndex(index, players.length),
   }));
+}
+
+function seatPosition(rankIndex: number, total: number): React.CSSProperties {
+  const angle =
+    total <= 1 ? 270 : 150 + (240 * rankIndex) / Math.max(1, total - 1);
+  const radians = (angle * Math.PI) / 180;
+  return {
+    "--seat-x": `${50 + Math.cos(radians) * 42}%`,
+    "--seat-y": `${46 + Math.sin(radians) * 34}%`,
+    "--seat-grid-column": rankIndex + 1,
+    "--seat-grid-row": 1,
+  } as React.CSSProperties;
 }
 
 function createDeck(): Card[] {
@@ -772,6 +786,47 @@ function passTurn(state: GameState, playerId: string): GameState {
   return nextState;
 }
 
+function timeoutPassTurn(state: GameState, playerId: string): GameState {
+  if (state.phase !== "playing" || state.publicAction) return state;
+  const current = state.players[state.currentIndex];
+  if (current.id !== playerId) return state;
+  if (state.table) {
+    const passed = passTurn(state, playerId);
+    const ordinaryLog = `${subjectLabel(current.name)} 패스했습니다.`;
+    const timeoutLog = `${subjectLabel(current.name)} 제한시간이 끝나 자동으로 패스했습니다.`;
+    return passed === state
+      ? state
+      : {
+          ...passed,
+          publicAction: passed.publicAction
+            ? { ...passed.publicAction, automatic: true }
+            : null,
+          log: passed.log
+            .map((entry) => (entry === ordinaryLog ? timeoutLog : entry))
+            .slice(0, 12),
+        };
+  }
+
+  const nextState: GameState = {
+    ...state,
+    revision: state.revision + 1,
+    log: [
+      `${subjectLabel(current.name)} 제한시간이 끝나 자동으로 패스했습니다.`,
+      ...state.log,
+    ].slice(0, 12),
+    publicAction: {
+      id: createPublicActionId("pass"),
+      kind: "pass",
+      player: current,
+      cards: [],
+      previousTable: null,
+      automatic: true,
+    },
+  };
+  nextState.currentIndex = nextActiveIndex(nextState, state.currentIndex);
+  return nextState;
+}
+
 function chooseBotCards(state: GameState, playerId: string): string[] | null {
   const hand = state.hands[playerId];
   const jokers = hand.filter((card) => card.rank === 13);
@@ -817,6 +872,7 @@ function PlayerSeat({
   rankSelectionLabel,
   rankSelectionMark,
   rankSeat,
+  isDalmutiHighlighted,
   seatRef,
 }: {
   player: Player;
@@ -831,6 +887,7 @@ function PlayerSeat({
   rankSelectionLabel?: string;
   rankSelectionMark?: string;
   rankSeat: number;
+  isDalmutiHighlighted: boolean;
   seatRef?: (node: HTMLElement | null) => void;
 }) {
   const visibleRoleLabel = rankSelectionLabel ?? ROLE_LABELS[player.role];
@@ -842,8 +899,9 @@ function PlayerSeat({
         isFinished ? "is-finished" : ""
       } ${taxDirection ? `is-tax-${taxDirection}` : ""} ${
         isFocusedTaxParty ? "is-focused-tax-party" : ""
+      } ${isDalmutiHighlighted ? "is-dalmuti-highlighted" : ""
       }`}
-      style={{ gridColumn: rankSeat }}
+      style={seatPosition(rankSeat - 1, 5)}
       data-rank-seat={rankSeat}
       aria-label={`${player.name}, ${visibleRoleLabel}, 카드 ${handCount}장`}
     >
@@ -1142,7 +1200,9 @@ function PublicTurnActionLayer({
       aria-label={
         action.kind === "play" && playedSet
           ? `${subjectLabel(action.player.name)} ${RANK_NAMES[playedSet.rank]} 카드 ${playedSet.count}장을 냈습니다`
-          : `${subjectLabel(action.player.name)} 패스했습니다`
+          : action.automatic
+            ? `${subjectLabel(action.player.name)} 제한시간이 끝나 자동으로 패스했습니다`
+            : `${subjectLabel(action.player.name)} 패스했습니다`
       }
     >
       {action.kind === "play" && playedSet ? (
@@ -1181,9 +1241,13 @@ function PublicTurnActionLayer({
         </>
       ) : (
         <div className="public-pass-badge" style={routeStyle} aria-hidden="true">
-          <small>{ROLE_LABELS[action.player.role]}</small>
+          <small>
+            {action.automatic ? "TIME OUT · 자동 PASS" : ROLE_LABELS[action.player.role]}
+          </small>
           <strong>PASS</strong>
-          <span>{action.player.name} · 패스</span>
+          <span>
+            {action.player.name} · {action.automatic ? "시간 초과" : "패스"}
+          </span>
         </div>
       )}
     </div>
@@ -1194,6 +1258,11 @@ export default function Home() {
   const [game, setGame] = useState<GameState | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showRules, setShowRules] = useState(false);
+  const [turnTimer, setTurnTimer] = useState<{
+    playerId: string;
+    deadline: number;
+  } | null>(null);
+  const [turnClock, setTurnClock] = useState(() => Date.now());
   const [taxAnchors, setTaxAnchors] = useState<TaxAnchorMap>({
     players: {},
     midpoint: null,
@@ -1248,6 +1317,25 @@ export default function Home() {
     game?.phase === "playing" &&
     currentPlayer?.id === HUMAN_ID &&
     !game.publicAction;
+  const activePublicSet =
+    game?.publicAction?.kind === "play"
+      ? normalizedSet(game.publicAction.cards)
+      : null;
+  const dalmutiHighlightPlayerId =
+    activePublicSet?.rank === 1 ? game?.publicAction?.player.id ?? null : null;
+  const turnTimerPlayerId =
+    game?.phase === "playing" && !game.publicAction
+      ? currentPlayer?.id ?? null
+      : null;
+  const turnRemainingMs =
+    turnTimerPlayerId !== null &&
+    turnTimer?.playerId === turnTimerPlayerId
+      ? Math.max(0, turnTimer.deadline - turnClock)
+      : null;
+  const turnSecondsRemaining =
+    turnRemainingMs === null ? null : Math.ceil(turnRemainingMs / 1000);
+  const turnProgress =
+    turnRemainingMs === null ? 0 : Math.min(1, turnRemainingMs / TURN_LIMIT_MS);
   const selectedCards = humanHand.filter((card) => selectedIds.includes(card.id));
   const selectedSet = normalizedSet(selectedCards);
   const selectedError = isHumanTaxSelecting
@@ -1457,6 +1545,7 @@ export default function Home() {
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(root);
+    observer.observe(felt);
     window.addEventListener("resize", measure);
 
     return () => {
@@ -1464,6 +1553,47 @@ export default function Home() {
       window.removeEventListener("resize", measure);
     };
   }, [game]);
+
+  useEffect(() => {
+    if (!turnTimerPlayerId) return;
+
+    const expiredPlayerId = turnTimerPlayerId;
+    const startedAt = Date.now();
+    const deadline = startedAt + TURN_LIMIT_MS;
+    const beginTimer = window.setTimeout(() => {
+      setTurnClock(Date.now());
+      setTurnTimer({ playerId: expiredPlayerId, deadline });
+    }, 0);
+    const clockTimer = window.setInterval(() => {
+      setTurnClock(Date.now());
+    }, 100);
+    const expirationTimer = window.setTimeout(() => {
+      setTurnTimer((current) =>
+        current?.playerId === expiredPlayerId &&
+        current.deadline === deadline
+          ? null
+          : current,
+      );
+      if (expiredPlayerId === HUMAN_ID) setSelectedIds([]);
+      setGame((latest) => {
+        if (
+          !latest ||
+          latest.phase !== "playing" ||
+          latest.publicAction ||
+          latest.players[latest.currentIndex]?.id !== expiredPlayerId
+        ) {
+          return latest;
+        }
+        return timeoutPassTurn(latest, expiredPlayerId);
+      });
+    }, TURN_LIMIT_MS);
+
+    return () => {
+      window.clearTimeout(beginTimer);
+      window.clearInterval(clockTimer);
+      window.clearTimeout(expirationTimer);
+    };
+  }, [turnTimerPlayerId]);
 
   useEffect(() => {
     const action = game?.publicAction;
@@ -2278,62 +2408,6 @@ export default function Home() {
           className={`table-column ${isHumanTurn ? "is-human-turn" : ""}`}
           ref={tableColumnRef}
         >
-          <div
-            className={`opponent-row ${
-              isHandRevealing ? "is-revealing" : ""
-            }`}
-          >
-            {(orderedOpponents.length
-              ? orderedOpponents
-              : visibleRankPlayers.filter((player) => !player.isHuman)
-            ).map((player) => {
-              const rankSeat =
-                visibleRankPlayers.findIndex(
-                  (candidate) => candidate.id === player.id,
-                ) + 1;
-              const route = activeTaxRoutes.find(
-                (candidate) =>
-                  candidate.from.id === player.id || candidate.to.id === player.id,
-              );
-              const taxDirection: TaxDirection | null = route
-                ? route.from.id === player.id
-                  ? "source"
-                  : "destination"
-                : null;
-              const rankSelectionLabel = openingRankRolesHidden
-                ? "계급 미정"
-                : undefined;
-              const rankSelectionMark = openingRankRolesHidden
-                ? "·"
-                : undefined;
-
-              return (
-                <PlayerSeat
-                  key={player.id}
-                  player={player}
-                  handCount={game?.hands[player.id]?.length ?? 16}
-                  score={game?.scores[player.id] ?? 0}
-                  isCurrent={
-                    game?.phase === "playing" &&
-                    !game.publicAction &&
-                    currentPlayer?.id === player.id
-                  }
-                  isFinished={Boolean(game?.finishOrder.includes(player.id))}
-                  taxDirection={taxDirection}
-                  isFocusedTaxParty={Boolean(route?.reveal)}
-                  showHandBacks={hasDealtHands}
-                  isHandRevealing={isHandRevealing}
-                  rankSelectionLabel={rankSelectionLabel}
-                  rankSelectionMark={rankSelectionMark}
-                  rankSeat={rankSeat}
-                  seatRef={(node) => {
-                    seatRefs.current[player.id] = node;
-                  }}
-                />
-              );
-            })}
-          </div>
-
           {game?.phase === "taxation" &&
             (game.taxStage === "tribute" || game.taxStage === "return") &&
             game.taxAnimationId &&
@@ -2366,6 +2440,90 @@ export default function Home() {
               <i />
               <span>♝</span>
             </div>
+
+            <div
+              className={`opponent-row ${
+                isHandRevealing ? "is-revealing" : ""
+              }`}
+            >
+              {(orderedOpponents.length
+                ? orderedOpponents
+                : visibleRankPlayers.filter((player) => !player.isHuman)
+              ).map((player) => {
+                const rankSeat =
+                  visibleRankPlayers.findIndex(
+                    (candidate) => candidate.id === player.id,
+                  ) + 1;
+                const route = activeTaxRoutes.find(
+                  (candidate) =>
+                    candidate.from.id === player.id ||
+                    candidate.to.id === player.id,
+                );
+                const taxDirection: TaxDirection | null = route
+                  ? route.from.id === player.id
+                    ? "source"
+                    : "destination"
+                  : null;
+                const rankSelectionLabel = openingRankRolesHidden
+                  ? "계급 미정"
+                  : undefined;
+                const rankSelectionMark = openingRankRolesHidden
+                  ? "·"
+                  : undefined;
+
+                return (
+                  <PlayerSeat
+                    key={player.id}
+                    player={player}
+                    handCount={game?.hands[player.id]?.length ?? 16}
+                    score={game?.scores[player.id] ?? 0}
+                    isCurrent={
+                      game?.phase === "playing" &&
+                      !game.publicAction &&
+                      currentPlayer?.id === player.id
+                    }
+                    isFinished={Boolean(game?.finishOrder.includes(player.id))}
+                    taxDirection={taxDirection}
+                    isFocusedTaxParty={Boolean(route?.reveal)}
+                    showHandBacks={hasDealtHands}
+                    isHandRevealing={isHandRevealing}
+                    rankSelectionLabel={rankSelectionLabel}
+                    rankSelectionMark={rankSelectionMark}
+                    rankSeat={rankSeat}
+                    isDalmutiHighlighted={
+                      dalmutiHighlightPlayerId === player.id
+                    }
+                    seatRef={(node) => {
+                      seatRefs.current[player.id] = node;
+                    }}
+                  />
+                );
+              })}
+            </div>
+
+            {turnSecondsRemaining !== null && currentPlayer && (
+              <div
+                className={`turn-countdown ${
+                  currentPlayer.id === HUMAN_ID ? "is-mine" : ""
+                } ${turnSecondsRemaining <= 10 ? "is-urgent" : ""}`}
+                style={
+                  {
+                    "--turn-angle": `${turnProgress * 360}deg`,
+                  } as React.CSSProperties
+                }
+                role="timer"
+                aria-live={turnSecondsRemaining <= 10 ? "polite" : "off"}
+                aria-label={`${currentPlayer.name}의 남은 시간 ${turnSecondsRemaining}초`}
+              >
+                <div>
+                  <span>
+                    <b>{turnSecondsRemaining}</b>
+                    <small>SEC</small>
+                  </span>
+                </div>
+                <p>{currentPlayer.id === HUMAN_ID ? "내 차례" : `${currentPlayer.name}의 차례`}</p>
+              </div>
+            )}
 
             <section
               className={`play-area ${
@@ -2666,9 +2824,10 @@ export default function Home() {
               focusedTaxRoute ? "is-focused-tax-party" : ""
             } ${isHumanTaxSelecting ? "is-tax-selecting" : ""} ${
               humanFinished ? "is-finished" : ""
+            } ${dalmutiHighlightPlayerId === HUMAN_ID ? "is-dalmuti-highlighted" : ""
             }`}
           >
-            <div className="human-status">
+            <div className="human-status" ref={humanAnchorRef}>
               <div className="human-avatar">나</div>
               <div>
                 <span>
@@ -2725,7 +2884,7 @@ export default function Home() {
               )}
             </div>
 
-            <div className="hand-wrap" ref={humanAnchorRef}>
+            <div className="hand-wrap">
               <div
                 className={`hand ${
                   isHandConcealed
@@ -2893,7 +3052,7 @@ export default function Home() {
       {!game && (
         <div className="welcome-layer">
           <section className="welcome-card" role="dialog" aria-labelledby="welcome-title">
-            <div className="welcome-crown">♛</div>
+            <span className="welcome-crown" aria-hidden="true" />
             <span className="eyebrow">PLAYABLE PROTOTYPE · 5 PLAYERS</span>
             <h1 id="welcome-title">DALMUTI</h1>
             <p>
@@ -2905,7 +3064,7 @@ export default function Home() {
               <span>연속 라운드</span>
             </div>
             <button type="button" className="start-button" onClick={startGame}>
-              <span>5인 빠른 대전</span>
+              <span>빠른 대전(5인)</span>
               <i>게임 시작</i>
               <b>→</b>
             </button>

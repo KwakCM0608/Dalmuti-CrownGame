@@ -192,6 +192,7 @@ export type OnlineRoomState = {
   revision: number;
   phase: OnlineRoomPhase;
   phaseEndsAt: number | null;
+  turnDeadline: number | null;
   round: number;
   hostId: string;
   players: OnlinePlayerState[];
@@ -232,6 +233,7 @@ export type OnlineSnapshot = {
   revision: number;
   phase: OnlineRoomPhase;
   phaseEndsAt: number | null;
+  turnDeadline: number | null;
   round: number;
   viewerId: string;
   hostId: string;

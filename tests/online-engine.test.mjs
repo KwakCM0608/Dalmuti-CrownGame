@@ -459,6 +459,7 @@ test("the server validates actions, locks animation time, and deduplicates comma
   let state = readyEveryone(createFourPlayerLobby());
   state.phase = "playing";
   state.phaseEndsAt = null;
+  state.turnDeadline = 30_000;
   state.currentIndex = 0;
   state.actionLockUntil = null;
   state.table = null;
@@ -478,7 +479,11 @@ test("the server validates actions, locks animation time, and deduplicates comma
   const played = applyOnlineCommand(state, "p1", play, 100);
   assert.equal(played.table.rank, 12);
   assert.equal(played.currentIndex, 1);
-  assert.equal(played.actionLockUntil, 1_600);
+  assert.equal(played.actionLockUntil, 3_700);
+  assert.equal(played.turnDeadline, 33_700);
+  assert.equal(played.events.at(-1).type, "TURN_STARTED");
+  assert.equal(played.events.at(-1).at, played.actionLockUntil);
+  assert.equal(played.events.at(-1).payload.endsAt, played.turnDeadline);
 
   assert.throws(
     () =>
@@ -510,9 +515,144 @@ test("the server validates actions, locks animation time, and deduplicates comma
       type: "PLAY_CARDS",
       cardIds: ["p2-11"],
     },
-    1_600,
+    3_700,
   );
   assert.equal(continued.table.rank, 11);
+  assert.equal(continued.actionLockUntil, 7_300);
+  assert.equal(continued.turnDeadline, 37_300);
+});
+
+test("playing turns use a server-authoritative 30 second deadline and timeout PASS even on an empty table", () => {
+  let state = readyEveryone(createFourPlayerLobby());
+  state.phase = "play-intro";
+  state.phaseEndsAt = 100;
+  state.turnDeadline = null;
+  state.currentIndex = 0;
+  state.actionLockUntil = null;
+  state.table = null;
+  state.lastPlayedId = null;
+  state.hands = {
+    p1: [{ id: "p1-12", rank: 12 }],
+    p2: [{ id: "p2-11", rank: 11 }],
+    p3: [{ id: "p3-10", rank: 10 }],
+    p4: [{ id: "p4-9", rank: 9 }],
+  };
+
+  state = advanceOnlineRoom(state, 100);
+  assert.equal(state.phase, "playing");
+  assert.equal(state.players[state.currentIndex].id, "p1");
+  assert.equal(state.turnDeadline, 30_100);
+  assert.equal(projectOnlineRoom(state, "p2").turnDeadline, 30_100);
+
+  const handsBeforeTimeout = structuredClone(state.hands);
+  const beforeDeadline = advanceOnlineRoom(state, 30_099);
+  assert.equal(beforeDeadline, state);
+
+  state = advanceOnlineRoom(state, 30_100);
+  assert.deepEqual(state.hands, handsBeforeTimeout);
+  assert.equal(state.table, null);
+  assert.equal(state.players[state.currentIndex].id, "p2");
+  assert.equal(state.actionLockUntil, 31_600);
+  assert.equal(state.turnDeadline, 61_600);
+  assert.deepEqual(state.passedPlayerIds, ["p1"]);
+  const timedOut = state.events.at(-2);
+  assert.equal(timedOut.type, "PLAYER_PASSED");
+  assert.deepEqual(timedOut.payload, {
+    playerId: "p1",
+    automatic: true,
+    reason: "timeout",
+  });
+  assert.equal(timedOut.at, 30_100);
+  const nextTurn = state.events.at(-1);
+  assert.equal(nextTurn.type, "TURN_STARTED");
+  assert.equal(nextTurn.at, 31_600);
+  assert.equal(nextTurn.payload.endsAt, 61_600);
+
+  state = advanceOnlineRoom(state, 124_600);
+  assert.equal(state.players[state.currentIndex].id, "p1");
+  assert.equal(state.turnDeadline, 156_100);
+  assert.deepEqual(
+    new Set(state.passedPlayerIds),
+    new Set(["p1", "p2", "p3", "p4"]),
+  );
+  const timeoutPasses = state.events.filter(
+    (event) =>
+      event.type === "PLAYER_PASSED" &&
+      event.payload.reason === "timeout",
+  );
+  assert.deepEqual(
+    timeoutPasses.map((event) => event.payload.playerId),
+    ["p1", "p2", "p3", "p4"],
+  );
+});
+
+test("timeout PASS clears an occupied trick and resets the next leader's full deadline", () => {
+  let state = readyEveryone(createFourPlayerLobby());
+  state.phase = "playing";
+  state.phaseEndsAt = null;
+  state.turnDeadline = 30_000;
+  state.currentIndex = 0;
+  state.actionLockUntil = null;
+  state.table = {
+    rank: 8,
+    count: 1,
+    playerId: "p4",
+    cards: [{ id: "p4-table", rank: 8 }],
+  };
+  state.lastPlayedId = "p4";
+  state.hands = {
+    p1: [{ id: "p1-12", rank: 12 }],
+    p2: [{ id: "p2-11", rank: 11 }],
+    p3: [{ id: "p3-10", rank: 10 }],
+    p4: [{ id: "p4-9", rank: 9 }],
+  };
+
+  state = advanceOnlineRoom(state, 93_000);
+  assert.equal(state.table, null);
+  assert.equal(state.players[state.currentIndex].id, "p4");
+  assert.equal(state.actionLockUntil, 94_500);
+  assert.equal(state.turnDeadline, 124_500);
+  assert.deepEqual(state.passedPlayerIds, []);
+  assert.equal(
+    state.events.some(
+      (event) =>
+        event.type === "TRICK_CLEARED" &&
+        event.payload.nextPlayerId === "p4",
+    ),
+    true,
+  );
+});
+
+test("round end and room reset clear the playing turn deadline", () => {
+  let state = readyEveryone(createFourPlayerLobby());
+  state.phase = "playing";
+  state.phaseEndsAt = null;
+  state.turnDeadline = 30_000;
+  state.currentIndex = 0;
+  state.actionLockUntil = null;
+  state.table = null;
+  state.lastPlayedId = null;
+  state.finishOrder = ["p2", "p3"];
+  state.hands = {
+    p1: [{ id: "p1-last", rank: 12 }],
+    p2: [],
+    p3: [],
+    p4: [{ id: "p4-last", rank: 11 }],
+  };
+
+  state = command(
+    state,
+    "p1",
+    "PLAY_CARDS",
+    { cardIds: ["p1-last"] },
+    100,
+  );
+  assert.equal(state.phase, "round-end");
+  assert.equal(state.turnDeadline, null);
+
+  state = command(state, "p1", "RESET_ROOM", {}, 101);
+  assert.equal(state.phase, "lobby");
+  assert.equal(state.turnDeadline, null);
 });
 
 test("unknown and malformed online commands cannot corrupt room state", () => {
@@ -738,6 +878,11 @@ test("playing rank 1 auto-passes every other active player and starts a new tric
   assert.equal(state.table, null);
   assert.equal(state.currentIndex, 0);
   assert.equal(state.players[state.currentIndex].id, "p1");
+  assert.equal(state.actionLockUntil, 5_700);
+  assert.equal(state.turnDeadline, 35_700);
+  assert.equal(state.events.at(-1).type, "TURN_STARTED");
+  assert.equal(state.events.at(-1).at, state.actionLockUntil);
+  assert.equal(state.events.at(-1).payload.endsAt, state.turnDeadline);
   assert.deepEqual(state.passedPlayerIds, []);
   const effect = state.events.find((event) => event.type === "DALMUTI_EFFECT");
   assert.deepEqual(effect.payload.autoPassedPlayerIds, ["p2", "p3", "p4"]);

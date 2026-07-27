@@ -36,7 +36,8 @@ test("server-renders the playable Dalmuti prototype", async () => {
   assert.match(html, /DALMUTI/);
   assert.doesNotMatch(html, /왕관은/);
   assert.doesNotMatch(html, /네 명의 AI와(?: 함께)? 바로 한 판을 시작합니다/);
-  assert.match(html, /5인 빠른 대전/);
+  assert.match(html, /빠른 대전\(5인\)/);
+  assert.match(html, /<link rel="icon" href="\/brand-dalmuti-crown\.png"\/>/);
   assert.match(html, /친구들과 온라인/);
   assert.match(html, /랩실 서열/);
   assert.match(html, />기록</);
@@ -185,6 +186,36 @@ test("ships without the disposable starter preview", async () => {
   assert.match(styles, /animation: taxSeatTransfer 5\.55s/);
   assert.match(styles, /animation: publicCardPlay 2\.08s/);
   assert.match(styles, /animation: revolutionAnnouncement 3\.1s/);
+  assert.match(page, /const TURN_LIMIT_MS = 30_000/);
+  assert.match(page, /function timeoutPassTurn/);
+  assert.match(page, /allowEmptyTable|previousTable: null/);
+  assert.match(page, /automatic: true/);
+  assert.match(page, /className=\{`turn-countdown/);
+  assert.match(page, /"--turn-angle": `\$\{turnProgress \* 360\}deg`/);
+  assert.match(page, /function seatPosition/);
+  assert.match(page, /style=\{seatPosition\(rankSeat - 1, 5\)\}/);
+  assert.match(page, /"--seat-grid-column": rankIndex \+ 1/);
+  assert.match(page, /className="human-status" ref=\{humanAnchorRef\}/);
+  assert.doesNotMatch(page, /className="hand-wrap" ref=\{humanAnchorRef\}/);
+  assert.match(page, /isDalmutiHighlighted/);
+  assert.match(page, /className="welcome-crown"/);
+  assert.match(
+    styles,
+    /Shared online visual system for the five-player quick match/,
+  );
+  assert.match(
+    styles,
+    /\.game-shell \.welcome-crown\s*\{[^}]*brand-dalmuti-crown\.png/s,
+  );
+  assert.match(
+    styles,
+    /@keyframes taxSeatTransfer\s*\{[\s\S]*top: var\(--from-y\)[\s\S]*top: var\(--mid-y\)[\s\S]*top: var\(--to-y\)/,
+  );
+  assert.match(
+    page,
+    /"--from-x"[\s\S]*"--mid-x"[\s\S]*"--to-x"/,
+  );
+  assert.match(layout, /icons:\s*\{[\s\S]*brand-dalmuti-crown\.png/);
   assert.doesNotMatch(
     styles,
     /\.tax-transfer-card\.is-face-up\s*\{[^}]*filter:/s,
@@ -288,6 +319,14 @@ test("online mode exposes synchronized reveal, tax, Dalmuti, and exit states", a
     /if \(label\.includes\("PASS"\)\) return 1500;[\s\S]*if \(label\.includes\("PLAY"\)\) return 3600;/,
   );
   assert.match(page, /showMyTurnHighlight/);
+  assert.match(page, /dalmutiActorIdFromEvent/);
+  assert.match(page, /isDalmutiHighlighted/);
+  assert.match(page, /player\.id === dalmutiHighlightPlayerId/);
+  assert.match(page, /turnDeadline/);
+  assert.match(page, /TURN_DURATION_MS = 30_000/);
+  assert.match(page, /className=\{`\$\{styles\.turnCountdown\}/);
+  assert.doesNotMatch(page, /event\.durationMs \+ 220/);
+  assert.match(styles, /\.turnCountdownRing/);
   assert.match(page, /!actionLocked/);
   assert.match(page, /rankedOpponents/);
   assert.match(page, /seatRankOverrides/);
@@ -304,6 +343,16 @@ test("online mode exposes synchronized reveal, tax, Dalmuti, and exit states", a
   assert.doesNotMatch(page, /sendCommand\("PASS", \{ automatic: true \}\)/);
   assert.match(styles, /@keyframes onlineHandCardReveal/);
   assert.match(styles, /\.dalmutiEffectOverlay/);
+  assert.match(styles, /\.playerSeatDalmuti/);
+  assert.match(styles, /\.dalmutiEffectActorSeat/);
+  assert.match(
+    styles,
+    /\.dalmutiEffectOverlay\s*\{[^}]*overflow-y: auto;[^}]*pointer-events: auto;/s,
+  );
+  assert.match(
+    styles,
+    /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.eventOverlay\s*\{[^}]*animation: none !important;/,
+  );
   assert.match(styles, /\.rankChoiceSlotClaimed/);
   assert.match(styles, /\.rankConfirmation/);
   assert.match(styles, /\.tableMyTurn/);

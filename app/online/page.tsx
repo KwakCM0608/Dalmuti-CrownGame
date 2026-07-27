@@ -83,6 +83,7 @@ type SnapshotView = {
   serverTime: number;
   phase: string;
   phaseEndsAt: number | null;
+  turnDeadline: number | null;
   round: number;
   viewerId: string;
   hostId: string;
@@ -123,6 +124,7 @@ type ConnectionState =
 const SESSION_PREFIX = "dalmuti.online.room.";
 const LAST_SESSION_KEY = "dalmuti.online.last-session";
 const POLL_INTERVAL_MS = 700;
+const TURN_DURATION_MS = 30_000;
 const ROLE_LABELS: Record<string, string> = {
   "great-dalmuti": "대 달무티",
   great_dalmuti: "대 달무티",
@@ -454,6 +456,20 @@ function snapshotFrom(
       typeof (publicView.phaseEndsAt ?? root.phaseEndsAt) === "number"
         ? numberValue(publicView.phaseEndsAt ?? root.phaseEndsAt)
         : null,
+    turnDeadline:
+      typeof (
+        publicView.turnDeadline ??
+        publicView.turnEndsAt ??
+        root.turnDeadline ??
+        root.turnEndsAt
+      ) === "number"
+        ? numberValue(
+            publicView.turnDeadline ??
+              publicView.turnEndsAt ??
+              root.turnDeadline ??
+              root.turnEndsAt,
+          )
+        : null,
     round: numberValue(publicView.round, numberValue(root.round, 1)),
     viewerId: stringValue(
       root.viewerId,
@@ -640,6 +656,39 @@ function playerName(players: PlayerView[], id: unknown): string {
   return players.find((player) => player.id === playerId)?.name ?? "플레이어";
 }
 
+function dalmutiActorIdFromEvent(
+  event: EventView | null,
+  players: PlayerView[],
+): string | null {
+  if (!event) return null;
+
+  const table = record(event.data.table);
+  const playedCards = cardsFrom(event.data.cards ?? table.cards);
+  const playedRank = numberValue(
+    event.data.rank,
+    numberValue(
+      table.rank,
+      playedCards.find((card) => card.rank !== 13)?.rank ?? 13,
+    ),
+  );
+  if (
+    event.type !== "DALMUTI_EFFECT" &&
+    !(event.type === "CARDS_PLAYED" && playedRank === 1)
+  ) {
+    return null;
+  }
+
+  const actorPlayerId =
+    event.actorPlayerId ||
+    stringValue(
+      event.data.actorPlayerId,
+      stringValue(event.data.playerId, stringValue(table.playerId)),
+    );
+  return players.some((player) => player.id === actorPlayerId)
+    ? actorPlayerId
+    : null;
+}
+
 function declaredRevolutionFromEvent(
   event: EventView | undefined,
   round: number,
@@ -789,6 +838,7 @@ function PlayerSeat({
   rankNumber,
   isRankMoving = false,
   isHandRevealing = false,
+  isDalmutiHighlighted = false,
   roleHidden = false,
   elementRef,
   style,
@@ -801,6 +851,7 @@ function PlayerSeat({
   rankNumber?: number;
   isRankMoving?: boolean;
   isHandRevealing?: boolean;
+  isDalmutiHighlighted?: boolean;
   roleHidden?: boolean;
   elementRef?: (element: HTMLElement | null) => void;
   style?: CSSProperties;
@@ -817,9 +868,10 @@ function PlayerSeat({
       } ${player.finishedPlace ? styles.playerSeatFinished : ""} ${
         isHandRevealing ? styles.playerSeatRevealing : ""
       } ${isRankMoving ? styles.playerSeatRankMoving : ""
-      }`}
+      } ${isDalmutiHighlighted ? styles.playerSeatDalmuti : ""}`}
       style={style}
       data-rank-number={rankNumber}
+      data-dalmuti-highlighted={isDalmutiHighlighted || undefined}
       aria-label={`${player.name}, ${
         rankNumber ? `현재 서열 ${rankNumber}위, ` : ""
       }${visibleRoleLabel}, 카드 ${player.handCount}장`}
@@ -1091,6 +1143,10 @@ function EventOverlay({
     event.actorPlayerId ??
     stringValue(data.actorPlayerId, stringValue(data.playerId)) ??
     null;
+  const dalmutiActorId = dalmutiActorIdFromEvent(event, players);
+  const dalmutiActor = players.find(
+    (player) => player.id === dalmutiActorId,
+  );
   const fromId = stringValue(
     data.fromPlayerId,
     stringValue(
@@ -1206,6 +1262,20 @@ function EventOverlay({
         className={`${styles.eventOverlay} ${styles.dalmutiEffectOverlay}`}
         style={overlayStyle}
       >
+        {dalmutiActor && (
+          <div className={styles.dalmutiEffectActorSeat}>
+            <PlayerSeat
+              player={dalmutiActor}
+              isHost={false}
+              isCurrent={false}
+              passed={false}
+              rankNumber={
+                players.findIndex((player) => player.id === dalmutiActor.id) + 1
+              }
+              isDalmutiHighlighted
+            />
+          </div>
+        )}
         <small>DALMUTI</small>
         <div className={styles.dalmutiEffectCard}>
           <PlayingCard
@@ -1750,6 +1820,27 @@ export default function OnlinePage() {
     return null;
   }, [selectedCards, selectedNormalRanks.length, selectedRank, snapshot?.table]);
   const effectiveClock = clock + serverOffset;
+  const turnStartsAt =
+    snapshot?.phase === "playing" && snapshot.turnDeadline !== null
+      ? snapshot.turnDeadline - TURN_DURATION_MS
+      : null;
+  const turnRemainingMs =
+    snapshot?.phase === "playing" &&
+    snapshot.turnDeadline !== null &&
+    turnStartsAt !== null &&
+    effectiveClock >= turnStartsAt
+      ? Math.max(0, snapshot.turnDeadline - effectiveClock)
+      : null;
+  const turnSecondsRemaining =
+    turnRemainingMs === null ? null : Math.ceil(turnRemainingMs / 1000);
+  const turnProgress =
+    turnRemainingMs === null
+      ? 0
+      : Math.max(0, Math.min(1, turnRemainingMs / TURN_DURATION_MS));
+  const currentTurnPlayer =
+    snapshot?.players.find(
+      (player) => player.id === snapshot.currentPlayerId,
+    ) ?? null;
   const taxSecondsRemaining =
     snapshot?.phase === "tax-selection" && snapshot.phaseEndsAt !== null
       ? Math.max(
@@ -1812,7 +1903,7 @@ export default function OnlinePage() {
             "PLAYER_PASSED",
           ].includes(event.type) &&
             effectiveClock >= event.startsAt - 120 &&
-            effectiveClock <= event.startsAt + event.durationMs + 220,
+            effectiveClock <= event.startsAt + event.durationMs,
       );
     return (
       [...candidates].reverse().find(
@@ -1831,6 +1922,13 @@ export default function OnlinePage() {
     isRankSelectionPhase,
     snapshot?.phase,
   ]);
+  const dalmutiHighlightPlayerId = useMemo(
+    () =>
+      activeEvent && snapshot
+        ? dalmutiActorIdFromEvent(activeEvent, snapshot.players)
+        : null,
+    [activeEvent, snapshot],
+  );
   const showMyTurnHighlight =
     isMyTurn &&
     !actionLocked &&
@@ -2500,12 +2598,16 @@ export default function OnlinePage() {
                     isHost={player.id === snapshot.hostId}
                     isCurrent={
                       snapshot.phase === "playing" &&
+                      !dalmutiHighlightPlayerId &&
                       player.id === snapshot.currentPlayerId
                     }
                     passed={snapshot.passedPlayerIds.includes(player.id)}
                     rankNumber={rankIndex + 1}
                     isRankMoving={rankMovingPlayerIds.includes(player.id)}
                     isHandRevealing={isHandRevealing}
+                    isDalmutiHighlighted={
+                      player.id === dalmutiHighlightPlayerId
+                    }
                     roleHidden={isRankSelectionPhase}
                     elementRef={(element) =>
                       bindSeatElement(player.id, element)
@@ -2519,6 +2621,35 @@ export default function OnlinePage() {
               })}
             </div>
             <div className={styles.tableCenter}>
+              {turnSecondsRemaining !== null && currentTurnPlayer && (
+                <div
+                  className={`${styles.turnCountdown} ${
+                    isMyTurn ? styles.turnCountdownSelf : ""
+                  } ${
+                    turnSecondsRemaining <= 5
+                      ? styles.turnCountdownUrgent
+                      : ""
+                  }`}
+                  style={
+                    {
+                      "--turn-angle": `${turnProgress * 360}deg`,
+                    } as CSSProperties
+                  }
+                  role="timer"
+                  aria-label={`${currentTurnPlayer.name}의 차례, ${turnSecondsRemaining}초 남음`}
+                >
+                  <span className={styles.turnCountdownRing} aria-hidden="true">
+                    <b>{turnSecondsRemaining}</b>
+                    <small>SEC</small>
+                  </span>
+                  <span className={styles.turnCountdownCopy}>
+                    <small>{isMyTurn ? "YOUR TURN" : "CURRENT TURN"}</small>
+                    <strong>
+                      {isMyTurn ? "내 차례" : `${currentTurnPlayer.name} 차례`}
+                    </strong>
+                  </span>
+                </div>
+              )}
               {isRankSelectionPhase && snapshot.rankSelection ? (
                 <RankSelectionField
                   rankSelection={snapshot.rankSelection}
@@ -2659,7 +2790,7 @@ export default function OnlinePage() {
                 player={me}
                 isSelf
                 isHost={isHost}
-                isCurrent={isMyTurn}
+                isCurrent={isMyTurn && !dalmutiHighlightPlayerId}
                 passed={snapshot.passedPlayerIds.includes(me.id)}
                 rankNumber={
                   tableRankedPlayers.findIndex((player) => player.id === me.id) +
@@ -2667,6 +2798,7 @@ export default function OnlinePage() {
                 }
                 isRankMoving={rankMovingPlayerIds.includes(me.id)}
                 isHandRevealing={isHandRevealing}
+                isDalmutiHighlighted={me.id === dalmutiHighlightPlayerId}
               />
             )}
             <div className={styles.handScroller}>

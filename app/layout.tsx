@@ -16,6 +16,11 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title,
     description,
+    icons: {
+      icon: "/brand-dalmuti-crown.png",
+      shortcut: "/brand-dalmuti-crown.png",
+      apple: "/brand-dalmuti-crown.png",
+    },
     openGraph: {
       title,
       description,
