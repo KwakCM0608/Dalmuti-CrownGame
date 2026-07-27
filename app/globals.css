@@ -1448,21 +1448,23 @@ button:focus-visible {
   content: "";
 }
 
-.revolution-announcement small,
-.revolution-announcement strong,
-.revolution-announcement span,
-.revolution-announcement em {
+.revolution-announcement > small,
+.revolution-announcement > strong,
+.revolution-announcement > span,
+.revolution-announcement > em {
+  position: relative;
+  z-index: 3;
   display: block;
 }
 
-.revolution-announcement small {
+.revolution-announcement > small {
   color: #ffb784;
   font-size: 10px;
   font-weight: 900;
   letter-spacing: 0.24em;
 }
 
-.revolution-announcement strong {
+.revolution-announcement > strong {
   margin-top: 3px;
   font-family: Georgia, "Times New Roman", serif;
   font-size: clamp(48px, 7vw, 76px);
@@ -1470,14 +1472,14 @@ button:focus-visible {
   line-height: 1;
 }
 
-.revolution-announcement span {
+.revolution-announcement > span {
   margin-top: 12px;
   color: #fff5e7;
   font-size: 15px;
   font-weight: 900;
 }
 
-.revolution-announcement em {
+.revolution-announcement > em {
   margin-top: 5px;
   color: rgba(255, 228, 208, 0.68);
   font-size: 10px;
@@ -1485,11 +1487,260 @@ button:focus-visible {
   font-weight: 700;
 }
 
-.revolution-announcement.is-great-revolution strong {
+.revolution-announcement.is-great-revolution > strong {
   color: #ffd59b;
   text-shadow:
     0 3px 22px rgba(23, 0, 4, 0.8),
     0 0 28px rgba(255, 169, 99, 0.3);
+}
+
+.revolution-joker-pair {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.revolution-joker-pair::before {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: min(620px, 94vw);
+  height: 250px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 23% 50%, rgba(255, 197, 103, 0.2), transparent 22%),
+    radial-gradient(circle at 77% 50%, rgba(255, 197, 103, 0.2), transparent 22%),
+    radial-gradient(ellipse, rgba(128, 14, 28, 0.2), transparent 67%);
+  content: "";
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.72);
+  animation: revolutionJokerHalo 3.1s ease-in-out both;
+}
+
+.revolution-joker-card {
+  position: absolute;
+  top: 50%;
+  width: 88px;
+  height: 136px;
+  opacity: 0;
+  filter:
+    drop-shadow(0 18px 22px rgba(15, 0, 4, 0.62))
+    drop-shadow(0 0 15px rgba(255, 197, 100, 0.44));
+  will-change: opacity, transform, filter;
+}
+
+.revolution-joker-card::before {
+  position: absolute;
+  inset: -11px;
+  z-index: -1;
+  border: 1px solid rgba(255, 213, 128, 0.46);
+  border-radius: 18px;
+  background: radial-gradient(
+    ellipse,
+    rgba(255, 167, 91, 0.22),
+    transparent 67%
+  );
+  box-shadow: 0 0 28px rgba(255, 133, 75, 0.2);
+  content: "";
+  animation: revolutionJokerAura 700ms ease-in-out infinite alternate;
+}
+
+.revolution-joker-card .playing-card {
+  width: 100%;
+  height: 100%;
+  border-width: 2px;
+  border-radius: 11px;
+  cursor: default;
+  box-shadow:
+    0 0 0 2px rgba(255, 218, 137, 0.48),
+    0 16px 30px rgba(15, 0, 4, 0.62);
+  transform: none;
+  transition: none;
+}
+
+.revolution-joker-card.is-left {
+  left: 13px;
+  animation: revolutionJokerEnterLeft 3.1s
+    cubic-bezier(0.2, 0.78, 0.22, 1) both;
+}
+
+.revolution-joker-card.is-right {
+  right: 13px;
+  animation: revolutionJokerEnterRight 3.1s
+    cubic-bezier(0.2, 0.78, 0.22, 1) both;
+}
+
+.revolution-announcement.is-great-revolution .revolution-joker-card {
+  filter:
+    drop-shadow(0 20px 26px rgba(15, 0, 4, 0.72))
+    drop-shadow(0 0 20px rgba(255, 202, 104, 0.72))
+    drop-shadow(0 0 42px rgba(211, 48, 42, 0.48));
+}
+
+.revolution-joker-pair > i {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #fff3c1;
+  box-shadow:
+    -190px -72px 0 #ffb568,
+    -158px 78px 0 #ffd990,
+    -104px -98px 0 #ff9b62,
+    -68px 92px 0 #fff0ad,
+    76px -91px 0 #ffe49a,
+    118px 89px 0 #ffae68,
+    166px -67px 0 #fff0b5,
+    194px 54px 0 #ff9d62;
+  opacity: 0;
+  animation: revolutionJokerSparkBurst 3.1s ease-out both;
+}
+
+.revolution-joker-pair > i:nth-of-type(2) {
+  transform: rotate(28deg);
+  animation-delay: 160ms;
+}
+
+@keyframes revolutionJokerEnterLeft {
+  0% {
+    opacity: 0;
+    transform: translate3d(-130px, -42%, 0) rotate(-36deg) scale(0.38);
+  }
+  18% {
+    opacity: 1;
+    transform: translate3d(7px, -50%, 0) rotate(-8deg) scale(1.08);
+  }
+  28%,
+  76% {
+    opacity: 1;
+    transform: translate3d(0, -50%, 0) rotate(-12deg) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(-24px, -58%, 0) rotate(-17deg) scale(1.12);
+  }
+}
+
+@keyframes revolutionJokerEnterRight {
+  0% {
+    opacity: 0;
+    transform: translate3d(130px, -42%, 0) rotate(36deg) scale(0.38);
+  }
+  18% {
+    opacity: 1;
+    transform: translate3d(-7px, -50%, 0) rotate(8deg) scale(1.08);
+  }
+  28%,
+  76% {
+    opacity: 1;
+    transform: translate3d(0, -50%, 0) rotate(12deg) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(24px, -58%, 0) rotate(17deg) scale(1.12);
+  }
+}
+
+@keyframes revolutionJokerHalo {
+  0%,
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.72);
+  }
+  22%,
+  76% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes revolutionJokerAura {
+  from {
+    opacity: 0.42;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 0.88;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes revolutionJokerSparkBurst {
+  0%,
+  100% {
+    opacity: 0;
+    transform: rotate(0deg) scale(0.25);
+  }
+  24% {
+    opacity: 1;
+    transform: rotate(16deg) scale(1);
+  }
+  72% {
+    opacity: 0.72;
+    transform: rotate(31deg) scale(1.16);
+  }
+}
+
+@media (max-width: 800px) {
+  .revolution-joker-card {
+    width: 64px;
+    height: 99px;
+  }
+
+  .revolution-joker-card.is-left {
+    left: 4px;
+  }
+
+  .revolution-joker-card.is-right {
+    right: 4px;
+  }
+
+  .revolution-joker-pair > i {
+    box-shadow:
+      -126px -58px 0 #ffb568,
+      -112px 62px 0 #ffd990,
+      -78px -75px 0 #ff9b62,
+      -48px 72px 0 #fff0ad,
+      52px -70px 0 #ffe49a,
+      82px 69px 0 #ffae68,
+      112px -51px 0 #fff0b5,
+      128px 43px 0 #ff9d62;
+  }
+}
+
+@media (max-width: 480px) {
+  .revolution-announcement {
+    padding-inline: 24px;
+  }
+
+  .revolution-joker-card {
+    width: 54px;
+    height: 83px;
+  }
+
+  .revolution-joker-card.is-left {
+    left: -2px;
+  }
+
+  .revolution-joker-card.is-right {
+    right: -2px;
+  }
+
+  .revolution-announcement > strong {
+    font-size: clamp(42px, 14vw, 58px);
+  }
+
+  .revolution-announcement > span {
+    max-width: 190px;
+    font-size: 12px;
+  }
+
+  .revolution-announcement > em {
+    max-width: 180px;
+  }
 }
 
 @keyframes revolutionAnnouncement {
@@ -6106,6 +6357,33 @@ button:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .opening-rank-confirmation-card {
     transform: rotate(-7deg) !important;
+  }
+
+  .revolution-announcement {
+    opacity: 1 !important;
+    transform: none !important;
+    animation: none !important;
+  }
+
+  .revolution-joker-card {
+    opacity: 1 !important;
+    animation: none !important;
+  }
+
+  .revolution-joker-card.is-left {
+    transform: translate3d(0, -50%, 0) rotate(-12deg) !important;
+  }
+
+  .revolution-joker-card.is-right {
+    transform: translate3d(0, -50%, 0) rotate(12deg) !important;
+  }
+
+  .revolution-joker-card::before {
+    animation: none !important;
+  }
+
+  .revolution-joker-pair > i {
+    display: none;
   }
 
   .dalmuti-action-effects > span,

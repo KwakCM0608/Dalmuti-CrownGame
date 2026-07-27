@@ -45,6 +45,56 @@ function createSixPlayerLobby() {
   return state;
 }
 
+test("player count assigns the official five-tier rank structure", () => {
+  const rolesFor = (playerCount) => {
+    let state = createOnlineRoom(
+      `ROLE${playerCount}`,
+      { id: "p1", name: "p1" },
+      1,
+    );
+    for (let index = 2; index <= playerCount; index += 1) {
+      state = joinOnlineRoom(
+        state,
+        { id: `p${index}`, name: `p${index}` },
+        index,
+      );
+    }
+    return state.players.map((player) => player.role);
+  };
+
+  assert.deepEqual(rolesFor(4), [
+    "great-dalmuti",
+    "lesser-dalmuti",
+    "lesser-peon",
+    "great-peon",
+  ]);
+  assert.deepEqual(rolesFor(5), [
+    "great-dalmuti",
+    "lesser-dalmuti",
+    "merchant",
+    "lesser-peon",
+    "great-peon",
+  ]);
+  assert.deepEqual(rolesFor(6), [
+    "great-dalmuti",
+    "lesser-dalmuti",
+    "merchant",
+    "merchant",
+    "lesser-peon",
+    "great-peon",
+  ]);
+  assert.deepEqual(rolesFor(8), [
+    "great-dalmuti",
+    "lesser-dalmuti",
+    "merchant",
+    "merchant",
+    "merchant",
+    "merchant",
+    "lesser-peon",
+    "great-peon",
+  ]);
+});
+
 function readyEveryone(state) {
   let next = state;
   for (const [index, player] of next.players.entries()) {

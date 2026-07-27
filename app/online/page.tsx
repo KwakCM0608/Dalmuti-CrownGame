@@ -126,15 +126,15 @@ const LAST_SESSION_KEY = "dalmuti.online.last-session";
 const POLL_INTERVAL_MS = 700;
 const TURN_DURATION_MS = 30_000;
 const ROLE_LABELS: Record<string, string> = {
-  "great-dalmuti": "대 달무티",
-  great_dalmuti: "대 달무티",
-  "lesser-dalmuti": "소 달무티",
-  lesser_dalmuti: "소 달무티",
+  "great-dalmuti": "달무티",
+  great_dalmuti: "달무티",
+  "lesser-dalmuti": "총리대신",
+  lesser_dalmuti: "총리대신",
   merchant: "상인",
-  "lesser-peon": "소 농노",
-  lesser_peon: "소 농노",
-  "great-peon": "대 농노",
-  great_peon: "대 농노",
+  "lesser-peon": "소작농",
+  lesser_peon: "소작농",
+  "great-peon": "농노",
+  great_peon: "농노",
 };
 const ROLE_MARKS: Record<string, string> = {
   "great-dalmuti": "Ⅰ",
@@ -1191,6 +1191,10 @@ function EventOverlay({
         } ${isGreatRevolution ? styles.greatRevolutionOverlay : ""}`}
         style={overlayStyle}
       >
+        <div className={styles.revolutionJokers} aria-hidden="true">
+          <span />
+          <span />
+        </div>
         <small>{isGreatRevolution ? "GREAT REVOLUTION" : "REVOLUTION"}</small>
         <strong>{isGreatRevolution ? "대혁명" : "혁명"}</strong>
         <b>
@@ -1890,7 +1894,7 @@ export default function OnlinePage() {
     const subject =
       names.length > 2
         ? `${names[0]} 외 ${names.length - 1}명`
-        : names.join(", ") || "달무티 플레이어";
+        : names.join(", ") || "상위 계급 플레이어";
     return `${subject}이(가) 세금 교환 중`;
   }, [isTaxSelection, snapshot]);
   const activeEvent = useMemo(() => {
@@ -2563,8 +2567,8 @@ export default function OnlinePage() {
       <section className={styles.gameLayout}>
         <aside className={styles.rankRail}>
           <div className={styles.railHeading}>
-            <span>랩실 서열</span>
-            <small>ROUND {snapshot.round}</small>
+            <span>서열</span>
+            <small>누적 점수</small>
           </div>
           <ol>
             {snapshot.players.map((player, index) => (
@@ -2789,7 +2793,8 @@ export default function OnlinePage() {
                   )}
                   <p>
                     카드의 정체는 교환 당사자에게만 공개됩니다. 시간이 끝나면
-                    미선택 달무티의 가장 낮은 가치 카드가 자동 반환됩니다.
+                    미선택 상위 계급 플레이어의 가장 낮은 가치 카드가 자동
+                    반환됩니다.
                   </p>
                 </div>
               ) : snapshot.table?.cards.length ? (

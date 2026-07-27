@@ -39,7 +39,7 @@ test("server-renders the playable Dalmuti prototype", async () => {
   assert.match(html, /빠른 대전\(5인\)/);
   assert.match(html, /<link rel="icon" href="\/brand-dalmuti-crown\.png"\/>/);
   assert.match(html, /친구들과 온라인/);
-  assert.match(html, /랩실 서열/);
+  assert.match(html, /누적 점수/);
   assert.match(html, />기록</);
   assert.doesNotMatch(html, /궁정 서열|궁정 기록|5인 궁정|CROWN/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);
@@ -434,5 +434,55 @@ test("quick and online tables expose the enhanced timed and rank feedback", asyn
   assert.doesNotMatch(
     onlineStyles,
     /@media \(max-width: 820px\)[\s\S]{0,300}\.turnCountdown\s*\{[^}]*top: (?:80|136|158)px;/,
+  );
+});
+
+test("quick and online modes use the official player rank labels", async () => {
+  const [quickPage, quickStyles, onlinePage, onlineStyles] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/online/page.tsx", import.meta.url), "utf8"),
+    readFile(
+      new URL("../app/online/online.module.css", import.meta.url),
+      "utf8",
+    ),
+  ]);
+  const exposedCopy = `${quickPage}\n${onlinePage}`;
+
+  for (const [hyphenatedKey, underscoredKey, label] of [
+    ["great-dalmuti", "great_dalmuti", "달무티"],
+    ["lesser-dalmuti", "lesser_dalmuti", "총리대신"],
+    ["lesser-peon", "lesser_peon", "소작농"],
+    ["great-peon", "great_peon", "농노"],
+  ]) {
+    assert.match(quickPage, new RegExp(`"${hyphenatedKey}": "${label}"`));
+    assert.match(onlinePage, new RegExp(`"${hyphenatedKey}": "${label}"`));
+    assert.match(onlinePage, new RegExp(`${underscoredKey}: "${label}"`));
+  }
+  assert.match(quickPage, /merchant: "상인"/);
+  assert.match(onlinePage, /merchant: "상인"/);
+  assert.doesNotMatch(
+    exposedCopy,
+    /대 달무티|소 달무티|대 농노|소 농노|현재 계급/,
+  );
+  assert.match(quickPage, /<span>서열<\/span>\s*<small>누적 점수<\/small>/);
+  assert.match(
+    onlinePage,
+    /<span>서열<\/span>\s*<small>누적 점수<\/small>/,
+  );
+  assert.match(quickPage, /className="revolution-joker-pair"/);
+  assert.match(quickStyles, /@keyframes revolutionJokerEnterLeft/);
+  assert.match(
+    quickStyles,
+    /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.revolution-announcement\s*\{[^}]*opacity: 1 !important;[^}]*animation: none !important;/,
+  );
+  assert.match(
+    onlinePage,
+    /className=\{styles\.revolutionJokers\}[\s\S]{0,100}<span \/>\s*<span \/>/,
+  );
+  assert.match(onlineStyles, /@keyframes revolutionJokerArrivalLeft/);
+  assert.match(
+    onlineStyles,
+    /\.revolutionJokers > span\s*\{[^}]*width: clamp\(88px, 9vw, 124px\);[^}]*aspect-ratio: 466 \/ 717;[^}]*url\("\/cards\/joker\.webp"\) center \/ cover no-repeat;/s,
   );
 });

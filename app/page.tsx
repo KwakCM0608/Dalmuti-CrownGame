@@ -176,11 +176,11 @@ const BASE_PLAYERS: Omit<Player, "role">[] = [
 ];
 
 const ROLE_LABELS: Record<Role, string> = {
-  "great-dalmuti": "대 달무티",
-  "lesser-dalmuti": "소 달무티",
+  "great-dalmuti": "달무티",
+  "lesser-dalmuti": "총리대신",
   merchant: "상인",
-  "lesser-peon": "소 농노",
-  "great-peon": "대 농노",
+  "lesser-peon": "소작농",
+  "great-peon": "농노",
 };
 
 const ROLE_MARKS: Record<Role, string> = {
@@ -1076,8 +1076,8 @@ function TaxTransferLayer({
       aria-live="polite"
       aria-label={
         taxStage === "tribute"
-          ? "농노가 달무티에게 세금 카드를 전달하는 중"
-          : "달무티가 농노에게 반환 카드를 전달하는 중"
+          ? "하위 계급이 상위 계급에게 세금 카드를 전달하는 중"
+          : "상위 계급이 하위 계급에게 반환 카드를 전달하는 중"
       }
     >
       {routes.map((route) => {
@@ -1342,6 +1342,15 @@ export default function Home() {
         ) ?? null
       : null;
   const humanTaxSelectionCount = pendingHumanTaxExchange?.peonGift.length ?? 0;
+  const pendingHumanTaxRecipient =
+    pendingHumanTaxExchange && game
+      ? game.players.find(
+          (player) => player.id === pendingHumanTaxExchange.peonId,
+        ) ?? null
+      : null;
+  const humanTaxRecipientLabel = pendingHumanTaxRecipient
+    ? ROLE_LABELS[pendingHumanTaxRecipient.role]
+    : "하위 계급";
   const isHumanTaxSelecting = Boolean(pendingHumanTaxExchange);
   const isHumanTurn =
     game?.phase === "playing" &&
@@ -2408,17 +2417,17 @@ export default function Home() {
                                   ? "대혁명을 일으켰습니다"
                                   : "혁명을 일으켰습니다"
                               }`
-                          : game.phase === "taxation"
-                      ? game.taxStage === "selection"
-                        ? `농노에게 돌려줄 카드 ${humanTaxSelectionCount}장을 선택하세요`
-                        : focusedTaxRoute
-                          ? `${focusedTaxRoute.from.name} → ${focusedTaxRoute.to.name} · 카드 ${focusedTaxRoute.cards.length}장 전달 중`
-                          : "당사자끼리 비공개 세금 교환 중"
-                      : isHumanTurn
-                        ? game.table
-                          ? `${game.table.rank}보다 낮은 숫자의 카드 ${game.table.count}장을 내세요`
-                          : "새로운 묶음을 시작하세요"
-                        : `${currentPlayer?.name}의 선택을 기다리는 중`;
+                            : game.phase === "taxation"
+                              ? game.taxStage === "selection"
+                                ? `${humanTaxRecipientLabel}에게 돌려줄 카드 ${humanTaxSelectionCount}장을 선택하세요`
+                                : focusedTaxRoute
+                                  ? `${focusedTaxRoute.from.name} → ${focusedTaxRoute.to.name} · 카드 ${focusedTaxRoute.cards.length}장 전달 중`
+                                  : "당사자끼리 비공개 세금 교환 중"
+                              : isHumanTurn
+                                ? game.table
+                                  ? `${game.table.rank}보다 낮은 숫자의 카드 ${game.table.count}장을 내세요`
+                                  : "새로운 묶음을 시작하세요"
+                                : `${currentPlayer?.name}의 선택을 기다리는 중`;
 
   const tablePreview = visibleTable?.cards ?? [];
   const tableCardStep =
@@ -2467,8 +2476,8 @@ export default function Home() {
       <section className="game-stage" aria-label="달무티 게임 테이블">
         <aside className="score-rail">
           <div className="rail-heading">
-            <span>랩실 서열</span>
-            <small>현재 계급</small>
+            <span>서열</span>
+            <small>누적 점수</small>
           </div>
           <ol>
             {(game?.players ?? assignRoles(BASE_PLAYERS)).map((player) => {
@@ -2860,6 +2869,22 @@ export default function Home() {
                   role="status"
                   aria-live="assertive"
                 >
+                  <div className="revolution-joker-pair" aria-hidden="true">
+                    <div className="revolution-joker-card is-left">
+                      <PlayingCard
+                        card={{ id: "revolution-joker-left", rank: 13 }}
+                        displayOnly
+                      />
+                    </div>
+                    <div className="revolution-joker-card is-right">
+                      <PlayingCard
+                        card={{ id: "revolution-joker-right", rank: 13 }}
+                        displayOnly
+                      />
+                    </div>
+                    <i />
+                    <i />
+                  </div>
                   <small>
                     {game.revolutionAnnouncement.kind === "great-revolution"
                       ? "GREAT REVOLUTION"
@@ -2907,7 +2932,9 @@ export default function Home() {
                 game.taxStage === "selection" ? (
                   <div className="tax-selection-state">
                     <span className="play-kicker">RETURN CARD</span>
-                    <strong>농노에게 돌려줄 카드를 고르세요</strong>
+                    <strong>
+                      {humanTaxRecipientLabel}에게 돌려줄 카드를 고르세요
+                    </strong>
                     <small>
                       내 원래 손패에서 원하는 카드 {humanTaxSelectionCount}장을
                       선택합니다
@@ -2924,8 +2951,8 @@ export default function Home() {
                     <strong>
                       {focusedTaxRoute
                         ? game.taxStage === "tribute"
-                          ? "농노의 세금 카드 전달"
-                          : "달무티의 반환 카드 전달"
+                          ? `${ROLE_LABELS[focusedTaxRoute.from.role]}의 세금 카드 전달`
+                          : `${ROLE_LABELS[focusedTaxRoute.from.role]}의 반환 카드 전달`
                         : "비공개 카드 전달 중"}
                     </strong>
                     <small>
@@ -3142,7 +3169,7 @@ export default function Home() {
                     </span>
                     <small>
                       {selectedError ??
-                        `선택한 ${humanTaxSelectionCount}장은 농노에게 전달됩니다`}
+                        `선택한 ${humanTaxSelectionCount}장은 ${humanTaxRecipientLabel}에게 전달됩니다`}
                     </small>
                   </div>
                   <button
@@ -3259,7 +3286,7 @@ export default function Home() {
             </h2>
             <p>
               혁명을 선포하면 이번 막의 세금이 사라집니다.
-              대 농노라면 모든 계급까지 뒤집힙니다.
+              농노라면 모든 계급까지 뒤집힙니다.
             </p>
             <div>
               <button type="button" className="secondary-button" onClick={() => resolveRevolution(false)}>
@@ -3372,8 +3399,8 @@ export default function Home() {
             <div className="rule-detail">
               광대는 다른 카드와 함께 내면 그 숫자로 변하고, 단독으로는 가장 약한
               13입니다. 이 게임의 하우스 룰에서는 세금 계산에 한해 광대를 가장 강한
-              카드로 취급합니다. 농노는 광대를 먼저 바치고, 달무티는 일반 카드부터
-              돌려줍니다.
+              카드로 취급합니다. 하위 계급은 광대를 먼저 바치고, 상위 계급은 일반
+              카드부터 돌려줍니다.
             </div>
           </section>
         </div>
