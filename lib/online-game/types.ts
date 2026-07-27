@@ -208,6 +208,7 @@ export type OnlinePhaseDurations = {
 export type OnlineEngineDeps = {
   randomInt?: (maxExclusive: number) => number;
   durations?: Partial<OnlinePhaseDurations>;
+  temporaryGreatRevolutionTestMode?: boolean;
 };
 
 export type OnlineRoomState = {

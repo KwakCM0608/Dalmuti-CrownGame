@@ -636,6 +636,7 @@ test("online phase locks and visual animation timing mirror quick match", async 
     /PASS_ACTION_LOCK_MS = 1_500/,
     /PLAY_ACTION_LOCK_MS = 2_250/,
     /DALMUTI_ACTION_LOCK_MS = 3_300/,
+    /ACTION_SETTLE_MS = 300/,
   ]) {
     assert.match(engine, expected);
   }
@@ -672,6 +673,13 @@ test("online phase locks and visual animation timing mirror quick match", async 
   assert.match(onlinePage, /const EventOverlay = memo\(EventOverlayView/);
   assert.match(onlinePage, /const POLL_INTERVAL_MS = 250/);
   assert.match(onlinePage, /const MAX_EVENT_CATCHUP_MS = 120/);
+  assert.match(onlinePage, /const turnPresentationReady =/);
+  assert.match(onlinePage, /ROUND_END_MOVE_PRELUDE_MS = 380/);
+  assert.match(onlinePage, /ROUND_END_MOVE_SETTLE_MS = 520/);
+  assert.match(
+    onlinePage,
+    /Math\.min\(\s*event\.durationMs,\s*effectiveClock - event\.startsAt/s,
+  );
   assert.match(onlinePage, /setHandRevealElapsedMs/);
   assert.match(onlinePage, /const \[phaseElapsed\] = useState/);
   assert.match(onlinePage, /styles\.greatRevolutionFieldEffect/);
@@ -833,6 +841,7 @@ test("online chat is room-scoped and score rails use compact casino chips", asyn
   ]);
 
   assert.match(onlinePage, /function OnlineChatPanel/);
+  assert.match(quickPage, /빠른 대전 플레이 인원/);
   assert.match(onlinePage, /ONLINE_CHAT_MAX_LENGTH/);
   assert.match(onlinePage, /sinceChatSeq/);
   assert.match(onlinePage, /\/chat`/);
@@ -840,6 +849,10 @@ test("online chat is room-scoped and score rails use compact casino chips", asyn
     onlinePage,
     /ingestChatMessages\(\s*\[message\],[\s\S]{0,120}false,/,
   );
+  assert.match(onlinePage, /optimisticMessage: ChatMessageView/);
+  assert.match(onlinePage, /seq: Number\.MAX_SAFE_INTEGER/);
+  assert.match(onlinePage, /rankChoiceInFlightRef/);
+  assert.match(onlinePage, /optimisticSlotIndex=\{optimisticRankSlotIndex\}/);
   assert.doesNotMatch(onlinePage, /dangerouslySetInnerHTML/);
   assert.match(onlineStyles, /\.chatPanel\s*\{/);
   assert.match(

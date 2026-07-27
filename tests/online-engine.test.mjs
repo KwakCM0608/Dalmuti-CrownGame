@@ -491,6 +491,7 @@ function startAndAssignJoinOrder(
   state,
   startAt = 20,
   durations = {},
+  engineDeps = {},
 ) {
   const helperDurations = {
     ...instantRankDurations,
@@ -501,6 +502,7 @@ function startAndAssignJoinOrder(
   };
   const deps = {
     randomInt: () => 0,
+    ...engineDeps,
     durations: helperDurations,
   };
   let next = applyOnlineCommand(
@@ -557,6 +559,26 @@ function startAndAssignJoinOrder(
   assert.equal(next.phase, "reveal-intro");
   return next;
 }
+
+test("temporary great-revolution setup makes the online host the great peon with both jokers", () => {
+  let state = readyEveryone(createFourPlayerLobby());
+  state = startAndAssignJoinOrder(state, 150, {}, {
+    temporaryGreatRevolutionTestMode: true,
+  });
+
+  assert.equal(state.players.at(-1).id, state.hostId);
+  assert.equal(state.players.at(-1).role, "great-peon");
+  assert.equal(
+    state.hands[state.hostId].filter((card) => card.rank === 13).length,
+    2,
+  );
+  assert.equal(
+    Object.values(state.hands)
+      .flat()
+      .filter((card) => card.rank === 13).length,
+    2,
+  );
+});
 
 test("the opening PLAY runs a hidden, server-authoritative rank choice before dealing", () => {
   let state = readyEveryone(createFourPlayerLobby());
@@ -933,8 +955,8 @@ test("the server validates actions, locks animation time, and deduplicates comma
   const played = applyOnlineCommand(state, "p1", play, 100);
   assert.equal(played.table.rank, 12);
   assert.equal(played.currentIndex, 1);
-  assert.equal(played.actionLockUntil, 2_350);
-  assert.equal(played.turnDeadline, 32_350);
+  assert.equal(played.actionLockUntil, 2_650);
+  assert.equal(played.turnDeadline, 32_650);
   assert.equal(played.events.at(-1).type, "TURN_STARTED");
   assert.equal(played.events.at(-1).at, played.actionLockUntil);
   assert.equal(played.events.at(-1).payload.endsAt, played.turnDeadline);
@@ -977,8 +999,8 @@ test("the server validates actions, locks animation time, and deduplicates comma
     3_700,
   );
   assert.equal(continued.table.rank, 11);
-  assert.equal(continued.actionLockUntil, 5_950);
-  assert.equal(continued.turnDeadline, 35_950);
+  assert.equal(continued.actionLockUntil, 6_250);
+  assert.equal(continued.turnDeadline, 36_250);
   assert.deepEqual(
     continued.events.findLast((event) => event.type === "CARDS_PLAYED")
       ?.payload.previousTable,
@@ -1021,8 +1043,8 @@ test("playing turns use a server-authoritative 30 second deadline and timeout PA
   assert.deepEqual(state.hands, handsBeforeTimeout);
   assert.equal(state.table, null);
   assert.equal(state.players[state.currentIndex].id, "p2");
-  assert.equal(state.actionLockUntil, 31_600);
-  assert.equal(state.turnDeadline, 61_600);
+  assert.equal(state.actionLockUntil, 31_900);
+  assert.equal(state.turnDeadline, 61_900);
   assert.deepEqual(state.passedPlayerIds, ["p1"]);
   const timedOut = state.events.at(-2);
   assert.equal(timedOut.type, "PLAYER_PASSED");
@@ -1034,12 +1056,12 @@ test("playing turns use a server-authoritative 30 second deadline and timeout PA
   assert.equal(timedOut.at, 30_100);
   const nextTurn = state.events.at(-1);
   assert.equal(nextTurn.type, "TURN_STARTED");
-  assert.equal(nextTurn.at, 31_600);
-  assert.equal(nextTurn.payload.endsAt, 61_600);
+  assert.equal(nextTurn.at, 31_900);
+  assert.equal(nextTurn.payload.endsAt, 61_900);
 
-  state = advanceOnlineRoom(state, 124_600);
+  state = advanceOnlineRoom(state, 125_500);
   assert.equal(state.players[state.currentIndex].id, "p1");
-  assert.equal(state.turnDeadline, 156_100);
+  assert.equal(state.turnDeadline, 157_300);
   assert.deepEqual(
     new Set(state.passedPlayerIds),
     new Set(["p1", "p2", "p3", "p4"]),
@@ -1095,7 +1117,7 @@ test("a player with fewer cards than the occupied table requires is automaticall
   assert.deepEqual(state.hands.p1, handBeforePass);
   assert.equal(state.players[state.currentIndex].id, "p2");
   assert.deepEqual(state.passedPlayerIds, ["p1"]);
-  assert.equal(state.actionLockUntil, 1_600);
+  assert.equal(state.actionLockUntil, 1_900);
   const automaticPass = state.events.findLast(
     (event) =>
       event.type === "PLAYER_PASSED" &&
@@ -1130,11 +1152,11 @@ test("timeout PASS clears an occupied trick and resets the next leader's full de
     p4: [{ id: "p4-9", rank: 9 }],
   };
 
-  state = advanceOnlineRoom(state, 93_000);
+  state = advanceOnlineRoom(state, 93_600);
   assert.equal(state.table, null);
   assert.equal(state.players[state.currentIndex].id, "p4");
-  assert.equal(state.actionLockUntil, 94_500);
-  assert.equal(state.turnDeadline, 124_500);
+  assert.equal(state.actionLockUntil, 95_400);
+  assert.equal(state.turnDeadline, 125_400);
   assert.deepEqual(state.passedPlayerIds, []);
   assert.equal(
     state.events.some(
@@ -1430,8 +1452,8 @@ test("playing rank 1 auto-passes every other active player and starts a new tric
   assert.equal(state.table, null);
   assert.equal(state.currentIndex, 0);
   assert.equal(state.players[state.currentIndex].id, "p1");
-  assert.equal(state.actionLockUntil, 3_400);
-  assert.equal(state.turnDeadline, 33_400);
+  assert.equal(state.actionLockUntil, 3_700);
+  assert.equal(state.turnDeadline, 33_700);
   assert.equal(state.events.at(-1).type, "TURN_STARTED");
   assert.equal(state.events.at(-1).at, state.actionLockUntil);
   assert.equal(state.events.at(-1).payload.endsAt, state.turnDeadline);

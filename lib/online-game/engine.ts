@@ -21,6 +21,10 @@ import {
   chooseFacedownRankSlot,
   type BotDifficulty,
 } from "../bot-strategy.ts";
+import {
+  forceClaimedPlayerToLastRank,
+  forceTwoJokersIntoHand,
+} from "../temporary-test-mode.ts";
 
 const MIN_PLAYERS = 4;
 const MAX_PLAYERS = 8;
@@ -29,10 +33,11 @@ const MAX_PROCESSED_COMMANDS = 512;
 const PASS_ACTION_LOCK_MS = 1_500;
 const PLAY_ACTION_LOCK_MS = 2_250;
 const DALMUTI_ACTION_LOCK_MS = 3_300;
+const ACTION_SETTLE_MS = 300;
 const TURN_DURATION_MS = 30_000;
 const BOT_ACTION_DELAY_MS = 750;
 const EMPTY_TABLE_TIMEOUT_CYCLE_MS =
-  PASS_ACTION_LOCK_MS + TURN_DURATION_MS;
+  PASS_ACTION_LOCK_MS + ACTION_SETTLE_MS + TURN_DURATION_MS;
 
 const DEFAULT_DURATIONS: OnlinePhaseDurations = {
   rankChoiceIntroMs: 3_300,
@@ -399,6 +404,15 @@ function sealDeal(
 ): void {
   state.players = withAssignedRoles(state.players);
   state.hands = deal(state.players, deps?.randomInt);
+  const temporaryGreatRevolutionTestMode =
+    deps?.temporaryGreatRevolutionTestMode ?? deps === undefined;
+  if (temporaryGreatRevolutionTestMode && state.round <= 1) {
+    state.hands = forceTwoJokersIntoHand(
+      state.hands,
+      state.players.map((player) => player.id),
+      state.hostId,
+    );
+  }
   state.dealSealed = true;
   appendEvent(state, "DEAL_SEALED", at, {
     handCounts: Object.fromEntries(
@@ -488,10 +502,22 @@ function allRankCardsChosen(state: OnlineRoomState): boolean {
   );
 }
 
-function lockRankChoices(state: OnlineRoomState, at: number): void {
+function lockRankChoices(
+  state: OnlineRoomState,
+  at: number,
+  deps?: OnlineEngineDeps,
+): void {
   const rankSelection = state.rankSelection;
   if (!rankSelection || !allRankCardsChosen(state)) {
     fail("ROOM_INVARIANT", "rank choices cannot lock before every player chooses");
+  }
+  const temporaryGreatRevolutionTestMode =
+    deps?.temporaryGreatRevolutionTestMode ?? deps === undefined;
+  if (temporaryGreatRevolutionTestMode) {
+    rankSelection.cards = forceClaimedPlayerToLastRank(
+      rankSelection.cards,
+      state.hostId,
+    );
   }
   rankSelection.revealAt = at + state.durations.rankRevealDelayMs;
   state.phaseEndsAt = rankSelection.revealAt;
@@ -507,6 +533,7 @@ function claimRankCard(
   slotIndex: number,
   at: number,
   automatic: boolean,
+  deps?: OnlineEngineDeps,
 ): void {
   if (
     !Number.isInteger(slotIndex) ||
@@ -570,7 +597,7 @@ function claimRankCard(
   }
 
   if (allRankCardsChosen(state)) {
-    lockRankChoices(state, at);
+    lockRankChoices(state, at, deps);
   } else {
     scheduleBotAction(state, at);
   }
@@ -1386,7 +1413,9 @@ function handlePlayCards(
   });
   const isDalmutiEffect = normalized.rank === 1;
   state.actionLockUntil =
-    at + (isDalmutiEffect ? DALMUTI_ACTION_LOCK_MS : PLAY_ACTION_LOCK_MS);
+    at +
+    (isDalmutiEffect ? DALMUTI_ACTION_LOCK_MS : PLAY_ACTION_LOCK_MS) +
+    ACTION_SETTLE_MS;
   const automaticallyPassedPlayerIds = isDalmutiEffect
     ? state.players
         .filter(
@@ -1484,7 +1513,7 @@ function handlePass(
     ...(options.automatic ? { automatic: true } : {}),
     ...(options.reason ? { reason: options.reason } : {}),
   });
-  state.actionLockUntil = at + PASS_ACTION_LOCK_MS;
+  state.actionLockUntil = at + PASS_ACTION_LOCK_MS + ACTION_SETTLE_MS;
 
   if (!state.table) {
     state.currentIndex = nextActiveIndex(state, state.currentIndex);
@@ -1681,7 +1710,7 @@ function performBotAction(
       (card) => card.slotIndex === selectedSlot,
     );
     if (!selectedCard) return;
-    claimRankCard(state, bot.id, selectedCard.slotIndex, at, true);
+    claimRankCard(state, bot.id, selectedCard.slotIndex, at, true, deps);
     return;
   }
 
@@ -1871,7 +1900,8 @@ function fastForwardExpiredEmptyTurns(
     deadline + (skippedTimeouts - 1) * EMPTY_TABLE_TIMEOUT_CYCLE_MS;
   state.turnDeadline =
     deadline + skippedTimeouts * EMPTY_TABLE_TIMEOUT_CYCLE_MS;
-  state.actionLockUntil = lastSkippedAt + PASS_ACTION_LOCK_MS;
+  state.actionLockUntil =
+    lastSkippedAt + PASS_ACTION_LOCK_MS + ACTION_SETTLE_MS;
   state.revision += skippedTimeouts;
   state.updatedAt = lastSkippedAt;
 
@@ -2150,7 +2180,7 @@ export function applyOnlineCommand(
       if (next.phaseEndsAt !== null) {
         fail("RANK_CHOICES_LOCKED", "rank choices are already locked");
       }
-      claimRankCard(next, actorId, command.slotIndex, now, false);
+      claimRankCard(next, actorId, command.slotIndex, now, false, deps);
       break;
     }
     case "CHOOSE_REVOLUTION": {

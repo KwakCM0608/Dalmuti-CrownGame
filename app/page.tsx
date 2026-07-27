@@ -14,6 +14,10 @@ import {
   chooseFacedownRankSlot,
   type BotDifficulty,
 } from "@/lib/bot-strategy";
+import {
+  forceClaimedPlayerToLastRank,
+  forceTwoJokersIntoHand,
+} from "@/lib/temporary-test-mode";
 
 type Role =
   | "great-dalmuti"
@@ -502,7 +506,11 @@ function completeOpeningRankSelection(state: GameState): GameState {
         (rankByPlayer.get(right.id) ?? Number.MAX_SAFE_INTEGER),
     ),
   );
-  const hands = deal(players);
+  const hands = forceTwoJokersIntoHand(
+    deal(players),
+    players.map((player) => player.id),
+    HUMAN_ID,
+  );
   const holder = players.find(
     (player) => hands[player.id].filter((card) => card.rank === 13).length === 2,
   );
@@ -2168,6 +2176,17 @@ export default function Home() {
           ...latest,
           phase: "rank-reveal",
           revision: latest.revision + 1,
+          openingRankSelection: {
+            ...latest.openingRankSelection,
+            cards: forceClaimedPlayerToLastRank(
+              latest.openingRankSelection.cards.map((rank, cardIndex) => ({
+                rank,
+                claimedByPlayerId:
+                  latest.openingRankSelection!.selectedBy[cardIndex],
+              })),
+              HUMAN_ID,
+            ).map((card) => card.rank),
+          },
           log: ["선택한 계급 카드를 공개합니다.", ...latest.log].slice(0, 12),
         };
       });
@@ -3769,7 +3788,7 @@ export default function Home() {
             <div className="quick-match-config">
               <fieldset>
                 <legend>
-                  <span>플레이 인원</span>
+                  <span>빠른 대전 플레이 인원</span>
                   <strong>{quickPlayerCount}인</strong>
                 </legend>
                 <div className="quick-player-count-options">

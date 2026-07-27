@@ -2051,6 +2051,11 @@
   z-index: 8;
   opacity: 1;
   isolation: isolate;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    opacity 180ms ease,
+    filter 180ms ease;
   animation: rankSeatChange 2.85s cubic-bezier(0.16, 0.78, 0.18, 1) both;
 }
 
@@ -2100,7 +2105,7 @@
   opacity: 0;
   transform: translateX(-50%);
   white-space: nowrap;
-  animation: rankSeatDirection 2.5s 180ms ease both;
+  animation: rankSeatDirection 2.1s 180ms ease both;
 }
 
 .playerSeatRankMovingUp::after {
@@ -7002,6 +7007,14 @@
   transition:
     top 2.3s cubic-bezier(0.16, 0.74, 0.2, 1),
     left 2.3s cubic-bezier(0.16, 0.74, 0.2, 1),
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    opacity 180ms ease,
+    filter 180ms ease;
+}
+
+.playerSeat.playerSeatRankMoving {
+  transition:
     border-color 180ms ease,
     box-shadow 180ms ease,
     opacity 180ms ease,

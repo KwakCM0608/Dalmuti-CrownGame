@@ -201,6 +201,9 @@ const LAST_SESSION_KEY = "dalmuti.online.last-session";
 const POLL_INTERVAL_MS = 250;
 const MAX_EVENT_CATCHUP_MS = 120;
 const TURN_DURATION_MS = 30_000;
+const RANK_MOVE_DURATION_MS = 2_300;
+const ROUND_END_MOVE_PRELUDE_MS = 380;
+const ROUND_END_MOVE_SETTLE_MS = 520;
 const BOT_DIFFICULTY_LABELS: Record<BotDifficulty, string> = {
   easy: "쉬움",
   normal: "보통",
@@ -1093,6 +1096,7 @@ function RankSelectionField({
   rankSelection,
   players,
   viewerId,
+  optimisticSlotIndex,
   effectiveClock,
   phaseEndsAt,
   busy,
@@ -1101,6 +1105,7 @@ function RankSelectionField({
   rankSelection: RankSelectionView;
   players: PlayerView[];
   viewerId: string;
+  optimisticSlotIndex: number | null;
   effectiveClock: number;
   phaseEndsAt: number | null;
   busy: boolean;
@@ -1132,7 +1137,8 @@ function RankSelectionField({
     viewerCardIndex >= 0 ? cards[viewerCardIndex].revealedRank : null;
   const viewerHasChosen =
     rankSelection.selectedSlotIndex !== null ||
-    cards.some((card) => card.claimedByPlayerId === viewerId);
+    cards.some((card) => card.claimedByPlayerId === viewerId) ||
+    optimisticSlotIndex !== null;
   const phaseStartedAt = isIntro
     ? rankSelection.introStartedAt
     : isRevealed
@@ -1246,11 +1252,15 @@ function RankSelectionField({
         className={styles.rankChoiceCards}
       >
         {cards.map((card, index) => {
+          const optimisticMine =
+            optimisticSlotIndex === card.slotIndex &&
+            card.claimedByPlayerId === null;
           const claimant = card.claimedByPlayerId
             ? players.find((player) => player.id === card.claimedByPlayerId)
             : null;
-          const claimed = Boolean(card.claimedByPlayerId);
-          const mine = card.claimedByPlayerId === viewerId;
+          const claimed = Boolean(card.claimedByPlayerId) || optimisticMine;
+          const mine =
+            card.claimedByPlayerId === viewerId || optimisticMine;
           const canChoose =
             !isLocked &&
             !isRevealed &&
@@ -1361,7 +1371,6 @@ function EventOverlayView({
     Math.max(
       0,
       Math.min(
-        MAX_EVENT_CATCHUP_MS,
         event.durationMs,
         effectiveClock - event.startsAt,
       ),
@@ -1662,7 +1671,7 @@ function EventOverlayView({
                   "--pass-offset-x": `${
                     (playerIndex - (autoPassedIds.length - 1) / 2) * 104
                   }px`,
-                  "--pass-delay": `${360 + playerIndex * 90}ms`,
+                  "--pass-delay": `${260 + playerIndex * 55}ms`,
                 } as CSSProperties
               }
             >
@@ -1865,6 +1874,7 @@ function OnlineChatPanel({
   const [collapsed, setCollapsed] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
+  const sendingRef = useRef(false);
 
   useEffect(() => {
     const messageList = messageListRef.current;
@@ -1875,19 +1885,22 @@ function OnlineChatPanel({
   const submitChat = async (event: FormEvent) => {
     event.preventDefault();
     const text = draft.trim();
-    if (!text || sending || !connected) return;
+    if (!text || sendingRef.current || !connected) return;
+    sendingRef.current = true;
     setSending(true);
+    setDraft("");
     setChatError(null);
     try {
       await onSend(text);
-      setDraft("");
     } catch (reason) {
+      setDraft((current) => current || text);
       setChatError(
         reason instanceof Error
           ? reason.message
           : "채팅을 보내지 못했습니다.",
       );
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   };
@@ -1951,7 +1964,7 @@ function OnlineChatPanel({
           }
           placeholder={connected ? "메시지 입력" : "연결 복구 중"}
           aria-label="채팅 메시지"
-          disabled={!connected || sending}
+          disabled={!connected}
         />
         <button
           type="submit"
@@ -2004,6 +2017,9 @@ export default function OnlinePage() {
     setPendingGreatRevolutionMoveIds,
   ] = useState<string[] | null>(null);
   const [roundEndResultReady, setRoundEndResultReady] = useState(true);
+  const [optimisticRankSlotIndex, setOptimisticRankSlotIndex] = useState<
+    number | null
+  >(null);
   const [handRevealElapsedMs, setHandRevealElapsedMs] = useState(0);
   const [motionAnchors, setMotionAnchors] = useState<MotionAnchors>({
     players: {},
@@ -2014,6 +2030,7 @@ export default function OnlinePage() {
   const snapshotRef = useRef<SnapshotView | null>(null);
   const sessionRef = useRef<StoredSession | null>(null);
   const latestChatSeqRef = useRef(0);
+  const rankChoiceInFlightRef = useRef<number | null>(null);
   const rankMoveTimerRef = useRef<number | null>(null);
   const seatElementsRef = useRef(new Map<string, HTMLElement>());
   const seatRectsRef = useRef(new Map<string, DOMRect>());
@@ -2149,6 +2166,13 @@ export default function OnlinePage() {
     }
     snapshotRef.current = next;
     setSnapshot(next);
+    if (
+      !["rank-intro", "rank-selection"].includes(next.phase) ||
+      next.rankSelection?.selectedSlotIndex !== null
+    ) {
+      rankChoiceInFlightRef.current = null;
+      setOptimisticRankSlotIndex(null);
+    }
     setServerOffset(next.serverTime - Date.now());
     const declarationEvent = [...next.events]
       .reverse()
@@ -2460,49 +2484,101 @@ export default function OnlinePage() {
     [busy, ingestChatMessages, ingestSnapshot, pollRoom],
   );
 
+  const chooseRankCard = useCallback(
+    (slotIndex: number) => {
+      const current = snapshotRef.current;
+      if (
+        rankChoiceInFlightRef.current !== null ||
+        busy ||
+        current?.phase !== "rank-selection" ||
+        !current.rankSelection?.canChoose
+      ) {
+        return;
+      }
+
+      rankChoiceInFlightRef.current = slotIndex;
+      setOptimisticRankSlotIndex(slotIndex);
+      void sendCommand("CHOOSE_RANK_CARD", { slotIndex }).finally(() => {
+        if (rankChoiceInFlightRef.current === slotIndex) {
+          rankChoiceInFlightRef.current = null;
+          setOptimisticRankSlotIndex(null);
+        }
+      });
+    },
+    [busy, sendCommand],
+  );
+
   const sendChatMessage = useCallback(
     async (text: string) => {
       const activeSession = sessionRef.current;
+      const current = snapshotRef.current;
       if (!activeSession || connection !== "online") {
         throw new Error("연결이 복구된 뒤 채팅을 보낼 수 있습니다.");
       }
       const messageId = createCommandId();
-      const response = await fetch(
-        `/api/online/rooms/${activeSession.roomCode}/chat`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${activeSession.token}`,
-            "Content-Type": "application/json",
-            Accept: "application/json",
+      const viewer =
+        current?.players.find((player) => player.id === current.viewerId) ??
+        null;
+      const optimisticMessage: ChatMessageView = {
+        seq: Number.MAX_SAFE_INTEGER,
+        id: messageId,
+        playerId: current?.viewerId ?? activeSession.playerId,
+        authorName: viewer?.name ?? activeSession.nickname,
+        text,
+        sentAt: Date.now(),
+      };
+      setChatMessages((messages) => [
+        ...messages.filter((message) => message.id !== messageId),
+        optimisticMessage,
+      ].slice(-ONLINE_CHAT_HISTORY_LIMIT));
+
+      try {
+        const response = await fetch(
+          `/api/online/rooms/${activeSession.roomCode}/chat`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${activeSession.token}`,
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify({
+              id: messageId,
+              text,
+            }),
           },
-          body: JSON.stringify({
-            id: messageId,
-            text,
-          }),
-        },
-      );
-      const body: unknown = await response.json().catch(() => ({}));
-      if (sessionRef.current?.token !== activeSession.token) {
-        throw new Error("방이 변경되어 메시지를 보내지 않았습니다.");
-      }
-      if (!response.ok) {
-        if (response.status === 401 || response.status === 404) {
-          setFatalError(true);
-          setConnection("offline");
+        );
+        const body: unknown = await response.json().catch(() => ({}));
+        if (sessionRef.current?.token !== activeSession.token) {
+          throw new Error("방이 변경되어 메시지를 보내지 않았습니다.");
         }
-        throw new Error(apiErrorMessage(body, "채팅을 보내지 못했습니다."));
+        if (!response.ok) {
+          if (response.status === 401 || response.status === 404) {
+            setFatalError(true);
+            setConnection("offline");
+          }
+          throw new Error(apiErrorMessage(body, "채팅을 보내지 못했습니다."));
+        }
+        const source = record(body);
+        const message = chatMessageFrom(source.message);
+        if (!message) {
+          throw new Error("전송된 채팅을 확인하지 못했습니다.");
+        }
+        ingestChatMessages(
+          [message],
+          numberValue(source.latestChatSeq, message.seq),
+          false,
+        );
+      } catch (reason) {
+        setChatMessages((messages) =>
+          messages.filter(
+            (message) =>
+              message.id !== messageId ||
+              message.seq !== Number.MAX_SAFE_INTEGER,
+          ),
+        );
+        throw reason;
       }
-      const source = record(body);
-      const message = chatMessageFrom(source.message);
-      if (!message) {
-        throw new Error("전송된 채팅을 확인하지 못했습니다.");
-      }
-      ingestChatMessages(
-        [message],
-        numberValue(source.latestChatSeq, message.seq),
-        false,
-      );
     },
     [connection, ingestChatMessages],
   );
@@ -2810,10 +2886,14 @@ export default function OnlinePage() {
         : null,
     [activeEvent, snapshot],
   );
-  const showMyTurnHighlight =
-    isMyTurn &&
+  const turnPresentationReady =
+    snapshot?.phase === "playing" &&
     !actionLocked &&
     !activeEvent &&
+    turnRemainingMs !== null;
+  const showMyTurnHighlight =
+    turnPresentationReady &&
+    isMyTurn &&
     !busy &&
     connection === "online";
   const showUrgentTurnHighlight =
@@ -2894,11 +2974,11 @@ export default function OnlinePage() {
       ).matches;
       const remainingMs =
         snapshot.phaseEndsAt === null
-          ? 2_300
+          ? RANK_MOVE_DURATION_MS
           : Math.max(
               120,
               Math.min(
-                2_300,
+                RANK_MOVE_DURATION_MS,
                 snapshot.phaseEndsAt - (Date.now() + serverOffset),
               ),
             );
@@ -2930,7 +3010,10 @@ export default function OnlinePage() {
     const startTimer = window.setTimeout(() => {
       setPendingRoundEndMoveIds(null);
       if (!movingPlayerIds.length) {
-        window.setTimeout(() => setRoundEndResultReady(true), 280);
+        window.setTimeout(
+          () => setRoundEndResultReady(true),
+          ROUND_END_MOVE_SETTLE_MS,
+        );
         return;
       }
 
@@ -2946,8 +3029,10 @@ export default function OnlinePage() {
         setRankMovingPlayerIds([]);
         setRoundEndResultReady(true);
         rankMoveTimerRef.current = null;
-      }, reduceMotion ? 80 : 2_580);
-    }, 0);
+      }, reduceMotion
+        ? 120
+        : RANK_MOVE_DURATION_MS + ROUND_END_MOVE_SETTLE_MS);
+    }, ROUND_END_MOVE_PRELUDE_MS);
     return () => window.clearTimeout(startTimer);
   }, [
     actionLocked,
@@ -2963,7 +3048,6 @@ export default function OnlinePage() {
     });
 
     const useGridFlip =
-      window.matchMedia("(max-width: 820px)").matches &&
       !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (useGridFlip && rankMovingPlayerIds.length) {
       for (const playerId of rankMovingPlayerIds) {
@@ -2976,11 +3060,35 @@ export default function OnlinePage() {
         if (Math.abs(deltaX) < 1 && Math.abs(deltaY) < 1) continue;
         element.animate(
           [
-            { translate: `${deltaX}px ${deltaY}px` },
-            { translate: "0 0" },
+            {
+              translate: `${deltaX}px ${deltaY}px`,
+              scale: "1",
+              filter: "brightness(1)",
+            },
+            {
+              offset: 0.3,
+              translate: `${deltaX * 0.7 + Math.sign(deltaY || 1) * 34}px ${
+                deltaY * 0.7 - 22
+              }px`,
+              scale: "1.07",
+              filter: "brightness(1.32)",
+            },
+            {
+              offset: 0.72,
+              translate: `${deltaX * 0.24 - Math.sign(deltaY || 1) * 18}px ${
+                deltaY * 0.24 + 8
+              }px`,
+              scale: "1.035",
+              filter: "brightness(1.16)",
+            },
+            {
+              translate: "0 0",
+              scale: "1",
+              filter: "brightness(1)",
+            },
           ],
           {
-            duration: 2_300,
+            duration: RANK_MOVE_DURATION_MS,
             easing: "cubic-bezier(0.16, 0.74, 0.2, 1)",
           },
         );
@@ -2990,7 +3098,7 @@ export default function OnlinePage() {
   }, [rankMovingPlayerIds, seatRankOverrides, tableRankedPlayers]);
 
   const toggleCard = (cardId: string) => {
-    if (!isMyTurn && !isTaxSelection) return;
+    if ((!isMyTurn || !turnPresentationReady) && !isTaxSelection) return;
     setSelectedIds((current) =>
       current.includes(cardId)
         ? current.filter((id) => id !== cardId)
@@ -2999,7 +3107,7 @@ export default function OnlinePage() {
   };
 
   const toggleRank = (rank: number) => {
-    if (!isMyTurn && !isTaxSelection) return;
+    if ((!isMyTurn || !turnPresentationReady) && !isTaxSelection) return;
     const rankIds = hand
       .filter((card) => card.rank === rank)
       .map((card) => card.id);
@@ -3043,6 +3151,8 @@ export default function OnlinePage() {
     setPendingRoundEndMoveIds(null);
     setPendingGreatRevolutionMoveIds(null);
     setRoundEndResultReady(true);
+    rankChoiceInFlightRef.current = null;
+    setOptimisticRankSlotIndex(null);
     setBotDifficultyPickerSlot(null);
     if (rankMoveTimerRef.current !== null) {
       window.clearTimeout(rankMoveTimerRef.current);
@@ -3763,7 +3873,7 @@ export default function OnlinePage() {
                     player={displayedPlayer}
                     isHost={player.id === snapshot.hostId}
                     isCurrent={
-                      snapshot.phase === "playing" &&
+                      turnPresentationReady &&
                       !dalmutiHighlightPlayerId &&
                       player.id === snapshot.currentPlayerId
                     }
@@ -3819,12 +3929,11 @@ export default function OnlinePage() {
                   rankSelection={snapshot.rankSelection}
                   players={snapshot.players}
                   viewerId={snapshot.viewerId}
+                  optimisticSlotIndex={optimisticRankSlotIndex}
                   effectiveClock={effectiveClock}
                   phaseEndsAt={snapshot.phaseEndsAt}
                   busy={busy}
-                  onChoose={(slotIndex) =>
-                    void sendCommand("CHOOSE_RANK_CARD", { slotIndex })
-                  }
+                  onChoose={chooseRankCard}
                 />
               ) : snapshot.phase === "revolution" &&
               !snapshot.canChooseRevolution ? (
@@ -3947,8 +4056,12 @@ export default function OnlinePage() {
                   <span aria-hidden="true">◇</span>
                   <strong>비어 있는 필드</strong>
                   <small>
-                    {playerName(snapshot.players, snapshot.currentPlayerId)}이(가)
-                    새 묶음을 시작합니다
+                    {turnPresentationReady
+                      ? `${playerName(
+                          snapshot.players,
+                          snapshot.currentPlayerId,
+                        )}이(가) 새 묶음을 시작합니다`
+                      : "이전 행동을 정리하고 있습니다"}
                   </small>
                 </div>
               )}
@@ -3969,7 +4082,11 @@ export default function OnlinePage() {
                 player={displayedMe ?? me}
                 isSelf
                 isHost={isHost}
-                isCurrent={isMyTurn && !dalmutiHighlightPlayerId}
+                isCurrent={
+                  turnPresentationReady &&
+                  isMyTurn &&
+                  !dalmutiHighlightPlayerId
+                }
                 rankNumber={
                   tableRankedPlayers.findIndex((player) => player.id === me.id) +
                   1
@@ -4031,7 +4148,10 @@ export default function OnlinePage() {
                         card={card}
                         concealed={isHandConcealed}
                         selected={selectedIds.includes(card.id)}
-                        disabled={!isMyTurn && !isTaxSelection}
+                        disabled={
+                          (!isMyTurn || !turnPresentationReady) &&
+                          !isTaxSelection
+                        }
                         onClick={() => toggleCard(card.id)}
                         onDoubleClick={() => toggleRank(card.rank)}
                         style={
@@ -4075,15 +4195,19 @@ export default function OnlinePage() {
                 <strong>
                   {isTaxSelection
                     ? `반환 카드 ${snapshot.requiredReturnCount}장 선택`
-                    : `${playerName(
-                        snapshot.players,
-                        snapshot.currentPlayerId ?? me?.id,
-                      )}의 차례`}
+                    : turnPresentationReady
+                      ? `${playerName(
+                          snapshot.players,
+                          snapshot.currentPlayerId ?? me?.id,
+                        )}의 차례`
+                      : "행동 처리 중"}
                 </strong>
                 <small>
                   {isTaxSelection
                     ? `${selectedIds.length} / ${snapshot.requiredReturnCount} · 원하는 카드를 고르세요`
-                    : isMyTurn
+                    : !turnPresentationReady
+                      ? "다음 차례를 준비하고 있습니다"
+                      : isMyTurn
                       ? selectedIds.length
                         ? `${selectedIds.length}장 선택 · ${
                             playError ??
