@@ -1,3 +1,12 @@
+import {
+  ONLINE_CHAT_COOLDOWN_MS,
+  ONLINE_CHAT_HISTORY_LIMIT,
+  ONLINE_CHAT_PAGE_SIZE,
+  OnlineChatValidationError,
+  sanitizeOnlineChatText,
+  type OnlineChatMessage,
+} from "./online-chat";
+
 const ROOM_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 const ROOM_CODE_LENGTH = 6;
 const TOKEN_BYTES = 32;
@@ -65,6 +74,16 @@ interface MemberRow extends D1Row {
   last_seen_at: number;
 }
 
+interface ChatMessageRow extends D1Row {
+  seq: number;
+  room_code: string;
+  message_id: string;
+  player_id: string;
+  author_name: string;
+  body: string;
+  created_at: number;
+}
+
 let schemaReady: Promise<void> | undefined;
 
 async function getD1(): Promise<D1Database> {
@@ -119,6 +138,18 @@ async function initializeSchema(): Promise<void> {
           FOREIGN KEY (room_code) REFERENCES online_rooms(code) ON DELETE CASCADE
         )
       `),
+      db.prepare(`
+        CREATE TABLE IF NOT EXISTS online_room_chat_messages (
+          seq INTEGER PRIMARY KEY AUTOINCREMENT,
+          room_code TEXT NOT NULL,
+          message_id TEXT NOT NULL,
+          player_id TEXT NOT NULL,
+          author_name TEXT NOT NULL,
+          body TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          FOREIGN KEY (room_code) REFERENCES online_rooms(code) ON DELETE CASCADE
+        )
+      `),
       db.prepare(
         "CREATE UNIQUE INDEX IF NOT EXISTS online_rooms_code_idx ON online_rooms(code)",
       ),
@@ -130,6 +161,15 @@ async function initializeSchema(): Promise<void> {
       ),
       db.prepare(
         "CREATE INDEX IF NOT EXISTS online_rooms_expiry_idx ON online_rooms(expires_at)",
+      ),
+      db.prepare(
+        "CREATE UNIQUE INDEX IF NOT EXISTS online_room_chat_message_id_idx ON online_room_chat_messages(room_code, message_id)",
+      ),
+      db.prepare(
+        "CREATE INDEX IF NOT EXISTS online_room_chat_room_seq_idx ON online_room_chat_messages(room_code, seq)",
+      ),
+      db.prepare(
+        "CREATE INDEX IF NOT EXISTS online_room_chat_player_time_idx ON online_room_chat_messages(room_code, player_id, created_at)",
       ),
     ]);
   } catch (error) {
@@ -350,19 +390,260 @@ export async function deleteStoredOnlineRoom(
       // Delete members explicitly instead of depending on a connection-level
       // SQLite foreign_keys setting. D1 batch statements commit atomically.
       db
+        .prepare("DELETE FROM online_room_chat_messages WHERE room_code = ?")
+        .bind(code),
+      db
         .prepare("DELETE FROM online_room_members WHERE room_code = ?")
         .bind(code),
       db
         .prepare("DELETE FROM online_rooms WHERE code = ?")
         .bind(code),
     ]);
-    if (changes(results[1]) !== 1) {
+    if (changes(results[2]) !== 1) {
       throw roomNotFound();
     }
   } catch (error) {
     if (error instanceof OnlineStoreError) {
       throw error;
     }
+    throw storageFailure(error);
+  }
+}
+
+export async function appendOnlineRoomChatMessage(
+  roomCodeInput: string,
+  member: OnlineRoomMember,
+  messageIdInput: unknown,
+  textInput: unknown,
+  now = Date.now(),
+): Promise<OnlineChatMessage> {
+  await ensureOnlineRoomSchema();
+  const code = normalizeRoomCode(roomCodeInput);
+  if (member.roomCode !== code) {
+    throw unauthorized();
+  }
+  const messageId =
+    typeof messageIdInput === "string" ? messageIdInput.trim() : "";
+  if (
+    !messageId ||
+    messageId.length > 128 ||
+    !/^[A-Za-z0-9._:-]+$/.test(messageId)
+  ) {
+    throw new OnlineStoreError(
+      "INVALID_CHAT_MESSAGE_ID",
+      "채팅 요청을 다시 보내 주세요.",
+      400,
+    );
+  }
+  if (!Number.isFinite(now) || now < 0) {
+    throw new OnlineStoreError(
+      "INVALID_CHAT_TIME",
+      "채팅 시간을 확인할 수 없습니다.",
+      400,
+    );
+  }
+
+  let text: string;
+  try {
+    text = sanitizeOnlineChatText(textInput);
+  } catch (error) {
+    if (error instanceof OnlineChatValidationError) {
+      throw new OnlineStoreError(error.code, error.message, 400);
+    }
+    throw error;
+  }
+
+  const db = await getD1();
+  try {
+    const existing = await db
+      .prepare(`
+        SELECT seq, room_code, message_id, player_id, author_name, body, created_at
+        FROM online_room_chat_messages
+        WHERE room_code = ? AND message_id = ?
+        LIMIT 1
+      `)
+      .bind(code, messageId)
+      .first<ChatMessageRow>();
+    if (existing) {
+      if (existing.player_id !== member.playerId) {
+        throw new OnlineStoreError(
+          "CHAT_MESSAGE_ID_CONFLICT",
+          "채팅 요청이 충돌했습니다. 다시 보내 주세요.",
+          409,
+        );
+      }
+      return chatMessageFromRow(existing);
+    }
+
+    const insertResult = await db
+      .prepare(`
+        INSERT OR IGNORE INTO online_room_chat_messages
+          (room_code, message_id, player_id, author_name, body, created_at)
+        SELECT ?, ?, ?, ?, ?, ?
+        WHERE EXISTS (
+          SELECT 1
+          FROM online_rooms AS rooms
+          INNER JOIN online_room_members AS members
+            ON members.room_code = rooms.code
+          WHERE rooms.code = ?
+            AND rooms.expires_at > ?
+            AND members.player_id = ?
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM online_room_chat_messages
+          WHERE room_code = ?
+            AND player_id = ?
+            AND created_at > ?
+        )
+      `)
+      .bind(
+        code,
+        messageId,
+        member.playerId,
+        member.nickname,
+        text,
+        now,
+        code,
+        now,
+        member.playerId,
+        code,
+        member.playerId,
+        now - ONLINE_CHAT_COOLDOWN_MS,
+      )
+      .run();
+
+    if (changes(insertResult) !== 1) {
+      const duplicate = await db
+        .prepare(`
+          SELECT seq, room_code, message_id, player_id, author_name, body, created_at
+          FROM online_room_chat_messages
+          WHERE room_code = ? AND message_id = ?
+          LIMIT 1
+        `)
+        .bind(code, messageId)
+        .first<ChatMessageRow>();
+      if (duplicate) {
+        if (duplicate.player_id === member.playerId) {
+          return chatMessageFromRow(duplicate);
+        }
+        throw new OnlineStoreError(
+          "CHAT_MESSAGE_ID_CONFLICT",
+          "채팅 요청이 충돌했습니다. 다시 보내 주세요.",
+          409,
+        );
+      }
+      const activeMembership = await db
+        .prepare(`
+          SELECT 1 AS active
+          FROM online_rooms AS rooms
+          INNER JOIN online_room_members AS members
+            ON members.room_code = rooms.code
+          WHERE rooms.code = ?
+            AND rooms.expires_at > ?
+            AND members.player_id = ?
+          LIMIT 1
+        `)
+        .bind(code, now, member.playerId)
+        .first<{ active: number }>();
+      if (!activeMembership) {
+        throw unauthorized();
+      }
+      throw new OnlineStoreError(
+        "CHAT_RATE_LIMIT",
+        "채팅은 잠시 후 다시 보낼 수 있습니다.",
+        429,
+        true,
+      );
+    }
+
+    await db
+      .prepare(`
+        DELETE FROM online_room_chat_messages
+        WHERE room_code = ?
+          AND seq NOT IN (
+            SELECT seq
+            FROM online_room_chat_messages
+            WHERE room_code = ?
+            ORDER BY seq DESC
+            LIMIT ?
+          )
+      `)
+      .bind(code, code, ONLINE_CHAT_HISTORY_LIMIT)
+      .run();
+
+    const inserted = await db
+      .prepare(`
+        SELECT seq, room_code, message_id, player_id, author_name, body, created_at
+        FROM online_room_chat_messages
+        WHERE room_code = ? AND message_id = ?
+        LIMIT 1
+      `)
+      .bind(code, messageId)
+      .first<ChatMessageRow>();
+    if (!inserted) {
+      throw new OnlineStoreError(
+        "CHAT_WRITE_FAILED",
+        "채팅을 보내지 못했습니다. 다시 시도해 주세요.",
+        503,
+        true,
+      );
+    }
+    return chatMessageFromRow(inserted);
+  } catch (error) {
+    if (error instanceof OnlineStoreError) throw error;
+    throw storageFailure(error);
+  }
+}
+
+export async function readOnlineRoomChatMessages(
+  roomCodeInput: string,
+  sinceSequence = 0,
+  limit = ONLINE_CHAT_PAGE_SIZE,
+): Promise<{ messages: OnlineChatMessage[]; latestSequence: number }> {
+  await ensureOnlineRoomSchema();
+  const code = normalizeRoomCode(roomCodeInput);
+  if (!Number.isSafeInteger(sinceSequence) || sinceSequence < 0) {
+    throw new OnlineStoreError(
+      "INVALID_CHAT_SEQUENCE",
+      "채팅 기준값을 확인해 주세요.",
+      400,
+    );
+  }
+  const safeLimit = Math.max(1, Math.min(ONLINE_CHAT_PAGE_SIZE, limit));
+  try {
+    const db = await getD1();
+    const query =
+      sinceSequence === 0
+        ? db
+            .prepare(`
+              SELECT *
+              FROM (
+                SELECT seq, room_code, message_id, player_id, author_name, body, created_at
+                FROM online_room_chat_messages
+                WHERE room_code = ?
+                ORDER BY seq DESC
+                LIMIT ?
+              )
+              ORDER BY seq ASC
+            `)
+            .bind(code, safeLimit)
+        : db
+            .prepare(`
+              SELECT seq, room_code, message_id, player_id, author_name, body, created_at
+              FROM online_room_chat_messages
+              WHERE room_code = ? AND seq > ?
+              ORDER BY seq ASC
+              LIMIT ?
+            `)
+            .bind(code, sinceSequence, safeLimit);
+    const result = await query.all<ChatMessageRow>();
+    const messages = (result.results ?? []).map(chatMessageFromRow);
+    return {
+      messages,
+      latestSequence: messages.at(-1)?.seq ?? sinceSequence,
+    };
+  } catch (error) {
     throw storageFailure(error);
   }
 }
@@ -384,11 +665,20 @@ export async function authenticateOnlineRoomRequest(
 
   try {
     const row = await (await getD1()).prepare(`
-      SELECT room_code, player_id, nickname, created_at, last_seen_at
-      FROM online_room_members
-      WHERE room_code = ? AND token_hash = ?
+      SELECT
+        members.room_code,
+        members.player_id,
+        members.nickname,
+        members.created_at,
+        members.last_seen_at
+      FROM online_room_members AS members
+      INNER JOIN online_rooms AS rooms
+        ON rooms.code = members.room_code
+      WHERE members.room_code = ?
+        AND members.token_hash = ?
+        AND rooms.expires_at > ?
       LIMIT 1
-    `).bind(code, tokenHash).first<MemberRow>();
+    `).bind(code, tokenHash, now).first<MemberRow>();
 
     if (!row) {
       throw unauthorized();
@@ -556,6 +846,18 @@ function roomFromRow<State>(row: RoomRow): StoredOnlineRoom<State> {
       500,
     );
   }
+}
+
+function chatMessageFromRow(row: ChatMessageRow): OnlineChatMessage {
+  return {
+    seq: numberValue(row.seq),
+    id: row.message_id,
+    roomCode: row.room_code,
+    playerId: row.player_id,
+    authorName: row.author_name,
+    text: row.body,
+    sentAt: numberValue(row.created_at),
+  };
 }
 
 async function issueIdentity(nicknameInput: unknown): Promise<PendingIdentity> {

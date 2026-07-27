@@ -7,6 +7,7 @@ import {
 } from "@/lib/taxation";
 import { rankedDealCounts } from "@/lib/dealing";
 import { resolveQuickDalmutiAutoPass } from "@/lib/quick-dalmuti";
+import { scoreChipCount } from "@/lib/score-chips";
 import { toggleWholeRankSelection } from "@/lib/selection";
 
 type Role =
@@ -1459,6 +1460,11 @@ export default function Home() {
       ? Math.max(0, Math.min(1, (10_000 - turnRemainingMs) / 10_000))
       : 0;
   const turnAccentHue = 43 - turnUrgency * 39;
+  const scoreRailPlayers = game?.players ?? assignRoles(BASE_PLAYERS);
+  const highestScore = Math.max(
+    1,
+    ...scoreRailPlayers.map((player) => game?.scores[player.id] ?? 0),
+  );
   // The announcement itself is transient, but the revolution changes the
   // atmosphere of the whole act. Keep the base red field active until the
   // next round replaces this announcement state.
@@ -2565,13 +2571,15 @@ export default function Home() {
             <small>누적 점수</small>
           </div>
           <ol>
-            {(game?.players ?? assignRoles(BASE_PLAYERS)).map((player) => {
+            {scoreRailPlayers.map((player) => {
               const rankLabel = openingRankRolesHidden
                 ? "계급 미정"
                 : ROLE_LABELS[player.role];
               const rankMark = openingRankRolesHidden
                 ? "·"
                 : ROLE_MARKS[player.role];
+              const score = game?.scores[player.id] ?? 0;
+              const chipCount = scoreChipCount(score, highestScore);
               return (
                 <li
                   key={player.id}
@@ -2582,7 +2590,24 @@ export default function Home() {
                     <b>{player.name}</b>
                     <small>{rankLabel}</small>
                   </div>
-                  <em>{game?.scores[player.id] ?? 0}</em>
+                  <em
+                    className="score-display"
+                    aria-label={`${player.name} 누적 점수 ${score}점`}
+                  >
+                    <span className="score-chip-stack" aria-hidden="true">
+                      {Array.from({ length: chipCount }, (_, chipIndex) => (
+                        <i
+                          key={chipIndex}
+                          style={
+                            {
+                              "--score-chip-index": chipIndex,
+                            } as React.CSSProperties
+                          }
+                        />
+                      ))}
+                    </span>
+                    <span className="score-number">{score}</span>
+                  </em>
                 </li>
               );
             })}
@@ -3140,9 +3165,9 @@ export default function Home() {
                       ? game.publicAction.kind === "play"
                         ? "카드를 내는 중"
                         : "패스하는 중"
-                    : isHumanTurn
-                      ? "당신의 차례"
-                      : "나의 손패"}
+                    : currentPlayer
+                      ? `${currentPlayer.name}의 차례`
+                      : "나의 차례"}
                 </strong>
               </div>
               <em>
@@ -3290,7 +3315,7 @@ export default function Home() {
                     disabled={!canPlay}
                     onClick={playSelected}
                   >
-                    패 내기
+                    제출
                     <span>↗</span>
                   </button>
                 </>

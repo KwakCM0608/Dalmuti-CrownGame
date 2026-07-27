@@ -6,10 +6,12 @@ import {
 import {
   authenticateOnlineRoomRequest,
   mutateStoredOnlineRoom,
+  readOnlineRoomChatMessages,
 } from "@/lib/online-room-store";
 import {
   onlineApiErrorResponse,
   onlineJson,
+  optionalChatSequence,
   optionalEventSequence,
   routeRoomCode,
 } from "../../_shared";
@@ -26,6 +28,7 @@ export async function GET(
     const code = await routeRoomCode(context);
     const member = await authenticateOnlineRoomRequest(request, code);
     const sinceEventSeq = optionalEventSequence(request);
+    const sinceChatSeq = optionalChatSequence(request);
     const now = Date.now();
     const room = await mutateStoredOnlineRoom<OnlineRoomState>(
       code,
@@ -36,6 +39,7 @@ export async function GET(
       member.playerId,
       sinceEventSeq,
     );
+    const chat = await readOnlineRoomChatMessages(code, sinceChatSeq);
 
     return onlineJson({
       roomCode: room.code,
@@ -43,6 +47,8 @@ export async function GET(
       revision: room.revision,
       serverTime: Date.now(),
       snapshot,
+      chatMessages: chat.messages,
+      latestChatSeq: chat.latestSequence,
     });
   } catch (error) {
     return onlineApiErrorResponse(error);

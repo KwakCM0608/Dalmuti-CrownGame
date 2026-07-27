@@ -278,6 +278,45 @@ button:focus-visible {
   font-weight: 700;
 }
 
+.score-rail .score-display {
+  display: grid;
+  min-width: 42px;
+  grid-template-columns: 24px auto;
+  align-items: center;
+  justify-content: end;
+  gap: 3px;
+}
+
+.score-chip-stack {
+  position: relative;
+  width: 24px;
+  height: 16px;
+}
+
+.score-chip-stack i {
+  position: absolute;
+  bottom: calc(var(--score-chip-index) * 2px);
+  left: calc(var(--score-chip-index) * 2px);
+  width: 12px;
+  height: 12px;
+  border: 1px solid rgba(255, 231, 159, 0.8);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, #6f1e2d 0 36%, transparent 38%),
+    repeating-conic-gradient(
+      #f0d685 0deg 22deg,
+      #7c2434 22deg 45deg
+    );
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.42),
+    inset 0 0 0 2px rgba(70, 22, 31, 0.62);
+}
+
+.score-number {
+  min-width: 13px;
+  text-align: right;
+}
+
 .score-rail li.is-you {
   margin-inline: -5px;
   padding-inline: 12px;
@@ -4833,6 +4872,16 @@ button:focus-visible {
 .game-shell .score-rail em {
   color: #9e8f7b;
   font-size: 9px;
+}
+
+.game-shell .score-rail .score-display {
+  color: #d6bd7b;
+}
+
+.game-shell .score-rail li:has(.score-number:not(:empty))
+  .score-chip-stack
+  i:last-child {
+  filter: drop-shadow(0 0 3px rgba(229, 188, 80, 0.38));
 }
 
 .game-shell .score-rail li.is-you {

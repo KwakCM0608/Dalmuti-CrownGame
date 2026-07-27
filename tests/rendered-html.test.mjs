@@ -526,3 +526,89 @@ test("declared revolutions keep the field red for the whole round", async () => 
   );
   assert.doesNotMatch(onlinePage, /const revolutionAnnouncementActive/);
 });
+
+test("online chat is room-scoped and score rails use compact casino chips", async () => {
+  const [
+    quickPage,
+    quickStyles,
+    onlinePage,
+    onlineStyles,
+    roomStore,
+    roomRoute,
+    chatRoute,
+    leaveRoute,
+    schema,
+  ] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/online/page.tsx", import.meta.url), "utf8"),
+    readFile(
+      new URL("../app/online/online.module.css", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../lib/online-room-store.ts", import.meta.url), "utf8"),
+    readFile(
+      new URL("../app/api/online/rooms/[code]/route.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../app/api/online/rooms/[code]/chat/route.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../app/api/online/rooms/[code]/leave/route.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(onlinePage, /function OnlineChatPanel/);
+  assert.match(onlinePage, /ONLINE_CHAT_MAX_LENGTH/);
+  assert.match(onlinePage, /sinceChatSeq/);
+  assert.match(onlinePage, /\/chat`/);
+  assert.match(
+    onlinePage,
+    /ingestChatMessages\(\s*\[message\],[\s\S]{0,120}false,/,
+  );
+  assert.doesNotMatch(onlinePage, /dangerouslySetInnerHTML/);
+  assert.match(onlineStyles, /\.chatPanel\s*\{/);
+  assert.match(
+    onlineStyles,
+    /grid-template-columns: auto minmax\(0, 1fr\) clamp\(190px, 15vw, 220px\)/,
+  );
+  assert.match(chatRoute, /authenticateOnlineRoomRequest/);
+  assert.match(chatRoute, /appendOnlineRoomChatMessage/);
+  assert.match(chatRoute, /room\.state\.players\.some/);
+  assert.match(roomRoute, /readOnlineRoomChatMessages/);
+  assert.match(roomStore, /CHAT_RATE_LIMIT/);
+  assert.match(
+    roomStore,
+    /INSERT OR IGNORE INTO online_room_chat_messages[\s\S]*WHERE EXISTS[\s\S]*AND NOT EXISTS/,
+  );
+  assert.match(roomStore, /online_room_chat_messages/);
+  assert.match(
+    roomStore,
+    /INNER JOIN online_rooms AS rooms[\s\S]*rooms\.expires_at > \?/,
+  );
+  assert.doesNotMatch(leaveRoute, /clearOnlineRoomChat/);
+  assert.match(schema, /onlineRoomChatMessages/);
+
+  assert.match(quickPage, /className="score-display"/);
+  assert.match(quickStyles, /\.score-chip-stack/);
+  assert.match(onlinePage, /className=\{styles\.scoreDisplay\}/);
+  assert.match(onlineStyles, /\.scoreChipStack/);
+  assert.match(quickPage, />\s*제출\s*</);
+  assert.match(onlinePage, />\s*제출\s*</);
+  assert.doesNotMatch(
+    `${quickPage}\n${onlinePage}`,
+    /패 내기|카드 내기|나의 손패/,
+  );
+  assert.match(quickPage, /\$\{currentPlayer\.name\}의 차례/);
+  assert.match(onlinePage, /snapshot\.currentPlayerId \?\? me\?\.id/);
+});

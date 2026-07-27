@@ -1,4 +1,11 @@
-import { integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 export const onlineRooms = sqliteTable("online_rooms", {
   code: text("code").primaryKey(),
@@ -30,3 +37,30 @@ export const onlineRoomMembers = sqliteTable("online_room_members", {
     table.nicknameKey,
   ),
 ]);
+
+export const onlineRoomChatMessages = sqliteTable(
+  "online_room_chat_messages",
+  {
+    seq: integer("seq").primaryKey({ autoIncrement: true }),
+    roomCode: text("room_code")
+      .notNull()
+      .references(() => onlineRooms.code, { onDelete: "cascade" }),
+    messageId: text("message_id").notNull(),
+    playerId: text("player_id").notNull(),
+    authorName: text("author_name").notNull(),
+    body: text("body").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("online_room_chat_message_id_idx").on(
+      table.roomCode,
+      table.messageId,
+    ),
+    index("online_room_chat_room_seq_idx").on(table.roomCode, table.seq),
+    index("online_room_chat_player_time_idx").on(
+      table.roomCode,
+      table.playerId,
+      table.createdAt,
+    ),
+  ],
+);

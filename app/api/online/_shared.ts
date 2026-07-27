@@ -88,6 +88,22 @@ export function optionalEventSequence(request: Request): number | undefined {
   return sequence;
 }
 
+export function optionalChatSequence(request: Request): number {
+  const raw = new URL(request.url).searchParams.get("sinceChatSeq");
+  if (raw === null || raw === "") {
+    return 0;
+  }
+  const sequence = Number(raw);
+  if (!Number.isSafeInteger(sequence) || sequence < 0) {
+    throw new OnlineStoreError(
+      "INVALID_CHAT_SEQUENCE",
+      "채팅 기준값을 확인해 주세요.",
+      400,
+    );
+  }
+  return sequence;
+}
+
 function gameErrorStatus(code: string): number {
   if (
     code.includes("NOT_FOUND") ||

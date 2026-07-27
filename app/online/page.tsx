@@ -12,6 +12,11 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { OnlineCommand, OnlineSnapshot } from "@/lib/online-game";
+import {
+  ONLINE_CHAT_HISTORY_LIMIT,
+  ONLINE_CHAT_MAX_LENGTH,
+} from "@/lib/online-chat";
+import { scoreChipCount } from "@/lib/score-chips";
 import styles from "./online.module.css";
 
 type LooseRecord = Record<string, unknown>;
@@ -50,6 +55,15 @@ type EventView = {
   playerIds: string[];
   actorPlayerId: string | null;
   data: LooseRecord;
+};
+
+type ChatMessageView = {
+  seq: number;
+  id: string;
+  playerId: string;
+  authorName: string;
+  text: string;
+  sentAt: number;
 };
 
 type RankChoiceCardView = {
@@ -105,6 +119,13 @@ type SnapshotView = {
   canChooseRevolution: boolean;
   rankSelection: RankSelectionView | null;
   declaredRevolution: DeclaredRevolutionView | null;
+};
+
+type SnapshotEnvelope = {
+  snapshot: SnapshotView | null;
+  unchanged: boolean;
+  chatMessages: ChatMessageView[];
+  latestChatSeq: number;
 };
 
 type StoredSession = {
@@ -294,6 +315,27 @@ function eventFrom(value: unknown, index: number): EventView {
         ),
       ) || null,
     data: merged,
+  };
+}
+
+function chatMessageFrom(value: unknown): ChatMessageView | null {
+  const source = record(value);
+  const seq = numberValue(source.seq);
+  const id = stringValue(source.id, stringValue(source.messageId));
+  const playerId = stringValue(source.playerId);
+  const authorName = stringValue(source.authorName, "플레이어");
+  const text = stringValue(source.text, stringValue(source.body)).trim();
+  const sentAt = numberValue(source.sentAt, numberValue(source.createdAt));
+  if (!Number.isSafeInteger(seq) || seq < 1 || !id || !playerId || !text) {
+    return null;
+  }
+  return {
+    seq,
+    id,
+    playerId,
+    authorName,
+    text,
+    sentAt,
   };
 }
 
@@ -566,16 +608,31 @@ function snapshotFrom(
   };
 }
 
-function unwrapSnapshotResponse(value: unknown): {
-  snapshot: SnapshotView | null;
-  unchanged: boolean;
-} {
+function unwrapSnapshotResponse(value: unknown): SnapshotEnvelope {
   const response = record(value);
-  if (response.unchanged === true) return { snapshot: null, unchanged: true };
+  const chatMessages = Array.isArray(response.chatMessages)
+    ? response.chatMessages
+        .map(chatMessageFrom)
+        .filter((message): message is ChatMessageView => message !== null)
+    : [];
+  const latestChatSeq = numberValue(
+    response.latestChatSeq,
+    chatMessages.at(-1)?.seq ?? 0,
+  );
+  if (response.unchanged === true) {
+    return {
+      snapshot: null,
+      unchanged: true,
+      chatMessages,
+      latestChatSeq,
+    };
+  }
   const candidate = response.snapshot ?? response.projection ?? value;
   return {
     snapshot: snapshotFrom(candidate, response),
     unchanged: false,
+    chatMessages,
+    latestChatSeq,
   };
 }
 
@@ -1398,6 +1455,133 @@ function EventOverlay({
   );
 }
 
+function formatChatTime(timestamp: number): string {
+  if (!timestamp) return "";
+  return new Intl.DateTimeFormat("ko-KR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(timestamp);
+}
+
+function OnlineChatPanel({
+  className = "",
+  messages,
+  viewerId,
+  connected,
+  onSend,
+}: {
+  className?: string;
+  messages: ChatMessageView[];
+  viewerId: string;
+  connected: boolean;
+  onSend: (text: string) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const messageListRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const messageList = messageListRef.current;
+    if (!messageList) return;
+    messageList.scrollTop = messageList.scrollHeight;
+  }, [messages.length]);
+
+  const submitChat = async (event: FormEvent) => {
+    event.preventDefault();
+    const text = draft.trim();
+    if (!text || sending || !connected) return;
+    setSending(true);
+    setChatError(null);
+    try {
+      await onSend(text);
+      setDraft("");
+    } catch (reason) {
+      setChatError(
+        reason instanceof Error
+          ? reason.message
+          : "채팅을 보내지 못했습니다.",
+      );
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <aside
+      className={`${styles.chatPanel} ${
+        collapsed ? styles.chatPanelCollapsed : ""
+      } ${className}`}
+      aria-label="플레이어 채팅"
+    >
+      <div className={styles.chatHeading}>
+        <span>
+          <i aria-hidden="true" />
+          채팅
+        </span>
+        <button
+          type="button"
+          onClick={() => setCollapsed((current) => !current)}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? "채팅 펼치기" : "채팅 접기"}
+        >
+          {collapsed ? "+" : "−"}
+        </button>
+      </div>
+      <div
+        className={styles.chatMessages}
+        ref={messageListRef}
+        aria-live="polite"
+        aria-relevant="additions"
+      >
+        {messages.map((message) => (
+          <div
+            className={`${styles.chatMessage} ${
+              message.playerId === viewerId ? styles.chatMessageSelf : ""
+            }`}
+            key={message.id}
+          >
+            <span>
+              <strong>{message.authorName}</strong>
+              <time dateTime={new Date(message.sentAt).toISOString()}>
+                {formatChatTime(message.sentAt)}
+              </time>
+            </span>
+            <p>{message.text}</p>
+          </div>
+        ))}
+        {!messages.length && (
+          <p className={styles.chatEmpty}>첫 메시지를 남겨보세요.</p>
+        )}
+      </div>
+      <form className={styles.chatComposer} onSubmit={submitChat}>
+        <input
+          value={draft}
+          onChange={(event) =>
+            setDraft(
+              Array.from(event.target.value)
+                .slice(0, ONLINE_CHAT_MAX_LENGTH)
+                .join(""),
+            )
+          }
+          placeholder={connected ? "메시지 입력" : "연결 복구 중"}
+          aria-label="채팅 메시지"
+          disabled={!connected || sending}
+        />
+        <button
+          type="submit"
+          disabled={!connected || sending || !draft.trim()}
+        >
+          {sending ? "…" : "전송"}
+        </button>
+      </form>
+      {chatError && <small className={styles.chatError}>{chatError}</small>}
+    </aside>
+  );
+}
+
 export default function OnlinePage() {
   const router = useRouter();
   const [screen, setScreen] = useState<"entry" | "room">("entry");
@@ -1409,6 +1593,7 @@ export default function OnlinePage() {
   const [snapshot, setSnapshot] = useState<SnapshotView | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [eventBuffer, setEventBuffer] = useState<EventView[]>([]);
+  const [chatMessages, setChatMessages] = useState<ChatMessageView[]>([]);
   const [clock, setClock] = useState(() => Date.now());
   const [handRevealUntil, setHandRevealUntil] = useState(0);
   const [observedRevolution, setObservedRevolution] =
@@ -1432,6 +1617,7 @@ export default function OnlinePage() {
   const failureCountRef = useRef(0);
   const snapshotRef = useRef<SnapshotView | null>(null);
   const sessionRef = useRef<StoredSession | null>(null);
+  const latestChatSeqRef = useRef(0);
   const rankMoveTimerRef = useRef<number | null>(null);
   const seatElementsRef = useRef(new Map<string, HTMLElement>());
   const seatRectsRef = useRef(new Map<string, DOMRect>());
@@ -1449,6 +1635,7 @@ export default function OnlinePage() {
 
   const ingestSnapshot = useCallback((next: SnapshotView) => {
     const previous = snapshotRef.current;
+    if (previous && next.revision < previous.revision) return;
     const enteringRoundEnd =
       previous &&
       previous.phase !== "round-end" &&
@@ -1533,6 +1720,34 @@ export default function OnlinePage() {
     }
   }, []);
 
+  const ingestChatMessages = useCallback(
+    (
+      incoming: ChatMessageView[],
+      latestSequence: number,
+      advanceCursor = true,
+    ) => {
+      if (incoming.length) {
+        setChatMessages((current) => {
+          const merged = new Map(
+            current.map((message) => [message.id, message]),
+          );
+          incoming.forEach((message) => merged.set(message.id, message));
+          return [...merged.values()]
+            .sort((a, b) => a.seq - b.seq)
+            .slice(-ONLINE_CHAT_HISTORY_LIMIT);
+        });
+      }
+      if (advanceCursor) {
+        latestChatSeqRef.current = Math.max(
+          latestChatSeqRef.current,
+          latestSequence,
+          ...incoming.map((message) => message.seq),
+        );
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const query = new URLSearchParams(window.location.search);
@@ -1568,8 +1783,9 @@ export default function OnlinePage() {
     inFlightRef.current = true;
     try {
       const sinceEventSeq = snapshotRef.current?.eventSeq ?? 0;
+      const sinceChatSeq = latestChatSeqRef.current;
       const response = await fetch(
-        `/api/online/rooms/${activeSession.roomCode}?sinceEventSeq=${sinceEventSeq}`,
+        `/api/online/rooms/${activeSession.roomCode}?sinceEventSeq=${sinceEventSeq}&sinceChatSeq=${sinceChatSeq}`,
         {
           headers: {
             Authorization: `Bearer ${activeSession.token}`,
@@ -1590,6 +1806,7 @@ export default function OnlinePage() {
       }
       const result = unwrapSnapshotResponse(body);
       if (result.snapshot) ingestSnapshot(result.snapshot);
+      ingestChatMessages(result.chatMessages, result.latestChatSeq);
       failureCountRef.current = 0;
       setConnection("online");
       setError(null);
@@ -1607,7 +1824,7 @@ export default function OnlinePage() {
     } finally {
       inFlightRef.current = false;
     }
-  }, [ingestSnapshot]);
+  }, [ingestChatMessages, ingestSnapshot]);
 
   useEffect(() => {
     if (!session || screen !== "room") return;
@@ -1688,6 +1905,10 @@ export default function OnlinePage() {
       setConnection("online");
       const unwrapped = unwrapSnapshotResponse(body);
       if (unwrapped.snapshot) ingestSnapshot(unwrapped.snapshot);
+      ingestChatMessages(
+        unwrapped.chatMessages,
+        unwrapped.latestChatSeq,
+      );
       window.history.replaceState(
         null,
         "",
@@ -1758,6 +1979,7 @@ export default function OnlinePage() {
         }
         const result = unwrapSnapshotResponse(body);
         if (result.snapshot) ingestSnapshot(result.snapshot);
+        ingestChatMessages(result.chatMessages, result.latestChatSeq);
         setSelectedIds([]);
         setConnection("online");
       } catch (reason) {
@@ -1771,7 +1993,54 @@ export default function OnlinePage() {
         setBusy(false);
       }
     },
-    [busy, ingestSnapshot, pollRoom],
+    [busy, ingestChatMessages, ingestSnapshot, pollRoom],
+  );
+
+  const sendChatMessage = useCallback(
+    async (text: string) => {
+      const activeSession = sessionRef.current;
+      if (!activeSession || connection !== "online") {
+        throw new Error("연결이 복구된 뒤 채팅을 보낼 수 있습니다.");
+      }
+      const messageId = createCommandId();
+      const response = await fetch(
+        `/api/online/rooms/${activeSession.roomCode}/chat`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${activeSession.token}`,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            id: messageId,
+            text,
+          }),
+        },
+      );
+      const body: unknown = await response.json().catch(() => ({}));
+      if (sessionRef.current?.token !== activeSession.token) {
+        throw new Error("방이 변경되어 메시지를 보내지 않았습니다.");
+      }
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 404) {
+          setFatalError(true);
+          setConnection("offline");
+        }
+        throw new Error(apiErrorMessage(body, "채팅을 보내지 못했습니다."));
+      }
+      const source = record(body);
+      const message = chatMessageFrom(source.message);
+      if (!message) {
+        throw new Error("전송된 채팅을 확인하지 못했습니다.");
+      }
+      ingestChatMessages(
+        [message],
+        numberValue(source.latestChatSeq, message.seq),
+        false,
+      );
+    },
+    [connection, ingestChatMessages],
   );
 
   const me = useMemo(
@@ -1783,6 +2052,10 @@ export default function OnlinePage() {
     [session?.playerId, snapshot],
   );
   const isHost = Boolean(me && snapshot?.hostId === me.id);
+  const highestScore = Math.max(
+    1,
+    ...(snapshot?.players.map((player) => player.score) ?? [0]),
+  );
   const isLobby = snapshot?.phase === "lobby";
   const isMyTurn = Boolean(
     snapshot &&
@@ -2130,6 +2403,8 @@ export default function OnlinePage() {
     snapshotRef.current = null;
     setSelectedIds([]);
     setEventBuffer([]);
+    setChatMessages([]);
+    latestChatSeqRef.current = 0;
     setHandRevealUntil(0);
     setRankMovingPlayerIds([]);
     setSeatRankOverrides(null);
@@ -2394,6 +2669,15 @@ export default function OnlinePage() {
               </span>
               <i>{copied ? "링크를 복사했습니다" : "링크 복사 →"}</i>
             </button>
+            {snapshot && (
+              <OnlineChatPanel
+                className={styles.lobbyChatPanel}
+                messages={chatMessages}
+                viewerId={snapshot.viewerId}
+                connected={connection === "online"}
+                onSend={sendChatMessage}
+              />
+            )}
           </div>
 
           <section className={styles.lobbyPlayers}>
@@ -2574,23 +2858,52 @@ export default function OnlinePage() {
             <small>누적 점수</small>
           </div>
           <ol>
-            {snapshot.players.map((player, index) => (
-              <li
-                key={player.id}
-                className={player.id === me?.id ? styles.rankSelf : ""}
-              >
-                <span>{isRankSelectionPhase ? "?" : index + 1}</span>
-                <p>
-                  <strong>{player.name}</strong>
-                  <small>
-                    {isRankSelectionPhase
-                      ? "계급 미정"
-                      : roleLabel(player.role)}
-                  </small>
-                </p>
-                <em>{player.score}점</em>
-              </li>
-            ))}
+            {snapshot.players.map((player, index) => {
+              const chipCount = scoreChipCount(
+                player.score,
+                highestScore,
+              );
+              return (
+                <li
+                  key={player.id}
+                  className={player.id === me?.id ? styles.rankSelf : ""}
+                >
+                  <span>{isRankSelectionPhase ? "?" : index + 1}</span>
+                  <p>
+                    <strong>{player.name}</strong>
+                    <small>
+                      {isRankSelectionPhase
+                        ? "계급 미정"
+                        : roleLabel(player.role)}
+                    </small>
+                  </p>
+                  <em
+                    className={styles.scoreDisplay}
+                    aria-label={`${player.name} 누적 점수 ${player.score}점`}
+                  >
+                    <span
+                      className={styles.scoreChipStack}
+                      aria-hidden="true"
+                    >
+                      {Array.from(
+                        { length: chipCount },
+                        (_, chipIndex) => (
+                          <i
+                            key={chipIndex}
+                            style={
+                              {
+                                "--score-chip-index": chipIndex,
+                              } as CSSProperties
+                            }
+                          />
+                        ),
+                      )}
+                    </span>
+                    <span>{player.score}</span>
+                  </em>
+                </li>
+              );
+            })}
           </ol>
           <div className={styles.railRoom}>
             <small>ROOM CODE</small>
@@ -2940,23 +3253,32 @@ export default function OnlinePage() {
                 )}
               </div>
             </div>
+            <OnlineChatPanel
+              messages={chatMessages}
+              viewerId={snapshot.viewerId}
+              connected={connection === "online"}
+              onSend={sendChatMessage}
+            />
             <div className={styles.actionBar}>
               <div className={styles.selectionCopy}>
                 <strong>
                   {isTaxSelection
                     ? `반환 카드 ${snapshot.requiredReturnCount}장 선택`
-                    : isMyTurn
-                      ? selectedIds.length
-                        ? `${selectedIds.length}장 선택`
-                        : "당신의 차례"
-                      : `${playerName(snapshot.players, snapshot.currentPlayerId)}의 차례`}
+                    : `${playerName(
+                        snapshot.players,
+                        snapshot.currentPlayerId ?? me?.id,
+                      )}의 차례`}
                 </strong>
                 <small>
                   {isTaxSelection
                     ? `${selectedIds.length} / ${snapshot.requiredReturnCount} · 원하는 카드를 고르세요`
                     : isMyTurn
-                      ? playError ??
-                        `${formatRank(selectedRank ?? 13)} × ${selectedIds.length}장`
+                      ? selectedIds.length
+                        ? `${selectedIds.length}장 선택 · ${
+                            playError ??
+                            `${formatRank(selectedRank ?? 13)} × ${selectedIds.length}장`
+                          }`
+                        : playError ?? "카드를 선택하세요"
                       : "상대의 행동을 기다리고 있습니다"}
                 </small>
               </div>
@@ -2999,7 +3321,7 @@ export default function OnlinePage() {
                       void sendCommand("PLAY_CARDS", { cardIds: selectedIds })
                     }
                   >
-                    카드 내기
+                    제출
                     <span>→</span>
                   </button>
                 </>
