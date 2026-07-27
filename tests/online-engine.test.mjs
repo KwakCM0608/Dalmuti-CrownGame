@@ -607,24 +607,12 @@ function startAndAssignJoinOrder(
   return next;
 }
 
-test("temporary great-revolution setup makes the online host the great peon with both jokers", () => {
+test("normal online setup preserves the host's selected opening rank", () => {
   let state = readyEveryone(createFourPlayerLobby());
-  state = startAndAssignJoinOrder(state, 150, {}, {
-    temporaryGreatRevolutionTestMode: true,
-  });
+  state = startAndAssignJoinOrder(state, 150);
 
-  assert.equal(state.players.at(-1).id, state.hostId);
-  assert.equal(state.players.at(-1).role, "great-peon");
-  assert.equal(
-    state.hands[state.hostId].filter((card) => card.rank === 13).length,
-    2,
-  );
-  assert.equal(
-    Object.values(state.hands)
-      .flat()
-      .filter((card) => card.rank === 13).length,
-    2,
-  );
+  assert.equal(state.players.at(0).id, state.hostId);
+  assert.equal(state.players.at(0).role, "great-dalmuti");
 });
 
 test("the opening PLAY runs a hidden, server-authoritative rank choice before dealing", () => {

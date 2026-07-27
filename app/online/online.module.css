@@ -3642,7 +3642,7 @@
 .gameChatPanel {
   position: absolute;
   right: 10px;
-  bottom: calc(100% + 7px);
+  bottom: 61px;
   z-index: 22;
   width: clamp(320px, 27vw, 410px);
   height: clamp(225px, 29vh, 280px);
@@ -5770,7 +5770,7 @@
   .gameChatPanel {
     position: absolute;
     right: 6px;
-    bottom: calc(100% + 4px);
+    bottom: 61px;
     width: min(350px, calc(100vw - 20px));
     height: 190px;
     margin: 0;
@@ -6008,7 +6008,7 @@
   .gameChatPanel {
     position: absolute;
     right: 4px;
-    bottom: calc(100% + 2px);
+    bottom: 61px;
     width: calc(100vw - 12px);
     height: 158px;
     margin: 0;

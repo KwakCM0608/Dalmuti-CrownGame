@@ -5,7 +5,7 @@
  * Keeping every forced outcome behind this single switch makes the temporary
  * production setup straightforward to remove without touching game rules.
  */
-export const TEMP_GREAT_REVOLUTION_TEST_MODE = true;
+export const TEMP_GREAT_REVOLUTION_TEST_MODE = false;
 
 type RankChoice = {
   rank: number;

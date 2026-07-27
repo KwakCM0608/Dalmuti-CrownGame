@@ -9,6 +9,10 @@ const {
   new URL("../lib/temporary-test-mode.ts", import.meta.url)
 );
 
+test("temporary great-revolution mode is disabled for normal play", () => {
+  assert.equal(TEMP_GREAT_REVOLUTION_TEST_MODE, false);
+});
+
 test("temporary great-revolution mode preserves rank uniqueness", () => {
   const original = [
     { rank: 1, claimedByPlayerId: "host" },

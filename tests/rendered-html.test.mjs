@@ -903,6 +903,10 @@ test("online chat is room-scoped and score rails use compact casino chips", asyn
     onlineStyles,
     /\.gameChatPanel\s*\{[\s\S]{0,300}background: transparent/,
   );
+  assert.match(
+    onlineStyles,
+    /\.gameChatPanel\s*\{[\s\S]{0,120}bottom: 61px/,
+  );
   assert.match(onlineStyles, /\.emotePicker\s*\{/);
   assert.match(onlineStyles, /\.playerEmote\s*\{/);
   assert.match(onlinePage, /onEmote=\{sendEmote\}/);
