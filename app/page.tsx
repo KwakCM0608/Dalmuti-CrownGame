@@ -20,6 +20,7 @@ type Phase =
   | "rank-intro"
   | "rank-selection"
   | "rank-reveal"
+  | "rank-confirm"
   | "reveal-intro"
   | "hand-reveal"
   | "tax-intro"
@@ -130,6 +131,7 @@ const RANK_COUNTDOWN_STEP_MS = 1100;
 const BOT_RANK_PICK_DELAY_MS = 750;
 const RANK_ALL_SELECTED_PAUSE_MS = 1500;
 const RANK_REVEAL_DURATION_MS = 3400;
+const RANK_CONFIRM_DURATION_MS = 2600;
 const TAX_STAGE_DURATION_MS = 6000;
 const REVEAL_INTRO_DURATION_MS = 2400;
 const HAND_REVEAL_DURATION_MS = 1400;
@@ -137,6 +139,7 @@ const TAX_INTRO_DURATION_MS = 2400;
 const PLAY_INTRO_DURATION_MS = 2600;
 const REVOLUTION_INTRO_DURATION_MS = 3300;
 const PUBLIC_ACTION_DURATION_MS = 2250;
+const PASS_ACTION_DURATION_MS = 1500;
 const DALMUTI_ACTION_DURATION_MS = 3300;
 const CARD_ART_VERSION = "2026-07-24-2x";
 
@@ -813,6 +816,7 @@ function PlayerSeat({
   isHandRevealing,
   rankSelectionLabel,
   rankSelectionMark,
+  rankSeat,
   seatRef,
 }: {
   player: Player;
@@ -826,6 +830,7 @@ function PlayerSeat({
   isHandRevealing: boolean;
   rankSelectionLabel?: string;
   rankSelectionMark?: string;
+  rankSeat: number;
   seatRef?: (node: HTMLElement | null) => void;
 }) {
   const visibleRoleLabel = rankSelectionLabel ?? ROLE_LABELS[player.role];
@@ -838,6 +843,8 @@ function PlayerSeat({
       } ${taxDirection ? `is-tax-${taxDirection}` : ""} ${
         isFocusedTaxParty ? "is-focused-tax-party" : ""
       }`}
+      style={{ gridColumn: rankSeat }}
+      data-rank-seat={rankSeat}
       aria-label={`${player.name}, ${visibleRoleLabel}, 카드 ${handCount}장`}
     >
       <div className="player-avatar">
@@ -1195,6 +1202,8 @@ export default function Home() {
   const feltCenterRef = useRef<HTMLDivElement | null>(null);
   const humanAnchorRef = useRef<HTMLDivElement | null>(null);
   const seatRefs = useRef<Record<string, HTMLElement | null>>({});
+  const previousSeatRectsRef = useRef<Record<string, DOMRect>>({});
+  const previousRankSeatOrderRef = useRef("");
 
   const currentPlayer = game?.players[game.currentIndex] ?? null;
   const humanHand = game?.hands[HUMAN_ID] ?? [];
@@ -1203,7 +1212,8 @@ export default function Home() {
   const isOpeningRankEvent =
     game?.phase === "rank-intro" ||
     game?.phase === "rank-selection" ||
-    game?.phase === "rank-reveal";
+    game?.phase === "rank-reveal" ||
+    game?.phase === "rank-confirm";
   const openingRankRolesHidden =
     !game ||
     (game.round === 1 &&
@@ -1212,6 +1222,10 @@ export default function Home() {
     game?.openingRankSelection ?? null,
     HUMAN_ID,
   );
+  const humanOpeningRole =
+    humanOpeningRank && game
+      ? roleForIndex(humanOpeningRank - 1, game.players.length)
+      : null;
   const hasDealtHands = Boolean(
     game && Object.values(game.hands).some((hand) => hand.length > 0),
   );
@@ -1255,10 +1269,28 @@ export default function Home() {
     selectedIds.length === humanTaxSelectionCount &&
     selectedCards.length === humanTaxSelectionCount;
 
+  const visibleRankPlayers = useMemo(() => {
+    if (!game) return assignRoles(BASE_PLAYERS);
+    if (
+      game.phase === "round-end" &&
+      game.finishOrder.length === game.players.length
+    ) {
+      return assignRoles(
+        game.finishOrder.map(
+          (playerId) =>
+            game.players.find((player) => player.id === playerId)!,
+        ),
+      );
+    }
+    return game.players;
+  }, [game]);
   const orderedOpponents = useMemo(
-    () => game?.players.filter((player) => !player.isHuman) ?? [],
-    [game?.players],
+    () => visibleRankPlayers.filter((player) => !player.isHuman),
+    [visibleRankPlayers],
   );
+  const rankSeatOrder = visibleRankPlayers
+    .map((player) => player.id)
+    .join("|");
 
   const activeTaxRoutes = useMemo<TaxTransferRoute[]>(() => {
     if (
@@ -1303,6 +1335,63 @@ export default function Home() {
       ? focusedTaxRoute?.cards.map((card) => card.id) ?? []
       : [],
   );
+
+  useLayoutEffect(() => {
+    const previousRects = previousSeatRectsRef.current;
+    const previousOrder = previousRankSeatOrderRef.current;
+    const nextRects: Record<string, DOMRect> = {};
+    for (const player of orderedOpponents) {
+      const seat = seatRefs.current[player.id];
+      if (seat) nextRects[player.id] = seat.getBoundingClientRect();
+    }
+    previousSeatRectsRef.current = nextRects;
+    previousRankSeatOrderRef.current = rankSeatOrder;
+
+    if (
+      !previousOrder ||
+      previousOrder === rankSeatOrder ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      return;
+    }
+
+    for (const player of orderedOpponents) {
+      const seat = seatRefs.current[player.id];
+      const previousRect = previousRects[player.id];
+      const nextRect = nextRects[player.id];
+      if (!seat || !previousRect || !nextRect) continue;
+
+      const deltaX = previousRect.left - nextRect.left;
+      const deltaY = previousRect.top - nextRect.top;
+      if (Math.abs(deltaX) < 2 && Math.abs(deltaY) < 2) continue;
+
+      seat.classList.add("is-changing-rank");
+      const animation = seat.animate(
+        [
+          {
+            transform: `translate(${deltaX}px, ${deltaY}px) scale(0.96)`,
+            opacity: 0.72,
+          },
+          {
+            transform: "translate(0, 0) scale(1.035)",
+            opacity: 1,
+            offset: 0.72,
+          },
+          {
+            transform: "translate(0, 0) scale(1)",
+            opacity: 1,
+          },
+        ],
+        {
+          duration: 1050,
+          easing: "cubic-bezier(0.2, 0.78, 0.24, 1)",
+        },
+      );
+      void animation.finished
+        .catch(() => undefined)
+        .finally(() => seat.classList.remove("is-changing-rank"));
+    }
+  }, [rankSeatOrder, orderedOpponents]);
 
   useLayoutEffect(() => {
     if (!game) return;
@@ -1383,7 +1472,9 @@ export default function Home() {
     const playedSet =
       action.kind === "play" ? normalizedSet(action.cards) : null;
     const duration =
-      playedSet?.rank === 1
+      action.kind === "pass"
+        ? PASS_ACTION_DURATION_MS
+        : playedSet?.rank === 1
         ? DALMUTI_ACTION_DURATION_MS
         : PUBLIC_ACTION_DURATION_MS;
 
@@ -1554,13 +1645,45 @@ export default function Home() {
         if (
           !latest ||
           latest.phase !== "rank-reveal" ||
-          latest.revision !== revealRevision
+          latest.revision !== revealRevision ||
+          !latest.openingRankSelection
+        ) {
+          return latest;
+        }
+        return {
+          ...latest,
+          phase: "rank-confirm",
+          revision: latest.revision + 1,
+          log: ["나의 확정 서열을 확인합니다.", ...latest.log].slice(0, 12),
+        };
+      });
+    }, RANK_REVEAL_DURATION_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [game]);
+
+  useEffect(() => {
+    if (
+      !game ||
+      game.phase !== "rank-confirm" ||
+      !game.openingRankSelection
+    ) {
+      return;
+    }
+    const confirmRevision = game.revision;
+    const timer = window.setTimeout(() => {
+      setGame((latest) => {
+        if (
+          !latest ||
+          latest.phase !== "rank-confirm" ||
+          latest.revision !== confirmRevision ||
+          !latest.openingRankSelection
         ) {
           return latest;
         }
         return completeOpeningRankSelection(latest);
       });
-    }, RANK_REVEAL_DURATION_MS);
+    }, RANK_CONFIRM_DURATION_MS);
 
     return () => window.clearTimeout(timer);
   }, [game]);
@@ -2038,6 +2161,10 @@ export default function Home() {
                 : "선착순으로 계급 카드 한 장을 고르세요"
             : game.phase === "rank-reveal"
               ? "숫자가 낮은 카드부터 높은 계급을 얻습니다"
+              : game.phase === "rank-confirm"
+                ? humanOpeningRole
+                  ? `나의 서열은 ${ROLE_LABELS[humanOpeningRole]}입니다`
+                  : "나의 확정 서열을 확인합니다"
               : game.phase === "reveal-intro"
                 ? "모든 플레이어의 패 공개를 준비합니다"
                 : game.phase === "hand-reveal"
@@ -2069,6 +2196,14 @@ export default function Home() {
                         : `${currentPlayer?.name}의 선택을 기다리는 중`;
 
   const tablePreview = visibleTable?.cards ?? [];
+  const tableCardStep =
+    tablePreview.length <= 1
+      ? 0
+      : Math.min(54, 460 / Math.max(1, tablePreview.length - 1));
+  const mobileTableCardStep =
+    tablePreview.length <= 1
+      ? 0
+      : Math.min(32, 160 / Math.max(1, tablePreview.length - 1));
 
   return (
     <main className="game-shell">
@@ -2139,7 +2274,10 @@ export default function Home() {
           </div>
         </aside>
 
-        <div className="table-column" ref={tableColumnRef}>
+        <div
+          className={`table-column ${isHumanTurn ? "is-human-turn" : ""}`}
+          ref={tableColumnRef}
+        >
           <div
             className={`opponent-row ${
               isHandRevealing ? "is-revealing" : ""
@@ -2147,8 +2285,12 @@ export default function Home() {
           >
             {(orderedOpponents.length
               ? orderedOpponents
-              : assignRoles(BASE_PLAYERS).filter((player) => !player.isHuman)
+              : visibleRankPlayers.filter((player) => !player.isHuman)
             ).map((player) => {
+              const rankSeat =
+                visibleRankPlayers.findIndex(
+                  (candidate) => candidate.id === player.id,
+                ) + 1;
               const route = activeTaxRoutes.find(
                 (candidate) =>
                   candidate.from.id === player.id || candidate.to.id === player.id,
@@ -2183,6 +2325,7 @@ export default function Home() {
                   isHandRevealing={isHandRevealing}
                   rankSelectionLabel={rankSelectionLabel}
                   rankSelectionMark={rankSelectionMark}
+                  rankSeat={rankSeat}
                   seatRef={(node) => {
                     seatRefs.current[player.id] = node;
                   }}
@@ -2347,6 +2490,29 @@ export default function Home() {
                     })}
                   </div>
                 </div>
+              ) : game?.phase === "rank-confirm" &&
+                humanOpeningRank &&
+                humanOpeningRole ? (
+                <div
+                  key={`rank-confirm-${game.revision}`}
+                  className={`opening-rank-confirmation role-${humanOpeningRole}`}
+                  role="status"
+                  aria-live="assertive"
+                >
+                  <small>YOUR RANK · ACT I</small>
+                  <div className="opening-rank-confirmation-card" aria-hidden="true">
+                    <img
+                      src={`/cards/${String(humanOpeningRank).padStart(2, "0")}.webp?v=${CARD_ART_VERSION}`}
+                      alt=""
+                    />
+                  </div>
+                  <span>나의 서열</span>
+                  <strong>{ROLE_LABELS[humanOpeningRole]}</strong>
+                  <em>
+                    {RANK_NAMES[humanOpeningRank]}({humanOpeningRank}) 카드를
+                    선택했습니다
+                  </em>
+                </div>
               ) : game?.phase === "reveal-intro" ? (
                 <div
                   key={`reveal-intro-${game.revision}`}
@@ -2456,7 +2622,20 @@ export default function Home() {
                         <div
                           key={card.id}
                           className="table-card-wrap"
-                          style={{ "--card-index": index } as React.CSSProperties}
+                          style={
+                            {
+                              "--card-index": index,
+                              "--table-card-offset":
+                                index - (tablePreview.length - 1) / 2,
+                              "--table-card-lift": `${
+                                Math.abs(
+                                  index - (tablePreview.length - 1) / 2,
+                                ) * 0.9
+                              }px`,
+                              "--table-card-overlap": `${tableCardStep - 140}px`,
+                              "--table-card-overlap-mobile": `${mobileTableCardStep - 108}px`,
+                            } as React.CSSProperties
+                          }
                         >
                           <PlayingCard card={card} displayOnly />
                         </div>
@@ -2510,6 +2689,8 @@ export default function Home() {
                         ? "계급 카드를 고르세요"
                         : game?.phase === "rank-reveal"
                           ? "선택한 계급을 확인하는 중"
+                          : game?.phase === "rank-confirm" && humanOpeningRole
+                            ? `${ROLE_LABELS[humanOpeningRole]} 확정`
                           : "계급 정하기 진행 중"
                     : isHumanTaxSelecting
                       ? `반환 카드 ${humanTaxSelectionCount}장을 선택하세요`
@@ -2607,6 +2788,8 @@ export default function Home() {
                         ? humanOpeningRank
                           ? `${RANK_NAMES[humanOpeningRank]}(${humanOpeningRank}) 선택`
                           : "계급 확인 중"
+                        : game?.phase === "rank-confirm" && humanOpeningRole
+                          ? `나의 서열 · ${ROLE_LABELS[humanOpeningRole]}`
                         : "계급 정하기 진행 중"}
                   </span>
                   <small>
@@ -2778,7 +2961,16 @@ export default function Home() {
                 const player = game.players.find((candidate) => candidate.id === id)!;
                 const nextRole = roleForIndex(index, game.players.length);
                 return (
-                  <li key={id} className={id === HUMAN_ID ? "is-you" : ""}>
+                  <li
+                    key={id}
+                    className={`${id === HUMAN_ID ? "is-you" : ""} ${
+                      index === 0
+                        ? "is-first-place"
+                        : index === 1
+                          ? "is-second-place"
+                          : ""
+                    }`}
+                  >
                     <span>{index + 1}</span>
                     <div>
                       <b>{player.name}</b>

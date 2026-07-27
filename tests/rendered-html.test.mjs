@@ -98,6 +98,7 @@ test("ships without the disposable starter preview", async () => {
   assert.match(page, /TAX_STAGE_DURATION_MS = 6000/);
   assert.match(page, /TAX_INTRO_DURATION_MS = 2400/);
   assert.match(page, /PUBLIC_ACTION_DURATION_MS = 2250/);
+  assert.match(page, /PASS_ACTION_DURATION_MS = 1500/);
   assert.match(page, /DALMUTI_ACTION_DURATION_MS = 3300/);
   assert.match(page, /playedSet\?\.rank === 1/);
   assert.match(page, /isDalmuti \? "달무티" : "공개 플레이"/);
@@ -111,6 +112,7 @@ test("ships without the disposable starter preview", async () => {
   assert.match(page, /\| "rank-intro"/);
   assert.match(page, /\| "rank-selection"/);
   assert.match(page, /\| "rank-reveal"/);
+  assert.match(page, /\| "rank-confirm"/);
   assert.match(
     page,
     /shuffle\(\s*Array\.from\(\{ length: current\.players\.length \}, \(_.*, index\) => index \+ 1\)/,
@@ -118,6 +120,7 @@ test("ships without the disposable starter preview", async () => {
   assert.match(page, /RANK_COUNTDOWN_STEP_MS = 1100/);
   assert.match(page, /RANK_ALL_SELECTED_PAUSE_MS = 1500/);
   assert.match(page, /RANK_REVEAL_DURATION_MS = 3400/);
+  assert.match(page, /RANK_CONFIRM_DURATION_MS = 2600/);
   assert.match(page, /function autoAssignFinalOpeningRankCard/);
   assert.match(
     page,
@@ -158,8 +161,23 @@ test("ships without the disposable starter preview", async () => {
   assert.match(page, /보다 낮은 숫자의 카드 \$\{game\.table\.count\}장을 내세요/);
   assert.match(
     styles,
-    /\.table-cards \.playing-card\s*\{[^}]*width: 120px;[^}]*height: 185px;/s,
+    /\.table-cards \.playing-card\s*\{[^}]*width: 140px;[^}]*height: 216px;/s,
   );
+  assert.match(page, /className=\{`table-column \$\{isHumanTurn \? "is-human-turn"/);
+  assert.match(page, /className=\{`opening-rank-confirmation role-\$\{/);
+  assert.match(page, /previousSeatRectsRef/);
+  assert.match(
+    page,
+    /game\.phase === "round-end"[\s\S]*game\.finishOrder\.map/,
+  );
+  assert.match(page, /160 \/ Math\.max\(1, tablePreview\.length - 1\)/);
+  assert.match(page, /index - \(tablePreview\.length - 1\) \/ 2/);
+  assert.match(styles, /rotate\(calc\(var\(--table-card-offset\) \* 1\.1deg\)\)/);
+  assert.match(page, /data-rank-seat=\{rankSeat\}/);
+  assert.match(styles, /\.opponent-row\s*\{[^}]*grid-template-columns: repeat\(5,/s);
+  assert.match(page, /is-first-place/);
+  assert.match(page, /is-second-place/);
+  assert.match(styles, /animation: publicPassToTable 1\.38s/);
   assert.match(styles, /\.public-turn-action-layer\s*\{/);
   assert.match(styles, /@keyframes publicCardPlay/);
   assert.match(styles, /@keyframes publicPassToTable/);
@@ -265,10 +283,34 @@ test("online mode exposes synchronized reveal, tax, Dalmuti, and exit states", a
   assert.match(page, /계급 미정/);
   assert.match(page, /declaredKind === "great-revolution"/);
   assert.match(page, /대혁명을 선포하시겠습니까/);
+  assert.match(
+    page,
+    /if \(label\.includes\("PASS"\)\) return 1500;[\s\S]*if \(label\.includes\("PLAY"\)\) return 3600;/,
+  );
+  assert.match(page, /showMyTurnHighlight/);
+  assert.match(page, /!actionLocked/);
+  assert.match(page, /rankedOpponents/);
+  assert.match(page, /seatRankOverrides/);
+  assert.match(page, /rankMovingPlayerIds/);
+  assert.match(page, /pendingRoundEndMoveIds/);
+  assert.match(page, /roundEndResultReady/);
+  assert.match(page, /next\.finishOrder\.map/);
+  assert.match(page, /element\.animate/);
+  assert.match(page, /Boolean\(activeEvent\)/);
+  assert.match(page, /당신의 첫 서열은 \{viewerRank\}위입니다/);
+  assert.match(page, /styles\.resultFirst/);
+  assert.match(page, /styles\.resultSecond/);
+  assert.match(page, /--table-card-step-wide/);
   assert.doesNotMatch(page, /sendCommand\("PASS", \{ automatic: true \}\)/);
   assert.match(styles, /@keyframes onlineHandCardReveal/);
   assert.match(styles, /\.dalmutiEffectOverlay/);
   assert.match(styles, /\.rankChoiceSlotClaimed/);
+  assert.match(styles, /\.rankConfirmation/);
+  assert.match(styles, /\.tableMyTurn/);
+  assert.match(styles, /\.playerSeatRankMoving/);
+  assert.match(styles, /grid-column: var\(--seat-grid-column\)/);
+  assert.match(styles, /\.resultCard \.resultFirst/);
+  assert.match(styles, /\.resultCard \.resultSecond/);
   assert.match(styles, /\.tableRevolution/);
 });
 

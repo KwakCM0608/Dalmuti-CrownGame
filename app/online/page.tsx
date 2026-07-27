@@ -1,7 +1,14 @@
 "use client";
 
 import type { CSSProperties, FormEvent } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { OnlineCommand, OnlineSnapshot } from "@/lib/online-game";
@@ -302,9 +309,10 @@ function defaultEventDuration(type: unknown): number {
   }
   if (label.includes("TAX")) return 3800;
   if (label.includes("RANK")) return 3800;
+  // PLAYER_PASSED also contains "PLAY", so PASS must be matched first.
+  if (label.includes("PASS")) return 1500;
   if (label.includes("PLAY_INTRO") || label.includes("GAME_START")) return 3600;
   if (label.includes("PLAY")) return 3600;
-  if (label.includes("PASS")) return 2800;
   return 2600;
 }
 
@@ -619,6 +627,14 @@ function roleMark(role: string): string {
   return ROLE_MARKS[role] ?? ROLE_MARKS[role.toLowerCase()] ?? "◆";
 }
 
+function roleLabelForRank(rankIndex: number, total: number): string {
+  if (rankIndex === 0) return roleLabel("great-dalmuti");
+  if (rankIndex === 1) return roleLabel("lesser-dalmuti");
+  if (rankIndex === total - 2) return roleLabel("lesser-peon");
+  if (rankIndex === total - 1) return roleLabel("great-peon");
+  return roleLabel("merchant");
+}
+
 function playerName(players: PlayerView[], id: unknown): string {
   const playerId = stringValue(id);
   return players.find((player) => player.id === playerId)?.name ?? "플레이어";
@@ -649,14 +665,16 @@ function declaredRevolutionFromEvent(
   };
 }
 
-function seatPosition(index: number, total: number): CSSProperties {
+function seatPosition(rankIndex: number, total: number): CSSProperties {
   const angle =
-    total <= 1 ? 270 : 150 + (240 * index) / Math.max(1, total - 1);
+    total <= 1 ? 270 : 150 + (240 * rankIndex) / Math.max(1, total - 1);
   const radians = (angle * Math.PI) / 180;
   return {
     "--seat-x": `${50 + Math.cos(radians) * 42}%`,
     "--seat-y": `${46 + Math.sin(radians) * 34}%`,
-    "--seat-order": index,
+    "--seat-rank": rankIndex,
+    "--seat-grid-column": (rankIndex % 4) + 1,
+    "--seat-grid-row": Math.floor(rankIndex / 4) + 1,
   } as CSSProperties;
 }
 
@@ -768,8 +786,11 @@ function PlayerSeat({
   isHost,
   isCurrent,
   passed,
+  rankNumber,
+  isRankMoving = false,
   isHandRevealing = false,
   roleHidden = false,
+  elementRef,
   style,
 }: {
   player: PlayerView;
@@ -777,27 +798,35 @@ function PlayerSeat({
   isHost: boolean;
   isCurrent: boolean;
   passed: boolean;
+  rankNumber?: number;
+  isRankMoving?: boolean;
   isHandRevealing?: boolean;
   roleHidden?: boolean;
+  elementRef?: (element: HTMLElement | null) => void;
   style?: CSSProperties;
 }) {
   const visibleRoleLabel = roleHidden ? "계급 미정" : roleLabel(player.role);
   const visibleRoleMark = roleHidden ? "?" : roleMark(player.role);
   return (
     <article
+      ref={elementRef}
       className={`${styles.playerSeat} ${
         isSelf ? styles.playerSeatSelf : ""
       } ${isCurrent ? styles.playerSeatCurrent : ""} ${
         !player.connected ? styles.playerSeatDisconnected : ""
       } ${player.finishedPlace ? styles.playerSeatFinished : ""} ${
         isHandRevealing ? styles.playerSeatRevealing : ""
+      } ${isRankMoving ? styles.playerSeatRankMoving : ""
       }`}
       style={style}
-      aria-label={`${player.name}, ${visibleRoleLabel}, 카드 ${player.handCount}장`}
+      data-rank-number={rankNumber}
+      aria-label={`${player.name}, ${
+        rankNumber ? `현재 서열 ${rankNumber}위, ` : ""
+      }${visibleRoleLabel}, 카드 ${player.handCount}장`}
     >
       <span className={styles.avatar}>
         {player.monogram}
-        <i>{visibleRoleMark}</i>
+        <i>{roleHidden ? visibleRoleMark : (rankNumber ?? visibleRoleMark)}</i>
       </span>
       <span className={styles.playerCopy}>
         <strong>
@@ -862,6 +891,11 @@ function RankSelectionField({
   const cards = [...rankSelection.cards].sort(
     (a, b) => a.slotIndex - b.slotIndex,
   );
+  const viewerCardIndex = cards.findIndex(
+    (card) => card.claimedByPlayerId === viewerId,
+  );
+  const viewerRank =
+    viewerCardIndex >= 0 ? cards[viewerCardIndex].revealedRank : null;
   const claimedCount = cards.filter(
     (card) => card.claimedByPlayerId,
   ).length;
@@ -1005,6 +1039,27 @@ function RankSelectionField({
           <small>
             {claimedCount} / {cards.length} 선택
           </small>
+        </div>
+      )}
+      {isRevealed && viewerRank !== null && (
+        <div
+          className={styles.rankConfirmation}
+          style={
+            {
+              "--rank-confirm-delay": `${
+                1_550 + Math.max(0, viewerCardIndex) * 120
+              }ms`,
+            } as CSSProperties
+          }
+          role="status"
+          aria-live="polite"
+        >
+          <small>MY RANK</small>
+          <strong>
+            {RANK_NAMES[viewerRank] ?? `${viewerRank}인`}
+            <span>({viewerRank})</span>
+          </strong>
+          <p>당신의 첫 서열은 {viewerRank}위입니다</p>
         </div>
       )}
     </div>
@@ -1281,13 +1336,75 @@ export default function OnlinePage() {
   const [fatalError, setFatalError] = useState(false);
   const [copied, setCopied] = useState(false);
   const [entryBusy, setEntryBusy] = useState(false);
+  const [rankMovingPlayerIds, setRankMovingPlayerIds] = useState<string[]>([]);
+  const [seatRankOverrides, setSeatRankOverrides] = useState<
+    Record<string, number> | null
+  >(null);
+  const [pendingRoundEndMoveIds, setPendingRoundEndMoveIds] = useState<
+    string[] | null
+  >(null);
+  const [roundEndResultReady, setRoundEndResultReady] = useState(true);
   const inFlightRef = useRef(false);
   const failureCountRef = useRef(0);
   const snapshotRef = useRef<SnapshotView | null>(null);
   const sessionRef = useRef<StoredSession | null>(null);
+  const rankMoveTimerRef = useRef<number | null>(null);
+  const seatElementsRef = useRef(new Map<string, HTMLElement>());
+  const seatRectsRef = useRef(new Map<string, DOMRect>());
+
+  const bindSeatElement = useCallback(
+    (playerId: string, element: HTMLElement | null) => {
+      if (element) {
+        seatElementsRef.current.set(playerId, element);
+      } else {
+        seatElementsRef.current.delete(playerId);
+      }
+    },
+    [],
+  );
 
   const ingestSnapshot = useCallback((next: SnapshotView) => {
     const previous = snapshotRef.current;
+    const enteringRoundEnd =
+      previous &&
+      previous.phase !== "round-end" &&
+      next.phase === "round-end" &&
+      next.finishOrder.length === next.players.length;
+    if (enteringRoundEnd) {
+      const previousRankById = new Map(
+        previous.players.map((player, index) => [player.id, index]),
+      );
+      const nextRankById = new Map(
+        next.finishOrder.map((playerId, index) => [playerId, index]),
+      );
+      const movingPlayerIds = previous.players
+        .filter(
+          (player) =>
+            previousRankById.get(player.id) !== nextRankById.get(player.id),
+        )
+        .map((player) => player.id);
+      if (movingPlayerIds.length) {
+        setSeatRankOverrides(
+          Object.fromEntries(
+            previous.players.map((player, index) => [player.id, index]),
+          ),
+        );
+      } else {
+        setSeatRankOverrides(null);
+      }
+      setRankMovingPlayerIds([]);
+      setPendingRoundEndMoveIds(movingPlayerIds);
+      setRoundEndResultReady(false);
+      if (rankMoveTimerRef.current !== null) {
+        window.clearTimeout(rankMoveTimerRef.current);
+        rankMoveTimerRef.current = null;
+      }
+    } else if (previous?.phase === "round-end" && next.phase !== "round-end") {
+      setSeatRankOverrides(null);
+      setPendingRoundEndMoveIds(null);
+      setRankMovingPlayerIds([]);
+      setRoundEndResultReady(true);
+    }
     if (
       next.hand !== null &&
       next.phase === "hand-reveal" &&
@@ -1422,6 +1539,15 @@ export default function OnlinePage() {
     const interval = window.setInterval(() => setClock(Date.now()), 120);
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(
+    () => () => {
+      if (rankMoveTimerRef.current !== null) {
+        window.clearTimeout(rankMoveTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const submitEntry = async (event: FormEvent) => {
     event.preventDefault();
@@ -1635,7 +1761,6 @@ export default function OnlinePage() {
     snapshot?.actionLockUntil &&
       effectiveClock < snapshot.actionLockUntil,
   );
-  const canPlay = isMyTurn && !playError && !busy && !actionLocked;
   const taxSelectionValid =
     isTaxSelection &&
     selectedIds.length === (snapshot?.requiredReturnCount ?? 0) &&
@@ -1706,16 +1831,25 @@ export default function OnlinePage() {
     isRankSelectionPhase,
     snapshot?.phase,
   ]);
+  const showMyTurnHighlight =
+    isMyTurn &&
+    !actionLocked &&
+    !activeEvent &&
+    !busy &&
+    connection === "online";
+  const canPlay =
+    isMyTurn &&
+    !playError &&
+    !busy &&
+    !actionLocked &&
+    !activeEvent &&
+    connection === "online";
   const declaredRevolution =
     snapshot && snapshot.declaredRevolution?.round === snapshot.round
       ? snapshot.declaredRevolution
       : observedRevolution?.round === snapshot?.round
         ? observedRevolution
         : null;
-  const opponents = useMemo(
-    () => snapshot?.players.filter((player) => player.id !== me?.id) ?? [],
-    [me?.id, snapshot?.players],
-  );
   const sortedFinishers = useMemo(() => {
     if (!snapshot) return [];
     const ids = snapshot.finishOrder.length
@@ -1732,6 +1866,91 @@ export default function OnlinePage() {
       .map((id) => snapshot.players.find((player) => player.id === id))
       .filter((player): player is PlayerView => Boolean(player));
   }, [snapshot]);
+  const tableRankedPlayers = useMemo(
+    () =>
+      snapshot?.phase === "round-end" &&
+      sortedFinishers.length === snapshot.players.length
+        ? sortedFinishers
+        : (snapshot?.players ?? []),
+    [snapshot, sortedFinishers],
+  );
+  const rankedOpponents = useMemo(
+    () =>
+      tableRankedPlayers
+        .map((player, rankIndex) => ({ player, rankIndex }))
+        .filter(({ player }) => player.id !== me?.id),
+    [me?.id, tableRankedPlayers],
+  );
+
+  useEffect(() => {
+    if (
+      snapshot?.phase !== "round-end" ||
+      pendingRoundEndMoveIds === null ||
+      activeEvent ||
+      actionLocked
+    ) {
+      return;
+    }
+
+    const movingPlayerIds = pendingRoundEndMoveIds;
+    const startTimer = window.setTimeout(() => {
+      setPendingRoundEndMoveIds(null);
+      if (!movingPlayerIds.length) {
+        setRoundEndResultReady(true);
+        return;
+      }
+
+      setSeatRankOverrides(null);
+      setRankMovingPlayerIds(movingPlayerIds);
+      if (rankMoveTimerRef.current !== null) {
+        window.clearTimeout(rankMoveTimerRef.current);
+      }
+      rankMoveTimerRef.current = window.setTimeout(() => {
+        setRankMovingPlayerIds([]);
+        setRoundEndResultReady(true);
+        rankMoveTimerRef.current = null;
+      }, 1_700);
+    }, 0);
+    return () => window.clearTimeout(startTimer);
+  }, [
+    actionLocked,
+    activeEvent,
+    pendingRoundEndMoveIds,
+    snapshot?.phase,
+  ]);
+
+  useLayoutEffect(() => {
+    const nextRects = new Map<string, DOMRect>();
+    seatElementsRef.current.forEach((element, playerId) => {
+      nextRects.set(playerId, element.getBoundingClientRect());
+    });
+
+    const useGridFlip =
+      window.matchMedia("(max-width: 820px)").matches &&
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (useGridFlip && rankMovingPlayerIds.length) {
+      for (const playerId of rankMovingPlayerIds) {
+        const element = seatElementsRef.current.get(playerId);
+        const previousRect = seatRectsRef.current.get(playerId);
+        const nextRect = nextRects.get(playerId);
+        if (!element || !previousRect || !nextRect) continue;
+        const deltaX = previousRect.left - nextRect.left;
+        const deltaY = previousRect.top - nextRect.top;
+        if (Math.abs(deltaX) < 1 && Math.abs(deltaY) < 1) continue;
+        element.animate(
+          [
+            { translate: `${deltaX}px ${deltaY}px` },
+            { translate: "0 0" },
+          ],
+          {
+            duration: 1_150,
+            easing: "cubic-bezier(0.2, 0.78, 0.2, 1)",
+          },
+        );
+      }
+    }
+    seatRectsRef.current = nextRects;
+  }, [rankMovingPlayerIds, seatRankOverrides, tableRankedPlayers]);
 
   const toggleCard = (cardId: string) => {
     if (!isMyTurn && !isTaxSelection) return;
@@ -1780,6 +1999,14 @@ export default function OnlinePage() {
     setSelectedIds([]);
     setEventBuffer([]);
     setHandRevealUntil(0);
+    setRankMovingPlayerIds([]);
+    setSeatRankOverrides(null);
+    setPendingRoundEndMoveIds(null);
+    setRoundEndResultReady(true);
+    if (rankMoveTimerRef.current !== null) {
+      window.clearTimeout(rankMoveTimerRef.current);
+      rankMoveTimerRef.current = null;
+    }
     setObservedRevolution(null);
     setConnection("idle");
     setFatalError(false);
@@ -2241,27 +2468,55 @@ export default function OnlinePage() {
         <section
           className={`${styles.boardColumn} ${
             isRankSelectionPhase ? styles.boardColumnRankSelection : ""
+          } ${showMyTurnHighlight ? styles.boardColumnMyTurn : ""
           }`}
         >
           <div
             className={`${styles.table} ${
               declaredRevolution ? styles.tableRevolution : ""
-            } ${isRankSelectionPhase ? styles.tableRankSelection : ""}`}
+            } ${isRankSelectionPhase ? styles.tableRankSelection : ""} ${
+              showMyTurnHighlight ? styles.tableMyTurn : ""
+            }`}
+            aria-label={showMyTurnHighlight ? "내 차례입니다" : undefined}
           >
             <div className={styles.tableLine} />
+            {showMyTurnHighlight && (
+              <span
+                className={styles.turnFieldNotice}
+                role="status"
+                aria-live="polite"
+              >
+                YOUR TURN <b>내 차례</b>
+              </span>
+            )}
             <div className={styles.seatRing}>
-              {opponents.map((player, index) => (
-                <PlayerSeat
-                  key={player.id}
-                  player={player}
-                  isHost={player.id === snapshot.hostId}
-                  isCurrent={player.id === snapshot.currentPlayerId}
-                  passed={snapshot.passedPlayerIds.includes(player.id)}
-                  isHandRevealing={isHandRevealing}
-                  roleHidden={isRankSelectionPhase}
-                  style={seatPosition(index, opponents.length)}
-                />
-              ))}
+              {rankedOpponents.map(({ player, rankIndex }) => {
+                const displayedRankIndex =
+                  seatRankOverrides?.[player.id] ?? rankIndex;
+                return (
+                  <PlayerSeat
+                    key={player.id}
+                    player={player}
+                    isHost={player.id === snapshot.hostId}
+                    isCurrent={
+                      snapshot.phase === "playing" &&
+                      player.id === snapshot.currentPlayerId
+                    }
+                    passed={snapshot.passedPlayerIds.includes(player.id)}
+                    rankNumber={rankIndex + 1}
+                    isRankMoving={rankMovingPlayerIds.includes(player.id)}
+                    isHandRevealing={isHandRevealing}
+                    roleHidden={isRankSelectionPhase}
+                    elementRef={(element) =>
+                      bindSeatElement(player.id, element)
+                    }
+                    style={seatPosition(
+                      displayedRankIndex,
+                      tableRankedPlayers.length,
+                    )}
+                  />
+                );
+              })}
             </div>
             <div className={styles.tableCenter}>
               {isRankSelectionPhase && snapshot.rankSelection ? (
@@ -2332,15 +2587,45 @@ export default function OnlinePage() {
               ) : snapshot.table?.cards.length ? (
                 <>
                   <small>마지막으로 놓인 카드</small>
-                  <div className={styles.tableCards}>
-                    {snapshot.table.cards.map((card, index) => (
-                      <span
-                        key={card.id}
-                        style={{ "--table-card": index } as CSSProperties}
-                      >
-                        <PlayingCard card={card} displayOnly />
-                      </span>
-                    ))}
+                  <div
+                    className={styles.tableCards}
+                    style={
+                      {
+                        "--table-card-step-wide": `${Math.min(
+                          66,
+                          420 /
+                            Math.max(1, snapshot.table.cards.length - 1),
+                        )}px`,
+                        "--table-card-step-medium": `${Math.min(
+                          58,
+                          330 /
+                            Math.max(1, snapshot.table.cards.length - 1),
+                        )}px`,
+                        "--table-card-step-small": `${Math.min(
+                          51,
+                          170 /
+                            Math.max(1, snapshot.table.cards.length - 1),
+                        )}px`,
+                      } as CSSProperties
+                    }
+                  >
+                    {snapshot.table.cards.map((card, index) => {
+                      const offset =
+                        index - (snapshot.table!.cards.length - 1) / 2;
+                      return (
+                        <span
+                          key={card.id}
+                          style={
+                            {
+                              "--table-card-offset": offset,
+                              "--table-card-lift": `${Math.abs(offset) * 1.25}px`,
+                            } as CSSProperties
+                          }
+                        >
+                          <PlayingCard card={card} displayOnly />
+                        </span>
+                      );
+                    })}
                   </div>
                   <strong>
                     {formatRank(snapshot.table.rank)} × {snapshot.table.count}장
@@ -2376,6 +2661,11 @@ export default function OnlinePage() {
                 isHost={isHost}
                 isCurrent={isMyTurn}
                 passed={snapshot.passedPlayerIds.includes(me.id)}
+                rankNumber={
+                  tableRankedPlayers.findIndex((player) => player.id === me.id) +
+                  1
+                }
+                isRankMoving={rankMovingPlayerIds.includes(me.id)}
                 isHandRevealing={isHandRevealing}
               />
             )}
@@ -2459,7 +2749,14 @@ export default function OnlinePage() {
                   <button
                     type="button"
                     className={styles.passButton}
-                    disabled={!isMyTurn || !snapshot.table || busy || actionLocked}
+                    disabled={
+                      !isMyTurn ||
+                      !snapshot.table ||
+                      busy ||
+                      actionLocked ||
+                      Boolean(activeEvent) ||
+                      connection !== "online"
+                    }
                     onClick={() => void sendCommand("PASS")}
                   >
                     패스
@@ -2534,7 +2831,8 @@ export default function OnlinePage() {
         </aside>
       </section>
 
-      {activeEvent && (
+      {activeEvent &&
+        !(snapshot.phase === "round-end" && roundEndResultReady) && (
         <EventOverlay event={activeEvent} players={snapshot.players} />
       )}
 
@@ -2583,7 +2881,7 @@ export default function OnlinePage() {
           </div>
         )}
 
-      {snapshot.phase === "round-end" && !activeEvent && (
+      {snapshot.phase === "round-end" && roundEndResultReady && (
         <div className={styles.modalLayer}>
           <section className={styles.resultCard}>
             <span className={styles.eyebrow}>THE LAB HAS SPOKEN</span>
@@ -2592,12 +2890,21 @@ export default function OnlinePage() {
               {sortedFinishers.map((player, index) => (
                 <li
                   key={player.id}
-                  className={player.id === me?.id ? styles.resultSelf : ""}
+                  className={`${player.id === me?.id ? styles.resultSelf : ""} ${
+                    index === 0
+                      ? styles.resultFirst
+                      : index === 1
+                        ? styles.resultSecond
+                        : ""
+                  }`}
+                  aria-label={`${index + 1}위 ${player.name}, ${player.score}점`}
                 >
                   <span>{index + 1}</span>
                   <p>
                     <strong>{player.name}</strong>
-                    <small>{roleLabel(player.role)}</small>
+                    <small>
+                      다음 막 · {roleLabelForRank(index, sortedFinishers.length)}
+                    </small>
                   </p>
                   <em>{player.score}점</em>
                 </li>

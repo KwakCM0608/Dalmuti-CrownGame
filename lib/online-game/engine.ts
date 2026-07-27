@@ -24,7 +24,7 @@ const RANK_COUNTDOWN_MS = 3_000;
 const DEFAULT_DURATIONS: OnlinePhaseDurations = {
   rankChoiceIntroMs: 6_000,
   rankRevealDelayMs: 1_000,
-  rankRevealMs: 2_800,
+  rankRevealMs: 4_800,
   revealIntroMs: 2_200,
   handRevealMs: 2_000,
   revolutionDecisionMs: 20_000,
@@ -139,9 +139,20 @@ function resolveDurations(
 ): OnlinePhaseDurations {
   // Persisted rooms from an older deployment do not contain newly introduced
   // duration keys, so always hydrate from the current defaults first.
-  const durations = {
+  const persistedDurations = {
     ...DEFAULT_DURATIONS,
     ...base,
+  };
+  // Rooms saved by the previous release can still carry the former 2.8 second
+  // reveal. Keep enough time for every card to flip and for the viewer's rank
+  // confirmation to remain readable. Explicit dependency overrides remain
+  // available to keep deterministic engine tests fast.
+  persistedDurations.rankRevealMs = Math.max(
+    DEFAULT_DURATIONS.rankRevealMs,
+    persistedDurations.rankRevealMs,
+  );
+  const durations = {
+    ...persistedDurations,
     ...deps?.durations,
   };
   for (const [key, value] of Object.entries(durations)) {

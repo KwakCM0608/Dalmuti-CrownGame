@@ -874,7 +874,7 @@ test("legacy persisted room JSON hydrates new optional ranking fields safely", (
   delete state.declaredRevolution;
   delete state.durations.rankChoiceIntroMs;
   delete state.durations.rankRevealDelayMs;
-  delete state.durations.rankRevealMs;
+  state.durations.rankRevealMs = 2_800;
 
   const view = projectOnlineRoom(state, "p1");
   assert.equal(view.rankSelection, null);
@@ -893,6 +893,7 @@ test("legacy persisted room JSON hydrates new optional ranking fields safely", (
   );
   assert.equal(started.phase, "rank-intro");
   assert.equal(started.durations.rankRevealDelayMs, 1_000);
+  assert.equal(started.durations.rankRevealMs, 4_800);
   assert.equal(started.durations.revealIntroMs, 2_200);
   assert.equal(started.durations.handRevealMs, 2_000);
   assert.equal(started.durations.revolutionDecisionMs, 20_000);
