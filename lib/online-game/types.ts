@@ -36,6 +36,7 @@ export type OnlinePlayerState = {
   id: string;
   name: string;
   monogram: string;
+  isBot: boolean;
   role: OnlineRole;
   ready: boolean;
   connected: boolean;
@@ -85,6 +86,8 @@ export type OnlineEventVisibility = "public" | "private";
 export type OnlineEventType =
   | "ROOM_CREATED"
   | "PLAYER_JOINED"
+  | "BOT_ADDED"
+  | "BOT_REMOVED"
   | "PLAYER_READY_CHANGED"
   | "RANK_CHOICE_INTRO_STARTED"
   | "RANK_CHOICE_STARTED"
@@ -135,6 +138,13 @@ export type OnlineCommand =
   | (OnlineCommandBase & {
       type: "SET_READY";
       ready: boolean;
+    })
+  | (OnlineCommandBase & {
+      type: "ADD_BOT";
+    })
+  | (OnlineCommandBase & {
+      type: "REMOVE_BOT";
+      botId: string;
     })
   | (OnlineCommandBase & {
       type: "START_MATCH";
@@ -208,6 +218,7 @@ export type OnlineRoomState = {
   declaredRevolution: OnlineDeclaredRevolution | null;
   taxExchanges: OnlineTaxExchange[];
   actionLockUntil: number | null;
+  botActionAt: number | null;
   events: OnlineEvent[];
   nextEventSeq: number;
   processedCommandIds: string[];
@@ -220,6 +231,7 @@ export type OnlineSnapshotPlayer = {
   id: string;
   name: string;
   monogram: string;
+  isBot: boolean;
   role: OnlineRole;
   ready: boolean;
   connected: boolean;

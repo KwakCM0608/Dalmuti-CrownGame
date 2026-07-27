@@ -30,6 +30,7 @@ type PlayerView = {
   id: string;
   name: string;
   monogram: string;
+  isBot: boolean;
   role: string;
   ready: boolean;
   connected: boolean;
@@ -64,6 +65,16 @@ type ChatMessageView = {
   authorName: string;
   text: string;
   sentAt: number;
+};
+
+type MotionPoint = {
+  x: number;
+  y: number;
+};
+
+type MotionAnchors = {
+  players: Record<string, MotionPoint>;
+  center: MotionPoint | null;
 };
 
 type RankChoiceCardView = {
@@ -255,6 +266,7 @@ function playerFrom(value: unknown, index: number): PlayerView {
     id: stringValue(source.id, stringValue(source.playerId, `player-${index}`)),
     name,
     monogram: stringValue(source.monogram, name.trim().slice(0, 1) || "?"),
+    isBot: booleanValue(source.isBot),
     role: stringValue(source.role, "merchant"),
     ready: booleanValue(source.ready),
     connected: booleanValue(source.connected, true),
@@ -341,7 +353,7 @@ function chatMessageFrom(value: unknown): ChatMessageView | null {
 
 function defaultEventDuration(type: unknown): number {
   const label = stringValue(type).toUpperCase();
-  if (label === "DALMUTI_EFFECT") return 5600;
+  if (label === "DALMUTI_EFFECT") return 3300;
   if (label.includes("REVOLUTION")) return 4600;
   if (label.includes("HAND_REVEAL") || label === "MATCH_STARTED") return 2800;
   if (
@@ -349,14 +361,14 @@ function defaultEventDuration(type: unknown): number {
     label.includes("TAX_RETURN") ||
     label.includes("TRIBUTE")
   ) {
-    return 5000;
+    return 6000;
   }
   if (label.includes("TAX")) return 3800;
   if (label.includes("RANK")) return 3800;
   // PLAYER_PASSED also contains "PLAY", so PASS must be matched first.
   if (label.includes("PASS")) return 1500;
   if (label.includes("PLAY_INTRO") || label.includes("GAME_START")) return 3600;
-  if (label.includes("PLAY")) return 3600;
+  if (label.includes("PLAY")) return 2250;
   return 2600;
 }
 
@@ -798,6 +810,7 @@ function PlayingCard({
   onClick,
   onDoubleClick,
   displayOnly = false,
+  style,
 }: {
   card: CardView;
   selected?: boolean;
@@ -806,6 +819,7 @@ function PlayingCard({
   onClick?: () => void;
   onDoubleClick?: () => void;
   displayOnly?: boolean;
+  style?: CSSProperties;
 }) {
   return (
     <button
@@ -816,6 +830,7 @@ function PlayingCard({
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       disabled={disabled || displayOnly}
+      style={style}
       aria-pressed={displayOnly ? undefined : selected}
       aria-label={
         concealed
@@ -895,6 +910,7 @@ function PlayerSeat({
   rankNumber,
   isRankMoving = false,
   rankMovement = null,
+  showHandBacks = false,
   isHandRevealing = false,
   isDalmutiHighlighted = false,
   roleHidden = false,
@@ -909,6 +925,7 @@ function PlayerSeat({
   rankNumber?: number;
   isRankMoving?: boolean;
   rankMovement?: "up" | "down" | null;
+  showHandBacks?: boolean;
   isHandRevealing?: boolean;
   isDalmutiHighlighted?: boolean;
   roleHidden?: boolean;
@@ -951,6 +968,7 @@ function PlayerSeat({
         <strong>
           {player.name}
           {isSelf && <small>나</small>}
+          {player.isBot && <small>BOT</small>}
         </strong>
         <em>{visibleRoleLabel}</em>
       </span>
@@ -966,8 +984,13 @@ function PlayerSeat({
       {isCurrent && <span className={styles.turnMark}>차례</span>}
       {passed && <span className={styles.passedMark}>PASS</span>}
       {!player.connected && <span className={styles.offlineMark}>재접속 대기</span>}
-      {isHandRevealing && player.handCount > 0 && (
-        <span className={styles.seatRevealCards} aria-hidden="true">
+      {(showHandBacks || isHandRevealing) && player.handCount > 0 && (
+        <span
+          className={`${styles.seatRevealCards} ${
+            isHandRevealing ? styles.seatRevealCardsAnimating : ""
+          }`}
+          aria-hidden="true"
+        >
           <i />
           <i />
           <i />
@@ -1188,15 +1211,16 @@ function RankSelectionField({
 function EventOverlay({
   event,
   players,
+  anchors,
+  effectiveClock,
 }: {
   event: EventView;
   players: PlayerView[];
+  anchors: MotionAnchors;
+  effectiveClock: number;
 }) {
   const type = event.type;
   const data = event.data;
-  const overlayStyle = {
-    "--event-duration": `${event.durationMs}ms`,
-  } as CSSProperties;
   const cards = cardsFrom(
     data.cards ??
       data.cardDetails ??
@@ -1210,10 +1234,6 @@ function EventOverlay({
     event.actorPlayerId ??
     stringValue(data.actorPlayerId, stringValue(data.playerId)) ??
     null;
-  const dalmutiActorId = dalmutiActorIdFromEvent(event, players);
-  const dalmutiActor = players.find(
-    (player) => player.id === dalmutiActorId,
-  );
   const fromId = stringValue(
     data.fromPlayerId,
     stringValue(
@@ -1235,6 +1255,22 @@ function EventOverlay({
     ),
   );
   const autoPassedIds = stringArray(data.autoPassedPlayerIds);
+  const center = anchors.center ?? { x: 0, y: 0 };
+  const from = anchors.players[fromId || actorId || ""] ?? center;
+  const to = anchors.players[toId] ?? center;
+  const [initialElapsed] = useState(() =>
+    Math.max(0, Math.min(event.durationMs, effectiveClock - event.startsAt)),
+  );
+  const overlayStyle = {
+    "--event-duration": `${event.durationMs}ms`,
+    "--event-elapsed": `${initialElapsed}ms`,
+    "--from-x": `${from.x}px`,
+    "--from-y": `${from.y}px`,
+    "--to-x": `${to.x}px`,
+    "--to-y": `${to.y}px`,
+    "--center-x": `${center.x}px`,
+    "--center-y": `${center.y}px`,
+  } as CSSProperties;
 
   if (type === "REVOLUTION_DECLARED") {
     const isGreatRevolution =
@@ -1252,17 +1288,19 @@ function EventOverlay({
           <span />
           <span />
         </div>
-        <small>{isGreatRevolution ? "GREAT REVOLUTION" : "REVOLUTION"}</small>
-        <strong>{isGreatRevolution ? "대혁명" : "혁명"}</strong>
-        <b>
-          {playerName(players, actorId)}이(가){" "}
-          {isGreatRevolution ? "대혁명" : "혁명"}을 일으켰습니다
-        </b>
-        <span>
-          {isGreatRevolution
-            ? "모든 계급이 뒤집혔습니다 · 세금 없이 게임을 시작합니다"
-            : "이번 막의 세금 교환이 취소되었습니다 · 게임을 시작합니다"}
-        </span>
+        <div className={styles.eventCenterCopy}>
+          <small>{isGreatRevolution ? "GREAT REVOLUTION" : "REVOLUTION"}</small>
+          <strong>{isGreatRevolution ? "대혁명" : "혁명"}</strong>
+          <b>
+            {playerName(players, actorId)}이(가){" "}
+            {isGreatRevolution ? "대혁명" : "혁명"}을 일으켰습니다
+          </b>
+          <span>
+            {isGreatRevolution
+              ? "모든 계급이 뒤집혔습니다 · 세금 없이 게임을 시작합니다"
+              : "이번 막의 세금 교환이 취소되었습니다 · 게임을 시작합니다"}
+          </span>
+        </div>
       </div>
     );
   }
@@ -1275,9 +1313,11 @@ function EventOverlay({
           className={`${styles.eventOverlay} ${styles.introOverlay}`}
           style={overlayStyle}
         >
-          <small>TRIBUTE PHASE</small>
-          <strong>세금 교환</strong>
-          <span>계급에 따른 카드 교환을 시작합니다</span>
+          <div className={styles.eventCenterCopy}>
+            <small>TRIBUTE PHASE</small>
+            <strong>세금 교환</strong>
+            <span>계급에 따른 카드 교환을 시작합니다</span>
+          </div>
         </div>
       );
     }
@@ -1307,7 +1347,25 @@ function EventOverlay({
             <div
               className={styles.eventCardWrap}
               key={`${event.id}-${card.id}-${index}`}
-              style={{ "--event-card-index": index } as CSSProperties}
+              style={
+                {
+                  "--event-card-index": index,
+                  "--event-card-offset":
+                    index -
+                    ((cards.length ||
+                      numberValue(data.count, numberValue(route.count, 1))) -
+                      1) /
+                      2,
+                  "--event-card-offset-x": `${
+                    (index -
+                      ((cards.length ||
+                        numberValue(data.count, numberValue(route.count, 1))) -
+                        1) /
+                        2) *
+                    46
+                  }px`,
+                } as CSSProperties
+              }
             >
               <PlayingCard card={card} concealed={!cards.length} displayOnly />
             </div>
@@ -1333,20 +1391,6 @@ function EventOverlay({
         className={`${styles.eventOverlay} ${styles.dalmutiEffectOverlay}`}
         style={overlayStyle}
       >
-        {dalmutiActor && (
-          <div className={styles.dalmutiEffectActorSeat}>
-            <PlayerSeat
-              player={dalmutiActor}
-              isHost={false}
-              isCurrent={false}
-              passed={false}
-              rankNumber={
-                players.findIndex((player) => player.id === dalmutiActor.id) + 1
-              }
-              isDalmutiHighlighted
-            />
-          </div>
-        )}
         <small>DALMUTI</small>
         <div className={styles.dalmutiEffectCard}>
           <PlayingCard
@@ -1360,7 +1404,17 @@ function EventOverlay({
         </span>
         <div className={styles.autoPassPlayers}>
           {autoPassedIds.map((playerId) => (
-            <i key={playerId}>{playerName(players, playerId)} PASS</i>
+            <i
+              key={playerId}
+              style={
+                {
+                  "--pass-x": `${anchors.players[playerId]?.x ?? center.x}px`,
+                  "--pass-y": `${anchors.players[playerId]?.y ?? center.y}px`,
+                } as CSSProperties
+              }
+            >
+              {playerName(players, playerId)} PASS
+            </i>
           ))}
         </div>
         <b>나머지 플레이어 자동 PASS</b>
@@ -1369,14 +1423,23 @@ function EventOverlay({
   }
 
   if (type.includes("PASS")) {
+    const passReason = stringValue(event.data.reason);
     return (
       <div
         className={`${styles.eventOverlay} ${styles.passOverlay}`}
         style={overlayStyle}
       >
-        <span>{playerName(players, actorId)}</span>
-        <strong>PASS</strong>
-        <small>이번 묶음을 넘겼습니다</small>
+        <div className={styles.passMotion}>
+          <span>{playerName(players, actorId)}</span>
+          <strong>PASS</strong>
+          <small>
+            {passReason === "insufficient-cards"
+              ? "필요한 장수보다 손패가 적어 자동 패스합니다"
+              : passReason === "timeout"
+                ? "제한시간이 끝나 자동 패스합니다"
+                : "이번 묶음을 넘겼습니다"}
+          </small>
+        </div>
       </div>
     );
   }
@@ -1393,7 +1456,15 @@ function EventOverlay({
             <div
               className={styles.eventCardWrap}
               key={`${event.id}-${card.id}`}
-              style={{ "--event-card-index": index } as CSSProperties}
+              style={
+                {
+                  "--event-card-index": index,
+                  "--event-card-offset": index - (cards.length - 1) / 2,
+                  "--event-card-offset-x": `${
+                    (index - (cards.length - 1) / 2) * 46
+                  }px`,
+                } as CSSProperties
+              }
             >
               <PlayingCard card={card} displayOnly />
             </div>
@@ -1413,10 +1484,12 @@ function EventOverlay({
         className={`${styles.eventOverlay} ${styles.revealOverlay}`}
         style={overlayStyle}
       >
-        <span className={styles.revealCard} aria-hidden="true" />
-        <small>HAND REVEAL</small>
-        <strong>패를 공개합니다</strong>
-        <span>모든 플레이어가 자신의 패를 확인합니다</span>
+        <div className={styles.eventCenterCopy}>
+          <span className={styles.revealCard} aria-hidden="true" />
+          <small>HAND REVEAL</small>
+          <strong>패를 공개합니다</strong>
+          <span>모든 플레이어가 자신의 패를 확인합니다</span>
+        </div>
       </div>
     );
   }
@@ -1436,9 +1509,11 @@ function EventOverlay({
         className={`${styles.eventOverlay} ${styles.introOverlay}`}
         style={overlayStyle}
       >
-        <small>ROUND START</small>
-        <strong>게임 시작</strong>
-        <span>{playerName(players, starterId)}이(가) 먼저 시작합니다</span>
+        <div className={styles.eventCenterCopy}>
+          <small>ROUND START</small>
+          <strong>게임 시작</strong>
+          <span>{playerName(players, starterId)}이(가) 먼저 시작합니다</span>
+        </div>
       </div>
     );
   }
@@ -1448,9 +1523,13 @@ function EventOverlay({
       className={`${styles.eventOverlay} ${styles.introOverlay}`}
       style={overlayStyle}
     >
-      <small>DALMUTI ONLINE</small>
-      <strong>{stringValue(data.title, "게임 진행")}</strong>
-      <span>{stringValue(data.message, "모든 플레이어의 상태를 맞추고 있습니다")}</span>
+      <div className={styles.eventCenterCopy}>
+        <small>DALMUTI ONLINE</small>
+        <strong>{stringValue(data.title, "게임 진행")}</strong>
+        <span>
+          {stringValue(data.message, "모든 플레이어의 상태를 맞추고 있습니다")}
+        </span>
+      </div>
     </div>
   );
 }
@@ -1613,6 +1692,10 @@ export default function OnlinePage() {
     string[] | null
   >(null);
   const [roundEndResultReady, setRoundEndResultReady] = useState(true);
+  const [motionAnchors, setMotionAnchors] = useState<MotionAnchors>({
+    players: {},
+    center: null,
+  });
   const inFlightRef = useRef(false);
   const failureCountRef = useRef(0);
   const snapshotRef = useRef<SnapshotView | null>(null);
@@ -1621,6 +1704,8 @@ export default function OnlinePage() {
   const rankMoveTimerRef = useRef<number | null>(null);
   const seatElementsRef = useRef(new Map<string, HTMLElement>());
   const seatRectsRef = useRef(new Map<string, DOMRect>());
+  const tableColumnRef = useRef<HTMLDivElement | null>(null);
+  const tableCenterRef = useRef<HTMLDivElement | null>(null);
 
   const bindSeatElement = useCallback(
     (playerId: string, element: HTMLElement | null) => {
@@ -2214,6 +2299,49 @@ export default function OnlinePage() {
     isRankSelectionPhase,
     snapshot?.phase,
   ]);
+
+  useLayoutEffect(() => {
+    const root = tableColumnRef.current;
+    const centerElement = tableCenterRef.current;
+    if (!root || !centerElement) return;
+
+    const measure = () => {
+      const rootRect = root.getBoundingClientRect();
+      const centerRect = centerElement.getBoundingClientRect();
+      const players: Record<string, MotionPoint> = {};
+      seatElementsRef.current.forEach((element, playerId) => {
+        const rect = element.getBoundingClientRect();
+        players[playerId] = {
+          x: rect.left - rootRect.left + rect.width / 2,
+          y: rect.top - rootRect.top + rect.height / 2,
+        };
+      });
+      setMotionAnchors({
+        players,
+        center: {
+          x: centerRect.left - rootRect.left + centerRect.width / 2,
+          y: centerRect.top - rootRect.top + centerRect.height / 2,
+        },
+      });
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(root);
+    observer.observe(centerElement);
+    seatElementsRef.current.forEach((element) => observer.observe(element));
+    window.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [
+    activeEvent?.id,
+    isHandRevealing,
+    rankMovingPlayerIds,
+    snapshot?.players,
+  ]);
+
   const dalmutiHighlightPlayerId = useMemo(
     () =>
       activeEvent && snapshot
@@ -2655,8 +2783,8 @@ export default function OnlinePage() {
               기다리는 중
             </h1>
             <p>
-              최소 4명이 모이고 모두 준비하면 방장이 PLAY를 누를 수
-              있습니다.
+              참가자와 봇을 합쳐 최소 4명이 준비되면 방장이 PLAY를
+              누를 수 있습니다.
             </p>
             <button
               type="button"
@@ -2693,10 +2821,28 @@ export default function OnlinePage() {
                 const player = snapshot?.players[index];
                 if (!player) {
                   return (
-                    <li className={styles.emptySlot} key={`empty-${index}`}>
+                    <li
+                      className={`${styles.emptySlot} ${
+                        isHost ? styles.emptySlotInteractive : ""
+                      }`}
+                      key={`empty-${index}`}
+                    >
                       <span>{index + 1}</span>
                       <p>빈 자리</p>
-                      <em>초대 링크로 참가할 수 있습니다</em>
+                      <em>
+                        {isHost
+                          ? "클릭하여 봇 추가"
+                          : "초대 링크로 참가할 수 있습니다"}
+                      </em>
+                      {isHost && (
+                        <button
+                          type="button"
+                          className={styles.slotOverlayButton}
+                          disabled={busy || connection !== "online"}
+                          onClick={() => void sendCommand("ADD_BOT")}
+                          aria-label={`${index + 1}번 빈 자리에 봇 추가`}
+                        />
+                      )}
                     </li>
                   );
                 }
@@ -2704,7 +2850,7 @@ export default function OnlinePage() {
                   <li
                     className={`${styles.lobbyPlayer} ${
                       player.id === me?.id ? styles.lobbyPlayerSelf : ""
-                    }`}
+                    } ${player.isBot ? styles.lobbyPlayerBot : ""}`}
                     key={player.id}
                   >
                     <span className={styles.avatar}>
@@ -2714,7 +2860,9 @@ export default function OnlinePage() {
                     <p>
                       <strong>{player.name}</strong>
                       <small>
-                        {player.id === snapshot?.hostId
+                        {player.isBot
+                          ? "봇 · 자동 준비"
+                          : player.id === snapshot?.hostId
                           ? "방장"
                           : player.id === me?.id
                             ? "나"
@@ -2737,11 +2885,31 @@ export default function OnlinePage() {
                           player.ready ? styles.readyBadge : styles.waitBadge
                         }
                       >
-                        {player.ready ? "준비 완료" : "준비 중"}
+                        {player.isBot
+                          ? "BOT · 준비 완료"
+                          : player.ready
+                            ? "준비 완료"
+                            : "준비 중"}
                       </em>
                     )}
                     {!player.connected && (
                       <i className={styles.disconnectedBadge}>연결 끊김</i>
+                    )}
+                    {isHost && player.isBot && (
+                      <>
+                        <i className={styles.botRemoveHint}>클릭해 삭제</i>
+                        <button
+                          type="button"
+                          className={styles.slotOverlayButton}
+                          disabled={busy || connection !== "online"}
+                          onClick={() =>
+                            void sendCommand("REMOVE_BOT", {
+                              botId: player.id,
+                            })
+                          }
+                          aria-label={`${player.name} 삭제`}
+                        />
+                      </>
                     )}
                   </li>
                 );
@@ -2774,7 +2942,7 @@ export default function OnlinePage() {
                   <small>
                     {allReady
                       ? "첫 계급 정하기 시작"
-                      : "4명 이상 · 모두 준비 필요"}
+                      : "4명 이상(봇 포함) · 모두 준비 필요"}
                   </small>
                 </button>
               )}
@@ -2915,6 +3083,7 @@ export default function OnlinePage() {
         </aside>
 
         <section
+          ref={tableColumnRef}
           className={`${styles.boardColumn} ${
             isRankSelectionPhase ? styles.boardColumnRankSelection : ""
           } ${showMyTurnHighlight ? styles.boardColumnMyTurn : ""
@@ -3017,6 +3186,7 @@ export default function OnlinePage() {
                     rankNumber={rankIndex + 1}
                     isRankMoving={rankMovingPlayerIds.includes(player.id)}
                     rankMovement={movementDirection}
+                    showHandBacks={player.handCount > 0}
                     isHandRevealing={isHandRevealing}
                     isDalmutiHighlighted={
                       player.id === dalmutiHighlightPlayerId
@@ -3046,7 +3216,7 @@ export default function OnlinePage() {
                 <i />
               </div>
             )}
-            <div className={styles.tableCenter}>
+            <div ref={tableCenterRef} className={styles.tableCenter}>
               {isRankSelectionPhase && snapshot.rankSelection ? (
                 <RankSelectionField
                   rankSelection={snapshot.rankSelection}
@@ -3180,7 +3350,11 @@ export default function OnlinePage() {
           <section
             className={`${styles.ownDock} ${
               isTaxSelection ? styles.ownDockTaxSelection : ""
-            } ${isRankSelectionPhase ? styles.ownDockRankHidden : ""}`}
+            } ${isRankSelectionPhase ? styles.ownDockRankHidden : ""} ${
+              snapshot.hand !== null && hand.length === 0
+                ? styles.ownDockFinished
+                : ""
+            }`}
             aria-hidden={isRankSelectionPhase || undefined}
           >
             {me && (
@@ -3210,6 +3384,7 @@ export default function OnlinePage() {
                 })()}
                 isHandRevealing={isHandRevealing}
                 isDalmutiHighlighted={me.id === dalmutiHighlightPlayerId}
+                elementRef={(element) => bindSeatElement(me.id, element)}
               />
             )}
             <div className={styles.handScroller}>
@@ -3220,17 +3395,22 @@ export default function OnlinePage() {
               >
                 {snapshot.hand === null
                   ? Array.from(
-                      { length: Math.min(16, Math.max(1, me?.handCount ?? 14)) },
+                      { length: Math.max(1, me?.handCount ?? 14) },
                       (_, index) => (
                         <PlayingCard
                           key={`back-${index}`}
                           card={{ id: `back-${index}`, rank: 13 }}
                           concealed
                           displayOnly
+                          style={
+                            {
+                              "--card-index": index,
+                            } as CSSProperties
+                          }
                         />
                       ),
                     )
-                  : hand.map((card) => (
+                  : hand.map((card, index) => (
                       <PlayingCard
                         key={card.id}
                         card={card}
@@ -3238,17 +3418,32 @@ export default function OnlinePage() {
                         disabled={!isMyTurn && !isTaxSelection}
                         onClick={() => toggleCard(card.id)}
                         onDoubleClick={() => toggleRank(card.rank)}
+                        style={
+                          {
+                            "--card-index": index,
+                          } as CSSProperties
+                        }
                       />
                     ))}
                 {snapshot.hand !== null && hand.length === 0 && (
-                  <div className={styles.finishedHand}>
-                    <span>✓</span>
-                    <strong>모든 카드를 냈습니다</strong>
-                    <small>
-                      {me?.finishedPlace
-                        ? `${me.finishedPlace}위로 이번 막을 마쳤습니다`
-                        : "다른 플레이어의 순위를 기다리는 중입니다"}
-                    </small>
+                  <div
+                    className={styles.finishedHand}
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <span className={styles.finishedMedal}>
+                      <b>{me?.finishedPlace ?? "–"}</b>
+                      <i>PLACE</i>
+                    </span>
+                    <span className={styles.finishedHandCopy}>
+                      <small>ROUND COMPLETE</small>
+                      <strong>먼저 모든 카드를 냈습니다</strong>
+                      <em>
+                        {me?.finishedPlace
+                          ? `${me.finishedPlace}위 확정 · 남은 경기를 관전하는 중`
+                          : "다른 플레이어의 순위를 기다리는 중"}
+                      </em>
+                    </span>
                   </div>
                 )}
               </div>
@@ -3328,6 +3523,16 @@ export default function OnlinePage() {
               )}
             </div>
           </section>
+          {activeEvent &&
+            !(snapshot.phase === "round-end" && roundEndResultReady) && (
+              <EventOverlay
+                key={activeEvent.id}
+                event={activeEvent}
+                players={snapshot.players}
+                anchors={motionAnchors}
+                effectiveClock={effectiveClock}
+              />
+            )}
         </section>
 
         <aside className={styles.historyRail}>
@@ -3343,7 +3548,11 @@ export default function OnlinePage() {
                 <li key={event.id}>
                   <span>{String(event.seq).padStart(2, "0")}</span>
                   <p>
-                    {event.type === "RANK_ORDER_ASSIGNED"
+                    {event.type === "BOT_ADDED"
+                      ? `${stringValue(event.data.name, "봇")}이(가) 추가되었습니다`
+                      : event.type === "BOT_REMOVED"
+                        ? `${stringValue(event.data.name, "봇")}이(가) 삭제되었습니다`
+                    : event.type === "RANK_ORDER_ASSIGNED"
                       ? "첫 막의 랩실 서열이 정해졌습니다"
                       : event.type === "RANK_CARD_CHOSEN"
                         ? "계급 카드가 선택되었습니다"
@@ -3382,11 +3591,6 @@ export default function OnlinePage() {
           </div>
         </aside>
       </section>
-
-      {activeEvent &&
-        !(snapshot.phase === "round-end" && roundEndResultReady) && (
-        <EventOverlay event={activeEvent} players={snapshot.players} />
-      )}
 
       {snapshot.phase === "revolution" &&
         snapshot.canChooseRevolution &&

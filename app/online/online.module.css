@@ -912,6 +912,7 @@
 
 .emptySlot > span {
   display: grid;
+  grid-row: 1 / 3;
   width: 25px;
   height: 25px;
   place-items: center;
@@ -922,12 +923,87 @@
 }
 
 .emptySlot p {
+  grid-column: 2;
+  align-self: end;
   font-size: 9px;
   font-weight: 800;
 }
 
 .emptySlot em {
-  display: none;
+  grid-column: 2;
+  align-self: start;
+  color: #75685f;
+  font-size: 7px;
+  font-style: normal;
+  line-height: 1.3;
+}
+
+.emptySlotInteractive,
+.lobbyPlayerBot {
+  transition:
+    border-color 180ms ease,
+    background 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.emptySlotInteractive {
+  border-color: rgba(211, 169, 78, 0.28);
+  color: #aa9270;
+}
+
+.emptySlotInteractive:hover,
+.lobbyPlayerBot:hover {
+  border-color: rgba(224, 184, 91, 0.62);
+  background: rgba(205, 151, 45, 0.09);
+  box-shadow: 0 0 0 2px rgba(211, 169, 78, 0.08);
+  transform: translateY(-1px);
+}
+
+.lobbyPlayerBot .avatar {
+  border-color: rgba(221, 183, 93, 0.66);
+  background: linear-gradient(145deg, #7b5427, #3d1d24);
+  color: #f2d796;
+}
+
+.botRemoveHint {
+  position: absolute;
+  right: 8px;
+  bottom: 3px;
+  z-index: 2;
+  color: #b99858;
+  font-size: 6px;
+  font-style: normal;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.lobbyPlayerBot:hover .botRemoveHint,
+.lobbyPlayerBot:focus-within .botRemoveHint {
+  opacity: 1;
+}
+
+.slotOverlayButton {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: transparent;
+  cursor: pointer;
+  font-size: 0;
+}
+
+.slotOverlayButton:focus-visible {
+  outline: 2px solid #e4bd62;
+  outline-offset: 2px;
+}
+
+.slotOverlayButton:disabled {
+  cursor: wait;
 }
 
 .lobbyControls {
@@ -1200,7 +1276,7 @@
 .boardColumnMyTurn {
   background:
     radial-gradient(
-      ellipse at 50% 46%,
+      ellipse at var(--center-x) var(--center-y),
       rgba(226, 183, 78, 0.12),
       transparent 69%
     );
@@ -1926,6 +2002,10 @@
   background: #76549b url("/cards/back.webp") center / cover no-repeat;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.34);
   transform-origin: 50% 50%;
+  transform: translateY(0) rotateY(0deg);
+}
+
+.seatRevealCardsAnimating i {
   animation: seatHandReveal 1700ms cubic-bezier(0.34, 0.02, 0.2, 1) both;
 }
 
@@ -1933,11 +2013,11 @@
   margin-left: 0;
 }
 
-.seatRevealCards i:nth-child(2) {
+.seatRevealCardsAnimating i:nth-child(2) {
   animation-delay: 90ms;
 }
 
-.seatRevealCards i:nth-child(3) {
+.seatRevealCardsAnimating i:nth-child(3) {
   animation-delay: 180ms;
 }
 
@@ -2316,33 +2396,34 @@
 }
 
 .tableCenter > small {
-  margin-bottom: 8px;
+  margin-bottom: 14px;
   color: rgba(237, 212, 153, 0.68);
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 900;
   letter-spacing: 0.1em;
 }
 
 .tableCenter > strong {
-  margin-top: 10px;
+  margin-top: 15px;
   color: #f5d98e;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: 19px;
+  font-size: 22px;
 }
 
 .tableCenter > p {
-  margin: 5px 0 0;
+  margin: 12px 0 0;
   color: rgba(255, 255, 255, 0.66);
-  font-size: 9px;
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .tableCards {
-  --table-card-width: 122px;
+  --table-card-width: 140px;
   --table-card-step: var(--table-card-step-wide, 66px);
 
   display: flex;
   width: min(560px, 100%);
-  min-height: 188px;
+  min-height: 228px;
   align-items: center;
   justify-content: center;
 }
@@ -3016,8 +3097,8 @@
 }
 
 .tableCards .card {
-  width: 122px;
-  height: 188px;
+  width: 140px;
+  height: 216px;
   border-radius: 12px;
   box-shadow: 0 19px 36px rgba(0, 0, 0, 0.4);
 }
@@ -3028,7 +3109,7 @@
   grid-template-columns: auto minmax(0, 1fr) clamp(190px, 15vw, 220px);
   align-items: end;
   gap: 10px;
-  min-height: 157px;
+  min-height: 166px;
   margin-top: -17px;
   padding: 9px 10px 0;
 }
@@ -3045,7 +3126,7 @@
 .chatPanel {
   display: grid;
   min-width: 0;
-  height: 151px;
+  height: 160px;
   grid-column: 3;
   grid-row: 1;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
@@ -3063,7 +3144,7 @@
 
 .lobbyChatPanel {
   width: min(370px, 100%);
-  height: 176px;
+  height: 192px;
   margin-top: 14px;
 }
 
@@ -3092,7 +3173,7 @@
   align-items: center;
   gap: 6px;
   color: #ddcda9;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 950;
   letter-spacing: 0.08em;
 }
@@ -3141,7 +3222,7 @@
 .chatMessage strong {
   overflow: hidden;
   color: #bda977;
-  font-size: 7px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3150,14 +3231,14 @@
   flex: 0 0 auto;
   color: #675b50;
   font-family: ui-monospace, monospace;
-  font-size: 6px;
+  font-size: 9px;
 }
 
 .chatMessage p {
-  margin: 1px 0 0;
+  margin: 2px 0 0;
   color: #c8bca9;
-  font-size: 8px;
-  line-height: 1.35;
+  font-size: 12px;
+  line-height: 1.48;
   overflow-wrap: anywhere;
 }
 
@@ -3172,7 +3253,7 @@
   margin: 0;
   place-items: center;
   color: #6f6256;
-  font-size: 7px;
+  font-size: 10px;
 }
 
 .chatComposer {
@@ -3185,14 +3266,14 @@
 
 .chatComposer input {
   min-width: 0;
-  height: 27px;
+  height: 31px;
   padding: 0 8px;
   border: 1px solid rgba(221, 186, 102, 0.18);
   border-radius: 7px;
   outline: none;
   background: rgba(255, 255, 255, 0.035);
   color: #e4d6bc;
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .chatComposer input:focus {
@@ -3205,14 +3286,14 @@
 }
 
 .chatComposer button {
-  min-width: 40px;
+  min-width: 44px;
   padding: 0 7px;
   border: 1px solid rgba(217, 175, 73, 0.52);
   border-radius: 7px;
   background: rgba(182, 132, 41, 0.2);
   color: #e7c96f;
   cursor: pointer;
-  font-size: 7px;
+  font-size: 10px;
   font-weight: 900;
 }
 
@@ -3225,7 +3306,7 @@
 .chatError {
   padding: 0 7px 5px;
   color: #dc8793;
-  font-size: 6px;
+  font-size: 9px;
 }
 
 .hand {
@@ -3255,6 +3336,7 @@
   pointer-events: none;
   transform-style: preserve-3d;
   animation: onlineHandCardReveal 1700ms cubic-bezier(0.34, 0.02, 0.2, 1) both;
+  animation-delay: calc(var(--card-index, 0) * 42ms);
 }
 
 .handRevealing .card::after {
@@ -3271,6 +3353,7 @@
   transform: translateZ(1px);
   backface-visibility: hidden;
   animation: onlineHandBackSwap 1700ms step-end both;
+  animation-delay: calc(var(--card-index, 0) * 42ms);
 }
 
 .ownDockTaxSelection {
@@ -3329,39 +3412,110 @@
 }
 
 .finishedHand {
+  position: relative;
+  display: flex;
+  width: min(440px, 76vw);
+  min-height: 108px;
+  align-items: center;
+  justify-content: center;
+  gap: 17px;
+  overflow: hidden;
+  padding: 15px 24px;
+  border: 1px solid rgba(224, 185, 91, 0.38);
+  border-radius: 15px;
+  background:
+    radial-gradient(circle at 18% 35%, rgba(211, 163, 62, 0.16), transparent 38%),
+    linear-gradient(135deg, rgba(68, 21, 31, 0.96), rgba(26, 8, 14, 0.96));
+  box-shadow:
+    inset 0 0 0 3px rgba(255, 223, 146, 0.025),
+    0 14px 34px rgba(0, 0, 0, 0.3);
+  animation: finishedHandReveal 520ms cubic-bezier(0.2, 0.76, 0.22, 1) both;
+}
+
+.finishedHand::after {
+  position: absolute;
+  right: -42px;
+  width: 130px;
+  height: 190%;
+  border-left: 1px solid rgba(231, 192, 99, 0.12);
+  background: linear-gradient(90deg, transparent, rgba(211, 163, 62, 0.06));
+  content: "";
+  transform: rotate(18deg);
+}
+
+.finishedMedal {
+  position: relative;
+  z-index: 1;
   display: grid;
-  width: min(370px, 70vw);
-  min-height: 105px;
-  align-content: center;
+  width: 64px;
+  height: 64px;
+  flex: 0 0 auto;
+  place-content: center;
   justify-items: center;
-  border: 1px solid rgba(221, 186, 102, 0.28);
-  border-radius: 13px;
-  background: rgba(213, 169, 69, 0.06);
-  text-align: center;
-}
-
-.finishedHand > span {
-  display: grid;
-  width: 25px;
-  height: 25px;
-  place-items: center;
-  border: 1px solid #bc913a;
+  border: 1px solid rgba(242, 210, 132, 0.68);
   border-radius: 50%;
-  color: var(--gold-400);
-  font-size: 11px;
+  background:
+    radial-gradient(circle, #4b2025 0 48%, transparent 49%),
+    conic-gradient(from 20deg, #8b6225, #edcf7a, #8b6225, #edcf7a, #8b6225);
+  color: #f2d98f;
+  box-shadow:
+    inset 0 0 0 5px rgba(28, 8, 13, 0.72),
+    0 0 24px rgba(221, 177, 66, 0.18);
 }
 
-.finishedHand strong {
-  margin-top: 6px;
-  color: #ead8ae;
-  font-family: Georgia, serif;
-  font-size: 13px;
+.finishedMedal b {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 24px;
+  line-height: 0.9;
 }
 
-.finishedHand small {
-  margin-top: 3px;
-  color: #8f8171;
+.finishedMedal i {
+  margin-top: 4px;
+  font-size: 6px;
+  font-style: normal;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+}
+
+.finishedHandCopy {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  min-width: 0;
+  text-align: left;
+}
+
+.finishedHandCopy small {
+  color: #b88d42;
   font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.15em;
+}
+
+.finishedHandCopy strong {
+  margin-top: 4px;
+  color: #f0ddb1;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 15px;
+}
+
+.finishedHandCopy em {
+  margin-top: 5px;
+  color: #9f8b7c;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+@keyframes finishedHandReveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .actionBar {
@@ -3479,19 +3633,17 @@
 }
 
 .eventOverlay {
-  position: fixed;
-  inset: 76px 0 0;
+  position: absolute;
+  inset: 0;
   z-index: 50;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  padding: 28px;
-  background: rgba(13, 5, 8, 0.68);
-  backdrop-filter: blur(8px);
+  overflow: hidden;
+  padding: 0;
+  background: transparent;
   color: white;
   text-align: center;
   pointer-events: none;
   animation: overlayLife var(--event-duration, 2600ms) ease both;
+  animation-delay: calc(var(--event-elapsed, 0ms) * -1);
 }
 
 @keyframes overlayLife {
@@ -3505,6 +3657,30 @@
   100% {
     opacity: 0;
   }
+}
+
+.introOverlay,
+.revealOverlay {
+  display: block;
+  background:
+    radial-gradient(
+      ellipse at 50% 46%,
+      rgba(14, 7, 9, 0.82) 0 18%,
+      rgba(14, 7, 9, 0.42) 35%,
+      transparent 67%
+    );
+}
+
+.eventCenterCopy {
+  position: absolute;
+  top: var(--center-y);
+  left: var(--center-x);
+  z-index: 2;
+  display: grid;
+  width: min(760px, calc(100% - 32px));
+  place-content: center;
+  justify-items: center;
+  transform: translate(-50%, -50%);
 }
 
 .eventOverlay > small,
@@ -3523,7 +3699,7 @@
 }
 
 .introOverlay strong,
-.revealOverlay > strong {
+.revealOverlay strong {
   margin-top: 8px;
   color: #fff3d5;
   font-family: Georgia, "Times New Roman", serif;
@@ -3535,8 +3711,8 @@
     both;
 }
 
-.introOverlay > span,
-.revealOverlay > span:last-child {
+.introOverlay .eventCenterCopy > span:last-child,
+.revealOverlay .eventCenterCopy > span:last-child {
   margin-top: 11px;
   color: rgba(255, 255, 255, 0.64);
   font-size: 11px;
@@ -3560,15 +3736,19 @@
 
 .revolutionOverlay {
   background:
-    radial-gradient(circle at 50% 45%, rgba(142, 36, 49, 0.52), transparent 42%),
+    radial-gradient(
+      circle at var(--center-x) var(--center-y),
+      rgba(142, 36, 49, 0.52),
+      transparent 42%
+    ),
     linear-gradient(150deg, rgba(48, 8, 17, 0.86), rgba(16, 3, 8, 0.84));
   backdrop-filter: blur(6px) saturate(1.15);
 }
 
-.revolutionOverlay > small,
-.revolutionOverlay > strong,
-.revolutionOverlay > b,
-.revolutionOverlay > span {
+.revolutionOverlay .eventCenterCopy > small,
+.revolutionOverlay .eventCenterCopy > strong,
+.revolutionOverlay .eventCenterCopy > b,
+.revolutionOverlay .eventCenterCopy > span {
   position: relative;
   z-index: 2;
 }
@@ -3583,7 +3763,7 @@
 
 .revolutionJokers > span {
   position: absolute;
-  top: 50%;
+  top: var(--center-y);
   display: block;
   width: clamp(88px, 9vw, 124px);
   aspect-ratio: 466 / 717;
@@ -3599,13 +3779,13 @@
 }
 
 .revolutionJokers > span:first-child {
-  left: calc(50% - clamp(132px, 18vw, 224px));
+  left: calc(var(--center-x) - clamp(132px, 18vw, 224px));
   animation: revolutionJokerArrivalLeft 1500ms 120ms
     cubic-bezier(0.16, 0.82, 0.2, 1) both;
 }
 
 .revolutionJokers > span:last-child {
-  left: calc(50% + clamp(46px, 9vw, 108px));
+  left: calc(var(--center-x) + clamp(46px, 9vw, 108px));
   animation: revolutionJokerArrivalRight 1500ms 230ms
     cubic-bezier(0.16, 0.82, 0.2, 1) both;
 }
@@ -3648,18 +3828,22 @@
 }
 
 .revolutionOverlay::before {
-  top: 24%;
+  top: calc(var(--center-y) - 178px);
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .revolutionOverlay::after {
-  bottom: 24%;
+  top: calc(var(--center-y) + 178px);
+  left: 50%;
+  transform: translateX(-50%);
 }
 
-.revolutionOverlay > small {
+.revolutionOverlay .eventCenterCopy > small {
   color: #ee999e;
 }
 
-.revolutionOverlay > strong {
+.revolutionOverlay .eventCenterCopy > strong {
   color: #fff0e2;
   text-shadow:
     0 0 32px rgba(218, 71, 81, 0.38),
@@ -3668,7 +3852,7 @@
     both;
 }
 
-.revolutionOverlay > b {
+.revolutionOverlay .eventCenterCopy > b {
   margin-top: 10px;
   color: #ffd6cf;
   font-size: clamp(12px, 1.6vw, 17px);
@@ -3677,7 +3861,11 @@
 
 .greatRevolutionOverlay {
   background:
-    radial-gradient(circle at 50% 45%, rgba(164, 42, 45, 0.62), transparent 41%),
+    radial-gradient(
+      circle at var(--center-x) var(--center-y),
+      rgba(164, 42, 45, 0.62),
+      transparent 41%
+    ),
     linear-gradient(150deg, rgba(55, 7, 15, 0.9), rgba(15, 3, 7, 0.88));
 }
 
@@ -3753,50 +3941,159 @@
 }
 
 .eventCards {
-  display: flex;
-  min-height: 210px;
-  align-items: center;
-  justify-content: center;
-  margin: 12px 0;
+  position: absolute;
+  inset: 0;
+  min-height: 0;
+  margin: 0;
 }
 
 .eventCardWrap {
-  margin-left: -58px;
-  transform:
-    rotate(calc((var(--event-card-index) - 1) * 4deg))
-    translateY(calc(abs(var(--event-card-index) - 1) * 3px));
-  animation: eventCardArrival 1500ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+  --event-card-half-width: 66px;
+  --event-card-half-height: 102px;
+
+  position: absolute;
+  top: 0;
+  left: 0;
+  margin: 0;
+  transform-origin: 50% 50%;
+  will-change: filter, opacity, transform;
 }
 
-.eventCardWrap:first-child {
-  margin-left: 0;
+.playOverlay .eventCardWrap {
+  animation: eventCardSeatToTable var(--event-duration, 2250ms)
+    cubic-bezier(0.2, 0.75, 0.25, 1) both;
+  animation-delay: calc(
+    var(--event-card-index) * 45ms - var(--event-elapsed, 0ms)
+  );
 }
 
-@keyframes eventCardArrival {
-  from {
+@keyframes eventCardSeatToTable {
+  0% {
+    filter: blur(4px) brightness(0.72);
     opacity: 0;
-    transform: translateY(120px) scale(0.72) rotate(8deg);
+    transform:
+      translate(
+        calc(var(--from-x) - var(--event-card-half-width)),
+        calc(var(--from-y) - var(--event-card-half-height))
+      )
+      scale(0.28)
+      rotate(-8deg);
+  }
+
+  14% {
+    filter: none;
+    opacity: 1;
+    transform:
+      translate(
+        calc(var(--from-x) - var(--event-card-half-width)),
+        calc(var(--from-y) - var(--event-card-half-height))
+      )
+      scale(0.42)
+      rotate(-4deg);
+  }
+
+  48%,
+  88% {
+    filter: none;
+    opacity: 1;
+    transform:
+      translate(
+        calc(
+          var(--center-x) - var(--event-card-half-width) +
+            var(--event-card-offset-x)
+        ),
+        calc(var(--center-y) - var(--event-card-half-height))
+      )
+      scale(1)
+      rotate(calc(var(--event-card-offset) * 2.2deg));
+  }
+
+  100% {
+    opacity: 0;
+    transform:
+      translate(
+        calc(
+          var(--center-x) - var(--event-card-half-width) +
+            var(--event-card-offset-x)
+        ),
+        calc(var(--center-y) - var(--event-card-half-height) - 5px)
+      )
+      scale(0.96)
+      rotate(calc(var(--event-card-offset) * 2.2deg));
   }
 }
 
 .taxOverlay .eventCardWrap {
-  animation: taxCardTransfer 2200ms cubic-bezier(0.16, 0.72, 0.2, 1) both;
-  animation-delay: calc(var(--event-card-index) * 130ms);
+  animation: taxCardTransfer var(--event-duration, 5200ms)
+    cubic-bezier(0.16, 0.72, 0.2, 1) both;
+  animation-delay: calc(
+    var(--event-card-index) * 80ms - var(--event-elapsed, 0ms)
+  );
 }
 
 @keyframes taxCardTransfer {
   0% {
     filter: blur(3px) brightness(0.8);
     opacity: 0;
-    transform: translateX(-38vw) translateY(42px) scale(0.72) rotate(-7deg);
+    transform:
+      translate(
+        calc(var(--from-x) - var(--event-card-half-width)),
+        calc(var(--from-y) - var(--event-card-half-height))
+      )
+      scale(0.3)
+      rotate(-8deg);
   }
-  48% {
+
+  13% {
     filter: none;
     opacity: 1;
-    transform: translateX(0) translateY(-13px) scale(1.05) rotate(1deg);
+    transform:
+      translate(
+        calc(var(--from-x) - var(--event-card-half-width)),
+        calc(var(--from-y) - var(--event-card-half-height))
+      )
+      scale(0.46)
+      rotate(-4deg);
   }
-  72% {
-    transform: translateX(0) translateY(-13px) scale(1.05) rotate(1deg);
+
+  38%,
+  68% {
+    filter: none;
+    opacity: 1;
+    transform:
+      translate(
+        calc(
+          var(--center-x) - var(--event-card-half-width) +
+            var(--event-card-offset-x)
+        ),
+        calc(var(--center-y) - var(--event-card-half-height))
+      )
+      scale(1.06)
+      rotate(calc(var(--event-card-offset) * 2deg));
+  }
+
+  91% {
+    filter: none;
+    opacity: 1;
+    transform:
+      translate(
+        calc(var(--to-x) - var(--event-card-half-width)),
+        calc(var(--to-y) - var(--event-card-half-height))
+      )
+      scale(0.43)
+      rotate(5deg);
+  }
+
+  100% {
+    filter: blur(2px);
+    opacity: 0;
+    transform:
+      translate(
+        calc(var(--to-x) - var(--event-card-half-width)),
+        calc(var(--to-y) - var(--event-card-half-height))
+      )
+      scale(0.24)
+      rotate(7deg);
   }
 }
 
@@ -3808,7 +4105,11 @@
 }
 
 .playOverlay > span,
-.passOverlay > span {
+.passMotion > span {
+  position: absolute;
+  top: calc(var(--center-y) - 139px);
+  left: 50%;
+  transform: translateX(-50%);
   color: var(--gold-400);
   font-size: 11px;
   font-weight: 900;
@@ -3816,24 +4117,36 @@
 
 .playOverlay > strong,
 .taxOverlay > strong {
+  position: absolute;
+  top: calc(var(--center-y) + 116px);
+  left: 50%;
+  transform: translateX(-50%);
   color: #f6dda0;
   font-family: Georgia, serif;
   font-size: 19px;
 }
 
 .taxOverlay > small {
+  position: absolute;
+  top: calc(var(--center-y) + 150px);
+  left: 50%;
+  transform: translateX(-50%);
   margin-top: 7px;
   color: rgba(255, 255, 255, 0.53);
   font-size: 8px;
 }
 
 .transferNames {
+  position: absolute;
+  top: calc(var(--center-y) - 148px);
+  left: 50%;
   display: flex;
   align-items: center;
   gap: 18px;
   color: #ead7ae;
   font-size: 12px;
   font-weight: 900;
+  transform: translateX(-50%);
 }
 
 .taxOverlay .transferNames {
@@ -3860,40 +4173,96 @@
   font-style: normal;
 }
 
-.passOverlay strong {
+.passMotion {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  width: 220px;
+  min-height: 104px;
+  place-content: center;
+  justify-items: center;
+  padding: 10px 18px;
+  border: 1px solid rgba(226, 183, 88, 0.28);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(124, 73, 33, 0.24), transparent 56%),
+    rgba(23, 9, 12, 0.9);
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.42),
+    0 0 30px rgba(224, 173, 62, 0.12);
+  animation: passSeatToTable var(--event-duration, 1500ms)
+    cubic-bezier(0.2, 0.75, 0.25, 1) both;
+  animation-delay: calc(var(--event-elapsed, 0ms) * -1);
+}
+
+@keyframes passSeatToTable {
+  0% {
+    filter: blur(4px);
+    opacity: 0;
+    transform:
+      translate(calc(var(--from-x) - 110px), calc(var(--from-y) - 52px))
+      scale(0.36);
+  }
+
+  18% {
+    filter: none;
+    opacity: 1;
+    transform:
+      translate(calc(var(--from-x) - 110px), calc(var(--from-y) - 52px))
+      scale(0.54);
+  }
+
+  53%,
+  82% {
+    filter: none;
+    opacity: 1;
+    transform:
+      translate(calc(var(--center-x) - 110px), calc(var(--center-y) - 52px))
+      scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform:
+      translate(calc(var(--center-x) - 110px), calc(var(--center-y) - 62px))
+      scale(0.96);
+  }
+}
+
+.passMotion > span {
+  position: static;
+  transform: none;
+}
+
+.passMotion strong {
   margin: 9px 0 6px;
   color: #f2cd72;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(64px, 12vw, 128px);
+  font-size: clamp(38px, 5vw, 62px);
   letter-spacing: 0.04em;
   text-shadow: 0 11px 33px rgba(0, 0, 0, 0.55);
 }
 
-.passOverlay small {
+.passMotion small {
   color: rgba(255, 255, 255, 0.58);
   font-size: 9px;
 }
 
 .dalmutiEffectOverlay {
-  display: flex;
-  overflow-y: auto;
-  flex-direction: column;
-  align-items: center;
-  justify-content: safe center;
-  overscroll-behavior: contain;
-  pointer-events: auto;
+  display: block;
+  pointer-events: none;
   background:
     radial-gradient(circle at 50% 44%, rgba(231, 180, 58, 0.34), transparent 34%),
-    radial-gradient(circle at 50% 50%, rgba(102, 65, 9, 0.18), transparent 58%),
-    rgba(10, 4, 7, 0.84);
+    radial-gradient(circle at 50% 50%, rgba(102, 65, 9, 0.18), transparent 58%);
   isolation: isolate;
 }
 
 .dalmutiEffectOverlay::before,
 .dalmutiEffectOverlay::after {
   position: absolute;
-  top: 50%;
-  left: 50%;
+  top: var(--center-y);
+  left: var(--center-x);
   z-index: 0;
   content: "";
   pointer-events: none;
@@ -3940,37 +4309,28 @@
 }
 
 .dalmutiEffectOverlay > small {
+  position: absolute;
+  top: calc(var(--center-y) - 150px);
+  left: 50%;
   color: #d9ae51;
   font-size: 9px;
   font-weight: 900;
   letter-spacing: 0.23em;
-}
-
-.dalmutiEffectActorSeat {
-  z-index: 4;
-  width: min(210px, 76vw);
-  margin-bottom: 19px;
-  animation: dalmutiActorSeatArrival 900ms 180ms
-    cubic-bezier(0.2, 0.76, 0.22, 1) both;
-}
-
-.dalmutiEffectActorSeat .playerSeat {
-  position: relative;
-  top: auto;
-  left: auto;
-  display: grid;
-  width: 100%;
-  transform: none;
-  animation: dalmutiActorThrone 1.35s ease-in-out infinite;
+  transform: translateX(-50%);
 }
 
 .dalmutiEffectCard {
-  position: relative;
-  margin: 14px 0 10px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 119px;
+  height: 183px;
+  margin: 0;
   filter: drop-shadow(0 0 24px rgba(242, 193, 69, 0.5));
-  animation:
-    dalmutiEffectArrival 1800ms cubic-bezier(0.2, 0.76, 0.22, 1) both,
-    dalmutiCardFloat 1.7s 1.8s ease-in-out infinite;
+  will-change: filter, opacity, transform;
+  animation: dalmutiSeatToTable var(--event-duration, 3300ms)
+    cubic-bezier(0.2, 0.76, 0.22, 1) both;
+  animation-delay: calc(var(--event-elapsed, 0ms) * -1);
 }
 
 .dalmutiEffectCard::before,
@@ -4021,6 +4381,9 @@
 }
 
 .dalmutiEffectOverlay > strong {
+  position: absolute;
+  top: calc(var(--center-y) + 108px);
+  left: 50%;
   color: #ffe4a0;
   font-family: Georgia, "Times New Roman", serif;
   font-size: clamp(38px, 6vw, 68px);
@@ -4032,24 +4395,29 @@
     0 12px 35px rgba(0, 0, 0, 0.56);
   animation: dalmutiTitleArrival 1300ms 520ms cubic-bezier(0.2, 0.76, 0.22, 1)
     both;
+  transform: translateX(-50%);
 }
 
 .dalmutiEffectOverlay > span {
-  margin-top: 6px;
+  position: absolute;
+  top: calc(var(--center-y) + 174px);
+  left: 50%;
+  margin-top: 0;
   color: rgba(255, 255, 255, 0.68);
   font-size: 10px;
+  transform: translateX(-50%);
 }
 
 .autoPassPlayers {
-  display: flex;
-  max-width: min(620px, 90vw);
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px;
-  margin-top: 16px;
+  position: absolute;
+  inset: 0;
+  margin: 0;
 }
 
 .autoPassPlayers i {
+  position: absolute;
+  top: 0;
+  left: 0;
   padding: 5px 9px;
   border: 1px solid rgba(235, 203, 129, 0.25);
   border-radius: 999px;
@@ -4058,27 +4426,82 @@
   font-size: 7px;
   font-style: normal;
   font-weight: 900;
+  white-space: nowrap;
+  animation: dalmutiAutoPassSeat var(--event-duration, 3300ms) ease both;
+  animation-delay: calc(var(--event-elapsed, 0ms) * -1);
 }
 
 .dalmutiEffectOverlay > b {
-  margin-top: 9px;
+  position: absolute;
+  top: calc(var(--center-y) + 199px);
+  left: 50%;
+  margin-top: 0;
   color: #e4bd66;
   font-size: 10px;
   letter-spacing: 0.08em;
+  transform: translateX(-50%);
 }
 
-@keyframes dalmutiEffectArrival {
-  from {
+@keyframes dalmutiSeatToTable {
+  0% {
+    filter: blur(5px) brightness(0.7);
     opacity: 0;
-    transform: translateY(80px) scale(0.72) rotate(7deg);
+    transform:
+      translate(calc(var(--from-x) - 60px), calc(var(--from-y) - 92px))
+      scale(0.28)
+      rotate(-12deg);
+  }
+
+  14% {
+    filter: none;
+    opacity: 1;
+    transform:
+      translate(calc(var(--from-x) - 60px), calc(var(--from-y) - 92px))
+      scale(0.46)
+      rotate(-5deg);
+  }
+
+  44%,
+  86% {
+    filter: drop-shadow(0 0 34px rgba(255, 210, 90, 0.7));
+    opacity: 1;
+    transform:
+      translate(calc(var(--center-x) - 60px), calc(var(--center-y) - 92px))
+      scale(1.1)
+      rotate(0deg);
+  }
+
+  100% {
+    filter: drop-shadow(0 0 45px rgba(255, 210, 90, 0.8));
+    opacity: 0;
+    transform:
+      translate(calc(var(--center-x) - 60px), calc(var(--center-y) - 99px))
+      scale(1.04);
   }
 }
 
-@keyframes dalmutiActorSeatArrival {
-  from {
-    filter: blur(5px);
+@keyframes dalmutiAutoPassSeat {
+  0%,
+  38% {
     opacity: 0;
-    transform: translateY(-18px) scale(0.9);
+    transform:
+      translate(calc(var(--pass-x) - 44px), calc(var(--pass-y) - 15px))
+      scale(0.45);
+  }
+
+  52%,
+  78% {
+    opacity: 1;
+    transform:
+      translate(calc(var(--pass-x) - 44px), calc(var(--pass-y) - 15px))
+      scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform:
+      translate(calc(var(--center-x) - 44px), calc(var(--center-y) - 15px))
+      scale(0.72);
   }
 }
 
@@ -4137,24 +4560,6 @@
 @media (max-height: 700px) {
   .turnCountdown {
     top: 80px;
-  }
-
-  .dalmutiEffectOverlay {
-    justify-content: flex-start;
-    padding-block: 16px;
-  }
-
-  .dalmutiEffectActorSeat {
-    margin-bottom: 9px;
-  }
-
-  .dalmutiEffectCard {
-    margin-block: 8px 6px;
-  }
-
-  .dalmutiEffectCard .card {
-    width: 94px;
-    height: 145px;
   }
 
   .dalmutiEffectOverlay > strong {
@@ -4747,7 +5152,7 @@
 
   .chatPanel {
     width: min(360px, 100%);
-    height: 116px;
+    height: 134px;
     grid-column: 1 / -1;
     grid-row: 2;
     justify-self: end;
@@ -4776,9 +5181,12 @@
     margin-left: -30px;
   }
 
-  .eventOverlay,
   .modalLayer {
     inset: 66px 0 0;
+  }
+
+  .eventOverlay {
+    inset: 0;
   }
 
   .eventCards .card {
@@ -4787,7 +5195,8 @@
   }
 
   .eventCardWrap {
-    margin-left: -49px;
+    --event-card-half-width: 54px;
+    --event-card-half-height: 83px;
   }
 
   .rankShiftEffect i {
@@ -4966,7 +5375,7 @@
 
   .chatPanel {
     width: 100%;
-    height: 106px;
+    height: 126px;
     margin: 5px 0;
   }
 
@@ -4983,6 +5392,23 @@
     left: 5px;
     z-index: 12;
     width: 137px;
+  }
+
+  .ownDockFinished .playerSeatSelf {
+    position: relative;
+    top: auto;
+    left: auto;
+    width: min(100%, 180px);
+    margin: 0 0 7px 5px;
+  }
+
+  .ownDockFinished .handScroller {
+    padding-top: 0;
+  }
+
+  .ownDockFinished .finishedHand {
+    width: calc(100% - 10px);
+    margin-inline: 5px;
   }
 
   .handScroller {
@@ -5024,11 +5450,12 @@
   }
 
   .eventCardWrap {
-    margin-left: -43px;
+    --event-card-half-width: 47px;
+    --event-card-half-height: 72.5px;
   }
 
   .introOverlay strong,
-  .revealOverlay > strong {
+  .revealOverlay strong {
     font-size: 44px;
   }
 

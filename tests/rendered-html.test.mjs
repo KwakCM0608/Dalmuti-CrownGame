@@ -325,7 +325,7 @@ test("online mode exposes synchronized reveal, tax, Dalmuti, and exit states", a
   assert.match(page, /대혁명을 선포하시겠습니까/);
   assert.match(
     page,
-    /if \(label\.includes\("PASS"\)\) return 1500;[\s\S]*if \(label\.includes\("PLAY"\)\) return 3600;/,
+    /if \(label\.includes\("PASS"\)\) return 1500;[\s\S]*if \(label\.includes\("PLAY"\)\) return 2250;/,
   );
   assert.match(page, /showMyTurnHighlight/);
   assert.match(page, /dalmutiActorIdFromEvent/);
@@ -353,11 +353,19 @@ test("online mode exposes synchronized reveal, tax, Dalmuti, and exit states", a
   assert.match(styles, /@keyframes onlineHandCardReveal/);
   assert.match(styles, /\.dalmutiEffectOverlay/);
   assert.match(styles, /\.playerSeatDalmuti/);
-  assert.match(styles, /\.dalmutiEffectActorSeat/);
   assert.match(
     styles,
-    /\.dalmutiEffectOverlay\s*\{[^}]*overflow-y: auto;[^}]*pointer-events: auto;/s,
+    /\.eventOverlay\s*\{[^}]*position: absolute;[^}]*pointer-events: none;/s,
   );
+  assert.match(styles, /@keyframes eventCardSeatToTable/);
+  assert.match(styles, /@keyframes taxCardTransfer/);
+  assert.match(styles, /@keyframes passSeatToTable/);
+  assert.match(page, /key=\{activeEvent\.id\}/);
+  assert.match(page, /const \[initialElapsed\] = useState/);
+  assert.match(page, /className=\{styles\.eventCenterCopy\}/);
+  assert.match(page, /length: Math\.max\(1, me\?\.handCount \?\? 14\)/);
+  assert.match(page, /"--card-index": index/);
+  assert.match(styles, /\.ownDockFinished \.playerSeatSelf/);
   assert.match(
     styles,
     /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.eventOverlay\s*\{[^}]*animation: none !important;/,
@@ -611,4 +619,43 @@ test("online chat is room-scoped and score rails use compact casino chips", asyn
   );
   assert.match(quickPage, /\$\{currentPlayer\.name\}의 차례/);
   assert.match(onlinePage, /snapshot\.currentPlayerId \?\? me\?\.id/);
+});
+
+test("online bot seats and quick finished-player acceleration stay wired to the UI", async () => {
+  const [quickPage, onlinePage, onlineStyles] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/online/page.tsx", import.meta.url), "utf8"),
+    readFile(
+      new URL("../app/online/online.module.css", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(onlinePage, /sendCommand\("ADD_BOT"\)/);
+  assert.match(
+    onlinePage,
+    /sendCommand\("REMOVE_BOT",\s*\{\s*botId: player\.id,/,
+  );
+  assert.match(onlinePage, /player\.isBot \? styles\.lobbyPlayerBot/);
+  assert.match(onlinePage, /player\.isBot[\s\S]{0,120}player\.ready/);
+  assert.match(onlineStyles, /\.emptySlotInteractive/);
+  assert.match(onlineStyles, /\.lobbyPlayerBot/);
+  assert.match(onlineStyles, /\.botRemoveHint/);
+
+  assert.match(
+    quickPage,
+    /function insufficientCardsPassTurn\([\s\S]*handCount >= state\.table\.count/,
+  );
+  assert.match(
+    quickPage,
+    /automaticReason: "insufficient-cards"/,
+  );
+  assert.match(quickPage, /const FAST_BOT_THINK_MS = 120/);
+  assert.match(quickPage, /function skipRemainingBotTurns/);
+  assert.match(
+    quickPage,
+    /const humanFinished = Boolean\(game\?\.finishOrder\.includes\(HUMAN_ID\)\);[\s\S]{0,120}const canSkipRemainingBots =\s*humanFinished && game\?\.phase === "playing"/,
+  );
+  assert.match(quickPage, /onClick=\{skipRemainingPlayers\}/);
+  assert.match(quickPage, /className="skip-round-button"/);
 });

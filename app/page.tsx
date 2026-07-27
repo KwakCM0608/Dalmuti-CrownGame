@@ -60,6 +60,7 @@ type PublicTurnAction = {
   cards: Card[];
   previousTable: PlayedSet | null;
   automatic?: boolean;
+  automaticReason?: "timeout" | "insufficient-cards";
   autoPassedPlayerIds?: string[];
 };
 
@@ -145,6 +146,10 @@ const REVOLUTION_INTRO_DURATION_MS = 3300;
 const PUBLIC_ACTION_DURATION_MS = 2250;
 const PASS_ACTION_DURATION_MS = 1500;
 const DALMUTI_ACTION_DURATION_MS = 3300;
+const FAST_PUBLIC_ACTION_DURATION_MS = 420;
+const FAST_PASS_ACTION_DURATION_MS = 280;
+const FAST_DALMUTI_ACTION_DURATION_MS = 700;
+const FAST_BOT_THINK_MS = 120;
 const TURN_LIMIT_MS = 30_000;
 const RANK_TRANSITION_DURATION_MS = 2300;
 const RANK_RESULT_REVEAL_DELAY_MS = 280;
@@ -838,7 +843,11 @@ function timeoutPassTurn(state: GameState, playerId: string): GameState {
       : {
           ...passed,
           publicAction: passed.publicAction
-            ? { ...passed.publicAction, automatic: true }
+            ? {
+                ...passed.publicAction,
+                automatic: true,
+                automaticReason: "timeout",
+              }
             : null,
           log: passed.log
             .map((entry) => (entry === ordinaryLog ? timeoutLog : entry))
@@ -860,10 +869,48 @@ function timeoutPassTurn(state: GameState, playerId: string): GameState {
       cards: [],
       previousTable: null,
       automatic: true,
+      automaticReason: "timeout",
     },
   };
   nextState.currentIndex = nextActiveIndex(nextState, state.currentIndex);
   return nextState;
+}
+
+function insufficientCardsPassTurn(
+  state: GameState,
+  playerId: string,
+): GameState {
+  if (state.phase !== "playing" || state.publicAction || !state.table) {
+    return state;
+  }
+  const current = state.players[state.currentIndex];
+  const handCount = state.hands[playerId]?.length ?? 0;
+  if (
+    current.id !== playerId ||
+    handCount === 0 ||
+    handCount >= state.table.count
+  ) {
+    return state;
+  }
+
+  const passed = passTurn(state, playerId);
+  if (passed === state) return state;
+  const ordinaryLog = `${subjectLabel(current.name)} 패스했습니다.`;
+  const automaticLog =
+    `${subjectLabel(current.name)} 필요한 장수보다 손패가 적어 자동으로 패스했습니다.`;
+  return {
+    ...passed,
+    publicAction: passed.publicAction
+      ? {
+          ...passed.publicAction,
+          automatic: true,
+          automaticReason: "insufficient-cards",
+        }
+      : null,
+    log: passed.log
+      .map((entry) => (entry === ordinaryLog ? automaticLog : entry))
+      .slice(0, 12),
+  };
 }
 
 function chooseBotCards(state: GameState, playerId: string): string[] | null {
@@ -896,6 +943,44 @@ function chooseBotCards(state: GameState, playerId: string): string[] | null {
     ].map((card) => card.id);
   }
   return null;
+}
+
+function skipRemainingBotTurns(state: GameState): GameState {
+  let next: GameState = state.publicAction
+    ? { ...state, publicAction: null }
+    : state;
+  const maximumSteps = 2_000;
+  let completed = false;
+
+  for (let step = 0; step < maximumSteps; step += 1) {
+    if (next.phase === "round-end") {
+      completed = true;
+      break;
+    }
+    if (next.phase !== "playing") break;
+
+    const bot = next.players[next.currentIndex];
+    if (!bot || bot.isHuman) break;
+    const previousRevision = next.revision;
+    const cardIds = chooseBotCards(next, bot.id);
+    const advanced = cardIds
+      ? playCards(next, bot.id, cardIds)
+      : passTurn(next, bot.id);
+    next = advanced.publicAction
+      ? { ...advanced, publicAction: null }
+      : advanced;
+    if (next.revision === previousRevision) break;
+  }
+
+  return completed
+    ? {
+        ...next,
+        log: ["남은 플레이어의 순위를 빠르게 확정했습니다.", ...next.log].slice(
+          0,
+          12,
+        ),
+      }
+    : next;
 }
 
 function PlayerSeat({
@@ -1211,10 +1296,12 @@ function PublicTurnActionLayer({
   action,
   anchors,
   players,
+  fastForward,
 }: {
   action: PublicTurnAction;
   anchors: TaxAnchorMap;
   players: Player[];
+  fastForward: boolean;
 }) {
   const from = anchors.players[action.player.id];
   const to = anchors.midpoint;
@@ -1231,7 +1318,11 @@ function PublicTurnActionLayer({
   const mobileExpandedStep =
     cardCount <= 1 ? 0 : Math.min(70, 250 / Math.max(1, cardCount - 1));
   const delayStep =
-    cardCount <= 1 ? 0 : Math.min(36, 100 / Math.max(1, cardCount - 1));
+    cardCount <= 1
+      ? 0
+      : fastForward
+        ? Math.min(7, 20 / Math.max(1, cardCount - 1))
+        : Math.min(36, 100 / Math.max(1, cardCount - 1));
   const routeStyle = {
     "--from-x": `${from.x}px`,
     "--from-y": `${from.y}px`,
@@ -1244,7 +1335,7 @@ function PublicTurnActionLayer({
       key={action.id}
       className={`public-turn-action-layer is-${action.kind} ${
         isDalmuti ? "is-dalmuti" : ""
-      }`}
+      } ${fastForward ? "is-fast-forward" : ""}`}
       style={routeStyle}
       role="status"
       aria-live="polite"
@@ -1254,7 +1345,9 @@ function PublicTurnActionLayer({
             ? `${subjectLabel(action.player.name)} 달무티를 내 나머지 플레이어가 자동 패스했습니다`
             : `${subjectLabel(action.player.name)} ${RANK_NAMES[playedSet.rank]} 카드 ${playedSet.count}장을 냈습니다`
           : action.automatic
-            ? `${subjectLabel(action.player.name)} 제한시간이 끝나 자동으로 패스했습니다`
+            ? action.automaticReason === "insufficient-cards"
+              ? `${subjectLabel(action.player.name)} 필요한 장수보다 손패가 적어 자동으로 패스했습니다`
+              : `${subjectLabel(action.player.name)} 제한시간이 끝나 자동으로 패스했습니다`
             : `${subjectLabel(action.player.name)} 패스했습니다`
       }
     >
@@ -1288,7 +1381,11 @@ function PublicTurnActionLayer({
             "--pass-to-x": `${to.x}px`,
             "--pass-to-y": `${to.y}px`,
             "--pass-offset-x": `${passOffset * 104}px`,
-            "--pass-delay": `${360 + playerIndex * 90}ms`,
+            "--pass-delay": `${
+              fastForward
+                ? 55 + playerIndex * 14
+                : 360 + playerIndex * 90
+            }ms`,
           } as React.CSSProperties;
 
           return (
@@ -1349,11 +1446,20 @@ function PublicTurnActionLayer({
       ) : (
         <div className="public-pass-badge" style={routeStyle} aria-hidden="true">
           <small>
-            {action.automatic ? "TIME OUT · 자동 PASS" : ROLE_LABELS[action.player.role]}
+            {action.automatic
+              ? action.automaticReason === "insufficient-cards"
+                ? "카드 부족 · 자동 PASS"
+                : "TIME OUT · 자동 PASS"
+              : ROLE_LABELS[action.player.role]}
           </small>
           <strong>PASS</strong>
           <span>
-            {action.player.name} · {action.automatic ? "시간 초과" : "패스"}
+            {action.player.name} ·{" "}
+            {action.automatic
+              ? action.automaticReason === "insufficient-cards"
+                ? "제출 장수 부족"
+                : "시간 초과"
+              : "패스"}
           </span>
         </div>
       )}
@@ -1388,6 +1494,10 @@ export default function Home() {
   const humanHand = game?.hands[HUMAN_ID] ?? [];
   const humanFinished = Boolean(game?.finishOrder.includes(HUMAN_ID));
   const humanFinishRank = game?.finishOrder.indexOf(HUMAN_ID) ?? -1;
+  const canSkipRemainingBots =
+    humanFinished && game?.phase === "playing";
+  const isFastForwardingBots =
+    canSkipRemainingBots && currentPlayer?.isHuman === false;
   const isOpeningRankEvent =
     game?.phase === "rank-intro" ||
     game?.phase === "rank-selection" ||
@@ -1432,10 +1542,19 @@ export default function Home() {
     ? ROLE_LABELS[pendingHumanTaxRecipient.role]
     : "하위 계급";
   const isHumanTaxSelecting = Boolean(pendingHumanTaxExchange);
+  const currentPlayerMustAutoPass = Boolean(
+    game?.phase === "playing" &&
+      !game.publicAction &&
+      game.table &&
+      currentPlayer &&
+      (game.hands[currentPlayer.id]?.length ?? 0) > 0 &&
+      (game.hands[currentPlayer.id]?.length ?? 0) < game.table.count,
+  );
   const isHumanTurn =
     game?.phase === "playing" &&
     currentPlayer?.id === HUMAN_ID &&
-    !game.publicAction;
+    !game.publicAction &&
+    !currentPlayerMustAutoPass;
   const activePublicSet =
     game?.publicAction?.kind === "play"
       ? normalizedSet(game.publicAction.cards)
@@ -1443,7 +1562,9 @@ export default function Home() {
   const dalmutiHighlightPlayerId =
     activePublicSet?.rank === 1 ? game?.publicAction?.player.id ?? null : null;
   const turnTimerPlayerId =
-    game?.phase === "playing" && !game.publicAction
+    game?.phase === "playing" &&
+    !game.publicAction &&
+    !currentPlayerMustAutoPass
       ? currentPlayer?.id ?? null
       : null;
   const turnRemainingMs =
@@ -1791,12 +1912,19 @@ export default function Home() {
     const actionId = action.id;
     const playedSet =
       action.kind === "play" ? normalizedSet(action.cards) : null;
-    const duration =
-      action.kind === "pass"
+    const accelerateAction =
+      humanFinished && action.player.id !== HUMAN_ID;
+    const duration = accelerateAction
+      ? action.kind === "pass"
+        ? FAST_PASS_ACTION_DURATION_MS
+        : playedSet?.rank === 1
+          ? FAST_DALMUTI_ACTION_DURATION_MS
+          : FAST_PUBLIC_ACTION_DURATION_MS
+      : action.kind === "pass"
         ? PASS_ACTION_DURATION_MS
         : playedSet?.rank === 1
-        ? DALMUTI_ACTION_DURATION_MS
-        : PUBLIC_ACTION_DURATION_MS;
+          ? DALMUTI_ACTION_DURATION_MS
+          : PUBLIC_ACTION_DURATION_MS;
 
     const timer = window.setTimeout(() => {
       setGame((latest) => {
@@ -1806,7 +1934,7 @@ export default function Home() {
     }, duration);
 
     return () => window.clearTimeout(timer);
-  }, [game?.publicAction]);
+  }, [game?.publicAction, humanFinished]);
 
   useEffect(() => {
     if (
@@ -2128,7 +2256,43 @@ export default function Home() {
       !game ||
       game.phase !== "playing" ||
       game.publicAction ||
-      currentPlayer?.isHuman
+      !game.table
+    ) {
+      return;
+    }
+    const player = game.players[game.currentIndex];
+    const handCount = game.hands[player.id]?.length ?? 0;
+    if (handCount === 0 || handCount >= game.table.count) return;
+
+    const turnRevision = game.revision;
+    const playerId = player.id;
+    const timer = window.setTimeout(() => {
+      if (playerId === HUMAN_ID) setSelectedIds([]);
+      setGame((latest) => {
+        if (
+          !latest ||
+          latest.phase !== "playing" ||
+          latest.revision !== turnRevision ||
+          latest.publicAction ||
+          !latest.table ||
+          latest.players[latest.currentIndex]?.id !== playerId
+        ) {
+          return latest;
+        }
+        return insufficientCardsPassTurn(latest, playerId);
+      });
+    }, humanFinished ? 70 : 170);
+
+    return () => window.clearTimeout(timer);
+  }, [game, humanFinished]);
+
+  useEffect(() => {
+    if (
+      !game ||
+      game.phase !== "playing" ||
+      game.publicAction ||
+      currentPlayer?.isHuman ||
+      currentPlayerMustAutoPass
     ) {
       return;
     }
@@ -2148,9 +2312,15 @@ export default function Home() {
         const cards = chooseBotCards(latest, bot.id);
         return cards ? playCards(latest, bot.id, cards) : passTurn(latest, bot.id);
       });
-    }, 760);
+    }, humanFinished ? FAST_BOT_THINK_MS : 760);
     return () => window.clearTimeout(timer);
-  }, [currentPlayer?.id, currentPlayer?.isHuman, game]);
+  }, [
+    currentPlayer?.id,
+    currentPlayer?.isHuman,
+    currentPlayerMustAutoPass,
+    game,
+    humanFinished,
+  ]);
 
   useEffect(() => {
     if (
@@ -2446,6 +2616,19 @@ export default function Home() {
     );
   };
 
+  const skipRemainingPlayers = () => {
+    if (!canSkipRemainingBots) return;
+    setSelectedIds([]);
+    setRevealedRoundResultKey(null);
+    setGame((current) =>
+      current &&
+      current.phase === "playing" &&
+      current.finishOrder.includes(HUMAN_ID)
+        ? skipRemainingBotTurns(current)
+        : current,
+    );
+  };
+
   const nextRound = () => {
     if (!game || game.phase !== "round-end" || game.publicAction) return;
     const ordered = game.finishOrder.map(
@@ -2471,7 +2654,9 @@ export default function Home() {
         ? publicPlayedSet.rank === 1
           ? `${subjectLabel(game.publicAction.player.name)} 달무티를 내 모두 자동 패스합니다`
           : `${subjectLabel(game.publicAction.player.name)} ${RANK_NAMES[publicPlayedSet.rank]} 카드 ${publicPlayedSet.count}장을 내는 중`
-        : `${subjectLabel(game.publicAction.player.name)} 패스했습니다`
+        : game.publicAction.automaticReason === "insufficient-cards"
+          ? `${subjectLabel(game.publicAction.player.name)} 필요한 장수가 부족해 자동 패스합니다`
+          : `${subjectLabel(game.publicAction.player.name)} 패스했습니다`
       : game.phase === "ready"
         ? game.round === 1 && !hasDealtHands
           ? "방장이 PLAY를 누르면 계급 정하기를 시작합니다"
@@ -2614,7 +2799,7 @@ export default function Home() {
           </ol>
           <div className="rail-note">
             <span>계급의 법칙</span>
-            <p>숫자가 낮을수록 강합니다. 같은 장수로 더 강하게 맞서세요.</p>
+            <p>숫자가 낮을수록 강합니다. 더 강하게 맞서세요.</p>
           </div>
         </aside>
 
@@ -2649,10 +2834,15 @@ export default function Home() {
               action={game.publicAction}
               anchors={taxAnchors}
               players={game.players}
+              fastForward={
+                humanFinished && game.publicAction.player.id !== HUMAN_ID
+              }
             />
           )}
 
-          {turnSecondsRemaining !== null && currentPlayer && (
+          {turnSecondsRemaining !== null &&
+            currentPlayer &&
+            !isFastForwardingBots && (
             <div
               className={`turn-countdown ${
                 currentPlayer.id === HUMAN_ID ? "is-mine" : ""
@@ -3154,7 +3344,7 @@ export default function Home() {
                     : isHumanTaxSelecting
                       ? `반환 카드 ${humanTaxSelectionCount}장을 선택하세요`
                     : isHandConcealed
-                      ? "PLAY 전까지 패가 뒤집혀 있습니다"
+                      ? "패 미정"
                     : isHandRevealing
                       ? "패를 공개하는 중"
                     : game?.phase === "taxation" && focusedTaxRoute
@@ -3201,9 +3391,17 @@ export default function Home() {
                     role="status"
                     aria-live="polite"
                   >
-                    <span>✓</span>
-                    <strong>모든 카드를 냈습니다</strong>
-                    <small>이번 막을 {humanFinishRank + 1}위로 마쳤습니다</small>
+                    <span className="finished-hand-medal">
+                      <b>{humanFinishRank + 1}</b>
+                      <i>PLACE</i>
+                    </span>
+                    <span className="finished-hand-copy">
+                      <small>ROUND COMPLETE</small>
+                      <strong>먼저 모든 카드를 냈습니다</strong>
+                      <em>
+                        {humanFinishRank + 1}위 확정 · 남은 경기를 관전하는 중
+                      </em>
+                    </span>
                   </div>
                 ) : (
                   (game
@@ -3259,8 +3457,23 @@ export default function Home() {
                 </div>
               ) : humanFinished ? (
                 <div className="selection-hint is-valid finished-control-state">
-                  <span>이번 막 완료</span>
-                  <small>다른 플레이어가 순위를 결정하는 중입니다</small>
+                  <span>
+                    {canSkipRemainingBots ? "배속으로 순위 결정 중" : "이번 막 완료"}
+                  </span>
+                  <small>
+                    {canSkipRemainingBots
+                      ? "남은 플레이를 빠르게 진행합니다"
+                      : "모든 순위가 확정되었습니다"}
+                  </small>
+                  {canSkipRemainingBots && (
+                    <button
+                      type="button"
+                      className="skip-round-button"
+                      onClick={skipRemainingPlayers}
+                    >
+                      스킵
+                    </button>
+                  )}
                 </div>
               ) : isHumanTaxSelecting ? (
                 <>

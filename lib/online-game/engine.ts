@@ -19,10 +19,11 @@ const MAX_PLAYERS = 8;
 const MAX_EVENTS = 240;
 const MAX_PROCESSED_COMMANDS = 512;
 const PASS_ACTION_LOCK_MS = 1_500;
-const PLAY_ACTION_LOCK_MS = 3_600;
-const DALMUTI_ACTION_LOCK_MS = 5_600;
+const PLAY_ACTION_LOCK_MS = 2_250;
+const DALMUTI_ACTION_LOCK_MS = 3_300;
 const RANK_COUNTDOWN_MS = 3_000;
 const TURN_DURATION_MS = 30_000;
+const BOT_ACTION_DELAY_MS = 850;
 const EMPTY_TABLE_TIMEOUT_CYCLE_MS =
   PASS_ACTION_LOCK_MS + TURN_DURATION_MS;
 
@@ -35,8 +36,8 @@ const DEFAULT_DURATIONS: OnlinePhaseDurations = {
   revolutionDecisionMs: 20_000,
   taxIntroMs: 2_200,
   taxSelectionMs: 45_000,
-  taxTributeMs: 5_200,
-  taxReturnMs: 5_200,
+  taxTributeMs: 6_000,
+  taxReturnMs: 6_000,
   playIntroMs: 2_500,
 };
 
@@ -96,8 +97,37 @@ function normalizePlayer(
     id,
     name,
     monogram,
+    isBot: false,
     role,
     ready: false,
+    connected: true,
+    joinedAt,
+    score: 0,
+  };
+}
+
+function createBotPlayer(
+  state: OnlineRoomState,
+  joinedAt: number,
+): OnlinePlayerState {
+  let botNumber = 1;
+  while (
+    state.players.some(
+      (player) =>
+        player.id === `bot-${botNumber}` ||
+        player.name === `봇 ${botNumber}`,
+    )
+  ) {
+    botNumber += 1;
+  }
+
+  return {
+    id: `bot-${botNumber}`,
+    name: `봇 ${botNumber}`,
+    monogram: "AI",
+    isBot: true,
+    role: "merchant",
+    ready: true,
     connected: true,
     joinedAt,
     score: 0,
@@ -112,7 +142,12 @@ function cloneRoom(state: OnlineRoomState): OnlineRoomState {
       Number.isFinite(state.turnDeadline)
         ? state.turnDeadline
         : null,
-    players: state.players.map((player) => ({ ...player })),
+    players: state.players.map((player) => ({
+      ...player,
+      isBot: player.isBot === true,
+      ready: player.isBot === true ? true : player.ready,
+      connected: player.isBot === true ? true : player.connected,
+    })),
     hands: Object.fromEntries(
       Object.entries(state.hands).map(([id, hand]) => [id, [...hand]]),
     ),
@@ -137,6 +172,11 @@ function cloneRoom(state: OnlineRoomState): OnlineRoomState {
         ? [...exchange.nobleCardIds]
         : null,
     })),
+    botActionAt:
+      typeof state.botActionAt === "number" &&
+      Number.isFinite(state.botActionAt)
+        ? state.botActionAt
+        : null,
     events: [...state.events],
     processedCommandIds: [...state.processedCommandIds],
     durations: { ...state.durations },
@@ -306,7 +346,8 @@ function resetRoomToLobby(state: OnlineRoomState): void {
     ),
   ).map((player) => ({
     ...player,
-    ready: false,
+    ready: player.isBot,
+    connected: player.isBot ? true : player.connected,
     score: 0,
   }));
   state.hands = {};
@@ -325,6 +366,7 @@ function resetRoomToLobby(state: OnlineRoomState): void {
   state.declaredRevolution = null;
   state.taxExchanges = [];
   state.actionLockUntil = null;
+  state.botActionAt = null;
   // A reset is a new client timeline. Keep the sequence monotonic so an
   // existing cursor still receives the reset event, but discard stale private
   // hand/tax events and animation instructions from the abandoned match.
@@ -395,6 +437,7 @@ function beginRankSelection(
   state.declaredRevolution = null;
   state.taxExchanges = [];
   state.actionLockUntil = null;
+  state.botActionAt = null;
 
   appendEvent(state, "RANK_CHOICE_INTRO_STARTED", at, {
     playerCount: state.players.length,
@@ -416,6 +459,7 @@ function enterRankSelection(state: OnlineRoomState, at: number): void {
       slotIndex: card.slotIndex,
     })),
   });
+  scheduleBotAction(state, at);
 }
 
 function allRankCardsChosen(state: OnlineRoomState): boolean {
@@ -434,9 +478,85 @@ function lockRankChoices(state: OnlineRoomState, at: number): void {
   }
   rankSelection.revealAt = at + state.durations.rankRevealDelayMs;
   state.phaseEndsAt = rankSelection.revealAt;
+  state.botActionAt = null;
   appendEvent(state, "RANK_CHOICES_LOCKED", at, {
     revealAt: rankSelection.revealAt,
   });
+}
+
+function claimRankCard(
+  state: OnlineRoomState,
+  actorId: string,
+  slotIndex: number,
+  at: number,
+  automatic: boolean,
+): void {
+  if (
+    !Number.isInteger(slotIndex) ||
+    slotIndex < 0 ||
+    slotIndex >= state.players.length
+  ) {
+    fail("INVALID_RANK_SLOT", "slotIndex must identify an available rank card");
+  }
+  const rankSelection = state.rankSelection;
+  if (!rankSelection) {
+    fail("ROOM_INVARIANT", "rank selection state is missing");
+  }
+  if (
+    rankSelection.cards.some(
+      (card) => card.claimedByPlayerId === actorId,
+    )
+  ) {
+    fail("RANK_ALREADY_CHOSEN", "each player may choose exactly one rank card");
+  }
+  const card = rankSelection.cards.find(
+    (candidate) => candidate.slotIndex === slotIndex,
+  );
+  if (!card) {
+    fail("INVALID_RANK_SLOT", "the selected rank card does not exist");
+  }
+  if (card.claimedByPlayerId) {
+    fail("RANK_CARD_CLAIMED", "that rank card has already been chosen");
+  }
+
+  card.claimedByPlayerId = actorId;
+  card.claimedAt = at;
+  appendEvent(state, "RANK_CARD_CHOSEN", at, {
+    slotIndex: card.slotIndex,
+    playerId: actorId,
+    automatic,
+  });
+
+  const remainingCards = rankSelection.cards.filter(
+    (candidate) => candidate.claimedByPlayerId === null,
+  );
+  const assignedPlayerIds = new Set(
+    rankSelection.cards.flatMap((candidate) =>
+      candidate.claimedByPlayerId
+        ? [candidate.claimedByPlayerId]
+        : [],
+    ),
+  );
+  const remainingPlayers = state.players.filter(
+    (player) => !assignedPlayerIds.has(player.id),
+  );
+  if (remainingCards.length === 1 && remainingPlayers.length === 1) {
+    const finalCard = remainingCards[0];
+    const finalPlayer = remainingPlayers[0];
+    finalCard.claimedByPlayerId = finalPlayer.id;
+    finalCard.claimedAt = at;
+    appendEvent(state, "RANK_CARD_CHOSEN", at, {
+      slotIndex: finalCard.slotIndex,
+      playerId: finalPlayer.id,
+      automatic: true,
+    });
+  }
+
+  if (allRankCardsChosen(state)) {
+    lockRankChoices(state, at);
+  } else {
+    scheduleBotAction(state, at);
+  }
 }
 
 function enterRankReveal(state: OnlineRoomState, at: number): void {
@@ -449,6 +569,7 @@ function enterRankReveal(state: OnlineRoomState, at: number): void {
   rankSelection.revealEndsAt = at + state.durations.rankRevealMs;
   state.phase = "rank-reveal";
   state.phaseEndsAt = rankSelection.revealEndsAt;
+  state.botActionAt = null;
 
   const assignments = [...rankSelection.cards]
     .sort((left, right) => left.slotIndex - right.slotIndex)
@@ -612,6 +733,7 @@ function startRound(
   state.declaredRevolution = null;
   state.taxExchanges = [];
   state.actionLockUntil = null;
+  state.botActionAt = null;
 
   appendEvent(state, "MATCH_STARTED", at, {
     round,
@@ -659,6 +781,7 @@ function enterRevolutionDecision(
     { holderId, canChoose: true, endsAt: state.phaseEndsAt },
     [holderId],
   );
+  scheduleBotAction(state, at);
 }
 
 function buildTaxExchanges(state: OnlineRoomState): OnlineTaxExchange[] {
@@ -706,6 +829,7 @@ function publicTaxRoutes(exchanges: OnlineTaxExchange[]) {
 
 function enterTaxIntro(state: OnlineRoomState, at: number): void {
   state.revolutionHolderId = null;
+  state.botActionAt = null;
   state.taxExchanges = buildTaxExchanges(state);
   state.phase = "tax-intro";
   state.phaseEndsAt = at + state.durations.taxIntroMs;
@@ -737,12 +861,56 @@ function enterTaxSelection(state: OnlineRoomState, at: number): void {
       [exchange.nobleId],
     );
   }
+  scheduleBotAction(state, at);
 }
 
 function allTaxReturnsSelected(state: OnlineRoomState): boolean {
   return state.taxExchanges.every(
     (exchange) => exchange.nobleCardIds?.length === exchange.count,
   );
+}
+
+function selectTaxReturn(
+  state: OnlineRoomState,
+  actorId: string,
+  cardIds: string[],
+  at: number,
+  automatic: boolean,
+): void {
+  const exchangeIndex = state.taxExchanges.findIndex(
+    (exchange) => exchange.nobleId === actorId,
+  );
+  if (exchangeIndex < 0) {
+    fail("NOT_TAX_NOBLE", "this player does not choose a tax return");
+  }
+  const exchange = state.taxExchanges[exchangeIndex];
+  if (exchange.nobleCardIds) {
+    fail("TAX_RETURN_ALREADY_SELECTED", "the return cards are already locked");
+  }
+  if (!Array.isArray(cardIds) || cardIds.length !== exchange.count) {
+    fail(
+      "WRONG_TAX_CARD_COUNT",
+      `exactly ${exchange.count} return cards are required`,
+    );
+  }
+  assertUniqueCardIds(cardIds);
+  cardsByIds(state.hands[actorId], cardIds);
+  state.taxExchanges[exchangeIndex] = {
+    ...exchange,
+    nobleCardIds: [...cardIds],
+  };
+  appendEvent(
+    state,
+    "TAX_RETURN_SELECTED",
+    at,
+    { cardIds: [...cardIds], automatic },
+    [actorId],
+  );
+  if (allTaxReturnsSelected(state)) {
+    enterTaxTribute(state, at);
+  } else {
+    scheduleBotAction(state, at);
+  }
 }
 
 function enterTaxTribute(state: OnlineRoomState, at: number): void {
@@ -764,6 +932,7 @@ function enterTaxTribute(state: OnlineRoomState, at: number): void {
 
   state.phase = "tax-tribute";
   state.phaseEndsAt = at + state.durations.taxTributeMs;
+  state.botActionAt = null;
   appendEvent(state, "TAX_TRIBUTE_STARTED", at, {
     routes: publicTaxRoutes(state.taxExchanges),
     endsAt: state.phaseEndsAt,
@@ -808,6 +977,7 @@ function enterTaxReturn(state: OnlineRoomState, at: number): void {
 
   state.phase = "tax-return";
   state.phaseEndsAt = at + state.durations.taxReturnMs;
+  state.botActionAt = null;
   appendEvent(state, "TAX_RETURN_STARTED", at, {
     routes: publicTaxRoutes(state.taxExchanges),
     endsAt: state.phaseEndsAt,
@@ -837,6 +1007,7 @@ function enterPlayIntro(state: OnlineRoomState, at: number): void {
   state.phase = "play-intro";
   state.phaseEndsAt = at + state.durations.playIntroMs;
   state.turnDeadline = null;
+  state.botActionAt = null;
   state.taxExchanges = [];
   state.revolutionHolderId = null;
   state.currentIndex = 0;
@@ -856,6 +1027,7 @@ function enterPlaying(state: OnlineRoomState, at: number): void {
     playerId: state.players[state.currentIndex].id,
     endsAt: state.turnDeadline,
   });
+  scheduleBotAction(state, at);
 }
 
 function chooseRevolution(
@@ -977,6 +1149,7 @@ function addTurnStartedEvent(state: OnlineRoomState, at: number): void {
   const player = state.players[state.currentIndex];
   if (!player) {
     state.turnDeadline = null;
+    state.botActionAt = null;
     return;
   }
   state.turnDeadline = at + TURN_DURATION_MS;
@@ -984,6 +1157,7 @@ function addTurnStartedEvent(state: OnlineRoomState, at: number): void {
     playerId: player.id,
     endsAt: state.turnDeadline,
   });
+  scheduleBotAction(state, at);
 }
 
 function finishRoundIfNeeded(
@@ -998,6 +1172,7 @@ function finishRoundIfNeeded(
   state.phase = "round-end";
   state.phaseEndsAt = null;
   state.turnDeadline = null;
+  state.botActionAt = null;
   appendEvent(state, "ROUND_ENDED", at, {
     round: state.round,
     finishOrder: [...state.finishOrder],
@@ -1210,6 +1385,164 @@ function handleTurnTimeout(state: OnlineRoomState, at: number): void {
   });
 }
 
+function pendingBotPlayer(
+  state: OnlineRoomState,
+): OnlinePlayerState | null {
+  if (state.phase === "rank-selection" && state.phaseEndsAt === null) {
+    const claimedPlayerIds = new Set(
+      state.rankSelection?.cards.flatMap((card) =>
+        card.claimedByPlayerId ? [card.claimedByPlayerId] : [],
+      ) ?? [],
+    );
+    return (
+      state.players.find(
+        (player) => player.isBot && !claimedPlayerIds.has(player.id),
+      ) ?? null
+    );
+  }
+  if (state.phase === "revolution") {
+    return (
+      state.players.find(
+        (player) =>
+          player.isBot && player.id === state.revolutionHolderId,
+      ) ?? null
+    );
+  }
+  if (state.phase === "tax-selection") {
+    const pendingBotExchange = state.taxExchanges.find(
+      (exchange) =>
+        !exchange.nobleCardIds &&
+        state.players.some(
+          (player) => player.isBot && player.id === exchange.nobleId,
+        ),
+    );
+    return pendingBotExchange
+      ? state.players.find(
+          (player) => player.id === pendingBotExchange.nobleId,
+        ) ?? null
+      : null;
+  }
+  if (state.phase === "playing") {
+    const current = state.players[state.currentIndex];
+    return current?.isBot && (state.hands[current.id]?.length ?? 0) > 0
+      ? current
+      : null;
+  }
+  return null;
+}
+
+function scheduleBotAction(state: OnlineRoomState, at: number): void {
+  const bot = pendingBotPlayer(state);
+  if (!bot) {
+    state.botActionAt = null;
+    return;
+  }
+  const animationUnlock =
+    state.phase === "playing" &&
+    typeof state.actionLockUntil === "number" &&
+    Number.isFinite(state.actionLockUntil)
+      ? state.actionLockUntil
+      : at;
+  state.botActionAt =
+    Math.max(at, animationUnlock) + BOT_ACTION_DELAY_MS;
+}
+
+function chooseOnlineBotCards(
+  state: OnlineRoomState,
+  playerId: string,
+): string[] | null {
+  const hand = state.hands[playerId] ?? [];
+  const jokers = hand.filter((card) => card.rank === 13);
+  const groups = new Map<number, OnlineCard[]>();
+  for (const card of hand) {
+    if (card.rank === 13) continue;
+    groups.set(card.rank, [...(groups.get(card.rank) ?? []), card]);
+  }
+
+  if (!state.table) {
+    if (jokers.length > 0) return [jokers[0].id];
+    const weakestRank = [...groups.keys()].sort((left, right) => right - left)[0];
+    return weakestRank
+      ? groups.get(weakestRank)!.map((card) => card.id)
+      : null;
+  }
+
+  const targetCount = state.table.count;
+  const playableRanks = [...groups.keys()]
+    .filter((rank) => rank < state.table!.rank)
+    .sort((left, right) => right - left);
+  for (const rank of playableRanks) {
+    const cards = groups.get(rank)!;
+    if (cards.length + jokers.length < targetCount) continue;
+    return [
+      ...cards.slice(0, targetCount),
+      ...jokers.slice(0, Math.max(0, targetCount - cards.length)),
+    ].map((card) => card.id);
+  }
+  return null;
+}
+
+function performBotAction(
+  state: OnlineRoomState,
+  at: number,
+  deps?: OnlineEngineDeps,
+): void {
+  const bot = pendingBotPlayer(state);
+  state.botActionAt = null;
+  if (!bot) return;
+
+  if (state.phase === "rank-selection") {
+    const openSlots =
+      state.rankSelection?.cards.filter(
+        (card) => card.claimedByPlayerId === null,
+      ) ?? [];
+    if (!openSlots.length) return;
+    const randomInt = deps?.randomInt ?? secureRandomInt;
+    const selectedIndex = randomInt(openSlots.length);
+    if (
+      !Number.isInteger(selectedIndex) ||
+      selectedIndex < 0 ||
+      selectedIndex >= openSlots.length
+    ) {
+      fail(
+        "INVALID_RANDOM_RESULT",
+        `randomInt(${openSlots.length}) returned an out-of-range value`,
+      );
+    }
+    const selectedCard = openSlots[selectedIndex];
+    claimRankCard(state, bot.id, selectedCard.slotIndex, at, true);
+    return;
+  }
+
+  if (state.phase === "revolution") {
+    chooseRevolution(state, true, at);
+    return;
+  }
+
+  if (state.phase === "tax-selection") {
+    const exchange = state.taxExchanges.find(
+      (candidate) =>
+        candidate.nobleId === bot.id && !candidate.nobleCardIds,
+    );
+    if (!exchange) return;
+    const cardIds = selectAutomaticNobleReturns(
+      state.hands[bot.id],
+      exchange.count,
+    ).map((card) => card.id);
+    selectTaxReturn(state, bot.id, cardIds, at, true);
+    return;
+  }
+
+  if (state.phase === "playing") {
+    const cardIds = chooseOnlineBotCards(state, bot.id);
+    if (cardIds) {
+      handlePlayCards(state, bot.id, cardIds, at);
+    } else {
+      handlePass(state, bot.id, at);
+    }
+  }
+}
+
 export function createOnlineRoom(
   code: string,
   firstPlayer: OnlinePlayerInput,
@@ -1242,6 +1575,7 @@ export function createOnlineRoom(
     declaredRevolution: null,
     taxExchanges: [],
     actionLockUntil: null,
+    botActionAt: null,
     events: [],
     nextEventSeq: 1,
     processedCommandIds: [],
@@ -1289,6 +1623,21 @@ export function joinOnlineRoom(
 
 function finiteDeadline(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function insufficientCardsPassAt(
+  state: OnlineRoomState,
+): number | null {
+  if (state.phase !== "playing" || !state.table) return null;
+  const current = state.players[state.currentIndex];
+  if (!current) return null;
+  const handCount = state.hands[current.id]?.length ?? 0;
+  if (handCount === 0 || handCount >= state.table.count) return null;
+  return (
+    finiteDeadline(state.actionLockUntil) ??
+    finiteDeadline(state.updatedAt) ??
+    0
+  );
 }
 
 function fastForwardExpiredEmptyTurns(
@@ -1363,6 +1712,11 @@ export function advanceOnlineRoom(
   assertNow(now);
   const phaseDeadline = finiteDeadline(state.phaseEndsAt);
   const persistedTurnDeadline = finiteDeadline(state.turnDeadline);
+  const persistedBotActionAt =
+    pendingBotPlayer(state) === null
+      ? null
+      : finiteDeadline(state.botActionAt);
+  const persistedInsufficientPassAt = insufficientCardsPassAt(state);
   const needsTurnDeadline =
     state.phase === "playing" && persistedTurnDeadline === null;
   const hasStaleTurnDeadline =
@@ -1373,11 +1727,18 @@ export function advanceOnlineRoom(
     state.phase === "playing" &&
     persistedTurnDeadline !== null &&
     persistedTurnDeadline <= now;
+  const hasExpiredBotAction =
+    persistedBotActionAt !== null && persistedBotActionAt <= now;
+  const hasInsufficientCardsPass =
+    persistedInsufficientPassAt !== null &&
+    persistedInsufficientPassAt <= now;
   if (
     !needsTurnDeadline &&
     !hasStaleTurnDeadline &&
     !hasExpiredPhase &&
-    !hasExpiredTurn
+    !hasExpiredTurn &&
+    !hasExpiredBotAction &&
+    !hasInsufficientCardsPass
   ) {
     return state;
   }
@@ -1402,12 +1763,23 @@ export function advanceOnlineRoom(
       next.phase === "playing"
         ? finiteDeadline(next.turnDeadline)
         : null;
-    const transitionAt =
-      nextPhaseDeadline === null
-        ? nextTurnDeadline
-        : nextTurnDeadline === null
-          ? nextPhaseDeadline
-          : Math.min(nextPhaseDeadline, nextTurnDeadline);
+    const nextBotActionAt =
+      pendingBotPlayer(next) === null
+        ? null
+        : finiteDeadline(next.botActionAt);
+    const nextInsufficientPassAt = insufficientCardsPassAt(next);
+    const transitionAt = [
+      nextPhaseDeadline,
+      nextTurnDeadline,
+      nextBotActionAt,
+      nextInsufficientPassAt,
+    ]
+      .filter((deadline): deadline is number => deadline !== null)
+      .reduce<number | null>(
+        (earliest, deadline) =>
+          earliest === null ? deadline : Math.min(earliest, deadline),
+        null,
+      );
     if (transitionAt === null || transitionAt > now) break;
 
     if (transitions >= 256) {
@@ -1415,9 +1787,32 @@ export function advanceOnlineRoom(
     }
     if (
       nextPhaseDeadline !== null &&
-      nextPhaseDeadline <= (nextTurnDeadline ?? Number.POSITIVE_INFINITY)
+      nextPhaseDeadline <= (nextTurnDeadline ?? Number.POSITIVE_INFINITY) &&
+      nextPhaseDeadline <= (nextBotActionAt ?? Number.POSITIVE_INFINITY) &&
+      nextPhaseDeadline <=
+        (nextInsufficientPassAt ?? Number.POSITIVE_INFINITY)
     ) {
       advanceOneTimedPhase(next, transitionAt, deps);
+    } else if (
+      nextInsufficientPassAt !== null &&
+      nextInsufficientPassAt <=
+        (nextBotActionAt ?? Number.POSITIVE_INFINITY) &&
+      nextInsufficientPassAt <=
+        (nextTurnDeadline ?? Number.POSITIVE_INFINITY)
+    ) {
+      const current = next.players[next.currentIndex];
+      if (!current) {
+        fail("ROOM_INVARIANT", "an automatic pass has no current player");
+      }
+      handlePass(next, current.id, transitionAt, {
+        automatic: true,
+        reason: "insufficient-cards",
+      });
+    } else if (
+      nextBotActionAt !== null &&
+      nextBotActionAt <= (nextTurnDeadline ?? Number.POSITIVE_INFINITY)
+    ) {
+      performBotAction(next, transitionAt, deps);
     } else {
       handleTurnTimeout(next, transitionAt);
     }
@@ -1491,6 +1886,56 @@ export function applyOnlineCommand(
       });
       break;
     }
+    case "ADD_BOT": {
+      if (next.phase !== "lobby") {
+        fail("WRONG_PHASE", "bots can only be changed in the lobby");
+      }
+      if (actorId !== next.hostId) {
+        fail("HOST_ONLY", "only the host can add a bot");
+      }
+      if (next.players.length >= MAX_PLAYERS) {
+        fail("ROOM_FULL", `a room can contain at most ${MAX_PLAYERS} players`);
+      }
+      const bot = createBotPlayer(next, now);
+      next.players = withAssignedRoles([...next.players, bot]);
+      clearSealedDeal(next);
+      appendEvent(next, "BOT_ADDED", now, {
+        playerId: bot.id,
+        name: bot.name,
+        byPlayerId: actorId,
+      });
+      break;
+    }
+    case "REMOVE_BOT": {
+      if (next.phase !== "lobby") {
+        fail("WRONG_PHASE", "bots can only be changed in the lobby");
+      }
+      if (actorId !== next.hostId) {
+        fail("HOST_ONLY", "only the host can remove a bot");
+      }
+      if (typeof command.botId !== "string" || !command.botId.trim()) {
+        fail("INVALID_BOT_ID", "botId must identify a bot in the room");
+      }
+      const bot = next.players.find(
+        (player) => player.id === command.botId,
+      );
+      if (!bot) {
+        fail("BOT_NOT_FOUND", "that bot is no longer in the room");
+      }
+      if (!bot.isBot) {
+        fail("NOT_A_BOT", "only bot slots can be removed this way");
+      }
+      next.players = withAssignedRoles(
+        next.players.filter((player) => player.id !== bot.id),
+      );
+      clearSealedDeal(next);
+      appendEvent(next, "BOT_REMOVED", now, {
+        playerId: bot.id,
+        name: bot.name,
+        byPlayerId: actorId,
+      });
+      break;
+    }
     case "START_MATCH": {
       if (next.phase !== "lobby") {
         fail("WRONG_PHASE", "a match can only start from the lobby");
@@ -1517,67 +1962,7 @@ export function applyOnlineCommand(
       if (next.phaseEndsAt !== null) {
         fail("RANK_CHOICES_LOCKED", "rank choices are already locked");
       }
-      if (
-        !Number.isInteger(command.slotIndex) ||
-        command.slotIndex < 0 ||
-        command.slotIndex >= next.players.length
-      ) {
-        fail("INVALID_RANK_SLOT", "slotIndex must identify an available rank card");
-      }
-      const rankSelection = next.rankSelection;
-      if (!rankSelection) {
-        fail("ROOM_INVARIANT", "rank selection state is missing");
-      }
-      if (
-        rankSelection.cards.some(
-          (card) => card.claimedByPlayerId === actorId,
-        )
-      ) {
-        fail("RANK_ALREADY_CHOSEN", "each player may choose exactly one rank card");
-      }
-      const card = rankSelection.cards.find(
-        (candidate) => candidate.slotIndex === command.slotIndex,
-      );
-      if (!card) {
-        fail("INVALID_RANK_SLOT", "the selected rank card does not exist");
-      }
-      if (card.claimedByPlayerId) {
-        fail("RANK_CARD_CLAIMED", "that rank card has already been chosen");
-      }
-      card.claimedByPlayerId = actorId;
-      card.claimedAt = now;
-      appendEvent(next, "RANK_CARD_CHOSEN", now, {
-        slotIndex: card.slotIndex,
-        playerId: actorId,
-        automatic: false,
-      });
-
-      const remainingCards = rankSelection.cards.filter(
-        (candidate) => candidate.claimedByPlayerId === null,
-      );
-      const assignedPlayerIds = new Set(
-        rankSelection.cards.flatMap((candidate) =>
-          candidate.claimedByPlayerId
-            ? [candidate.claimedByPlayerId]
-            : [],
-        ),
-      );
-      const remainingPlayers = next.players.filter(
-        (player) => !assignedPlayerIds.has(player.id),
-      );
-      if (remainingCards.length === 1 && remainingPlayers.length === 1) {
-        const finalCard = remainingCards[0];
-        const finalPlayer = remainingPlayers[0];
-        finalCard.claimedByPlayerId = finalPlayer.id;
-        finalCard.claimedAt = now;
-        appendEvent(next, "RANK_CARD_CHOSEN", now, {
-          slotIndex: finalCard.slotIndex,
-          playerId: finalPlayer.id,
-          automatic: true,
-        });
-      }
-
-      if (allRankCardsChosen(next)) lockRankChoices(next, now);
+      claimRankCard(next, actorId, command.slotIndex, now, false);
       break;
     }
     case "CHOOSE_REVOLUTION": {
@@ -1597,39 +1982,7 @@ export function applyOnlineCommand(
       if (next.phase !== "tax-selection") {
         fail("WRONG_PHASE", "tax returns are not being selected");
       }
-      const exchangeIndex = next.taxExchanges.findIndex(
-        (exchange) => exchange.nobleId === actorId,
-      );
-      if (exchangeIndex < 0) {
-        fail("NOT_TAX_NOBLE", "this player does not choose a tax return");
-      }
-      const exchange = next.taxExchanges[exchangeIndex];
-      if (exchange.nobleCardIds) {
-        fail("TAX_RETURN_ALREADY_SELECTED", "the return cards are already locked");
-      }
-      if (
-        !Array.isArray(command.cardIds) ||
-        command.cardIds.length !== exchange.count
-      ) {
-        fail(
-          "WRONG_TAX_CARD_COUNT",
-          `exactly ${exchange.count} return cards are required`,
-        );
-      }
-      assertUniqueCardIds(command.cardIds);
-      cardsByIds(next.hands[actorId], command.cardIds);
-      next.taxExchanges[exchangeIndex] = {
-        ...exchange,
-        nobleCardIds: [...command.cardIds],
-      };
-      appendEvent(
-        next,
-        "TAX_RETURN_SELECTED",
-        now,
-        { cardIds: [...command.cardIds], automatic: false },
-        [actorId],
-      );
-      if (allTaxReturnsSelected(next)) enterTaxTribute(next, now);
+      selectTaxReturn(next, actorId, command.cardIds, now, false);
       break;
     }
     case "PLAY_CARDS":
@@ -1781,6 +2134,7 @@ export function projectOnlineRoom(
       id: player.id,
       name: player.name,
       monogram: player.monogram,
+      isBot: player.isBot === true,
       role: player.role,
       ready: player.ready,
       connected: player.connected,
