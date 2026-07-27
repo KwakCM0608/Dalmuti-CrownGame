@@ -671,15 +671,27 @@ test("online phase locks and visual animation timing mirror quick match", async 
   }
 
   assert.match(onlinePage, /const EventOverlay = memo\(EventOverlayView/);
-  assert.match(onlinePage, /const POLL_INTERVAL_MS = 250/);
+  assert.match(onlinePage, /const PLAYING_POLL_INTERVAL_MS = 180/);
+  assert.match(onlinePage, /const LOBBY_POLL_INTERVAL_MS = 420/);
   assert.match(onlinePage, /const MAX_EVENT_CATCHUP_MS = 120/);
+  assert.match(
+    onlinePage,
+    /REMOTE_ACTION_PRESENTATION_GRACE_MS = 300/,
+  );
   assert.match(onlinePage, /const turnPresentationReady =/);
   assert.match(onlinePage, /ROUND_END_MOVE_PRELUDE_MS = 380/);
   assert.match(onlinePage, /ROUND_END_MOVE_SETTLE_MS = 520/);
   assert.match(
     onlinePage,
-    /Math\.min\(\s*event\.durationMs,\s*effectiveClock - event\.startsAt/s,
+    /effectiveClock - eventPresentationStartsAt\(event\)/,
   );
+  assert.match(onlinePage, /presentationStartsAt: existing\.presentationStartsAt/);
+  assert.match(onlinePage, /Promise\.allSettled\(/);
+  assert.match(onlinePage, /animation\.finished/);
+  assert.match(onlinePage, /stageRankMovement\("round-end"/);
+  assert.match(onlinePage, /stageRankMovement\("great-revolution"/);
+  assert.match(onlinePage, /player\.id === snapshot\.hostId \|\|/);
+  assert.match(onlinePage, /방장 · 준비 불필요/);
   assert.match(onlinePage, /setHandRevealElapsedMs/);
   assert.match(onlinePage, /const \[phaseElapsed\] = useState/);
   assert.match(onlinePage, /styles\.greatRevolutionFieldEffect/);

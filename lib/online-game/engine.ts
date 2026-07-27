@@ -2167,8 +2167,17 @@ export function applyOnlineCommand(
           `at least ${MIN_PLAYERS} players are required`,
         );
       }
-      if (next.players.some((player) => !player.ready)) {
-        fail("PLAYERS_NOT_READY", "every player must be ready");
+      if (
+        next.players.some(
+          (player) =>
+            player.id !== next.hostId &&
+            (!player.ready || !player.connected),
+        )
+      ) {
+        fail(
+          "PLAYERS_NOT_READY",
+          "every non-host player must be ready and connected",
+        );
       }
       beginRankSelection(next, now, deps);
       break;

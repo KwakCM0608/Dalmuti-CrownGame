@@ -58,6 +58,8 @@ type EventView = {
   type: string;
   at: number;
   startsAt: number;
+  presentationStartsAt?: number;
+  suppressPresentation?: boolean;
   durationMs: number;
   playerIds: string[];
   actorPlayerId: string | null;
@@ -198,10 +200,16 @@ type ConnectionState =
 
 const SESSION_PREFIX = "dalmuti.online.room.";
 const LAST_SESSION_KEY = "dalmuti.online.last-session";
-const POLL_INTERVAL_MS = 250;
+const PLAYING_POLL_INTERVAL_MS = 180;
+const TRANSITION_POLL_INTERVAL_MS = 240;
+const LOBBY_POLL_INTERVAL_MS = 420;
 const MAX_EVENT_CATCHUP_MS = 120;
+const REMOTE_ACTION_PRESENTATION_GRACE_MS = 300;
+const MIN_REMOTE_ACTION_PRESENTATION_MS = 450;
 const TURN_DURATION_MS = 30_000;
 const RANK_MOVE_DURATION_MS = 2_300;
+const GREAT_REVOLUTION_MOVE_PRELUDE_MS = 180;
+const GREAT_REVOLUTION_MOVE_SETTLE_MS = 60;
 const ROUND_END_MOVE_PRELUDE_MS = 380;
 const ROUND_END_MOVE_SETTLE_MS = 520;
 const BOT_DIFFICULTY_LABELS: Record<BotDifficulty, string> = {
@@ -214,6 +222,22 @@ const BOT_DIFFICULTY_DESCRIPTIONS: Record<BotDifficulty, string> = {
   normal: "조커와 묶음을 관리",
   hard: "상대의 완주 위협까지 대응",
 };
+
+const TABLE_ACTION_EVENT_TYPES = new Set([
+  "CARDS_PLAYED",
+  "DALMUTI_EFFECT",
+  "PLAYER_PASSED",
+]);
+
+function isTableActionEvent(event: Pick<EventView, "type">): boolean {
+  return TABLE_ACTION_EVENT_TYPES.has(event.type);
+}
+
+function eventPresentationStartsAt(
+  event: Pick<EventView, "startsAt" | "presentationStartsAt">,
+): number {
+  return event.presentationStartsAt ?? event.startsAt;
+}
 const ROLE_LABELS: Record<string, string> = {
   "great-dalmuti": "달무티",
   great_dalmuti: "달무티",
@@ -1364,15 +1388,21 @@ function EventOverlayView({
     ),
   );
   const autoPassedIds = stringArray(data.autoPassedPlayerIds);
-  const center = anchors.center ?? { x: 0, y: 0 };
-  const from = anchors.players[fromId || actorId || ""] ?? center;
-  const to = anchors.players[toId] ?? center;
+  const [initialMotionAnchors] = useState(() => anchors);
+  const stableAnchors =
+    isTableActionEvent(event) && initialMotionAnchors.center
+      ? initialMotionAnchors
+      : anchors;
+  const center = stableAnchors.center ?? { x: 0, y: 0 };
+  const from =
+    stableAnchors.players[fromId || actorId || ""] ?? center;
+  const to = stableAnchors.players[toId] ?? center;
   const [initialElapsed] = useState(() =>
     Math.max(
       0,
       Math.min(
         event.durationMs,
-        effectiveClock - event.startsAt,
+        effectiveClock - eventPresentationStartsAt(event),
       ),
     ),
   );
@@ -1521,9 +1551,13 @@ function EventOverlayView({
                   rank: 13,
                 }));
             const routeFrom =
-              anchors.players[routeFromId] ?? anchors.center ?? center;
+              stableAnchors.players[routeFromId] ??
+              stableAnchors.center ??
+              center;
             const routeTo =
-              anchors.players[routeToId] ?? anchors.center ?? center;
+              stableAnchors.players[routeToId] ??
+              stableAnchors.center ??
+              center;
             const routeMidpoint = routeIsPrivate
               ? center
               : {
@@ -1666,8 +1700,12 @@ function EventOverlayView({
               key={playerId}
               style={
                 {
-                  "--pass-x": `${anchors.players[playerId]?.x ?? center.x}px`,
-                  "--pass-y": `${anchors.players[playerId]?.y ?? center.y}px`,
+                  "--pass-x": `${
+                    stableAnchors.players[playerId]?.x ?? center.x
+                  }px`,
+                  "--pass-y": `${
+                    stableAnchors.players[playerId]?.y ?? center.y
+                  }px`,
                   "--pass-offset-x": `${
                     (playerIndex - (autoPassedIds.length - 1) / 2) * 104
                   }px`,
@@ -1828,9 +1866,12 @@ function eventOverlayPropsEqual(
     previous.event.id !== next.event.id ||
     previous.event.type !== next.event.type ||
     previous.event.startsAt !== next.event.startsAt ||
+    previous.event.presentationStartsAt !==
+      next.event.presentationStartsAt ||
     previous.event.durationMs !== next.event.durationMs ||
     previous.event.actorPlayerId !== next.event.actorPlayerId ||
-    previous.anchors !== next.anchors ||
+    (!isTableActionEvent(previous.event) &&
+      previous.anchors !== next.anchors) ||
     previous.players.length !== next.players.length
   ) {
     return false;
@@ -2009,6 +2050,9 @@ export default function OnlinePage() {
   const [seatRankOverrides, setSeatRankOverrides] = useState<
     Record<string, number> | null
   >(null);
+  const [rankMoveOriginById, setRankMoveOriginById] = useState<
+    Record<string, number> | null
+  >(null);
   const [pendingRoundEndMoveIds, setPendingRoundEndMoveIds] = useState<
     string[] | null
   >(null);
@@ -2032,6 +2076,15 @@ export default function OnlinePage() {
   const latestChatSeqRef = useRef(0);
   const rankChoiceInFlightRef = useRef<number | null>(null);
   const rankMoveTimerRef = useRef<number | null>(null);
+  const rankMoveFrameRef = useRef<number | null>(null);
+  const rankMoveSecondFrameRef = useRef<number | null>(null);
+  const rankMoveAnimationsRef = useRef<Animation[]>([]);
+  const rankMoveRunRef = useRef(0);
+  const rankMoveAnimatedRunRef = useRef(0);
+  const rankMoveArmedRef = useRef(false);
+  const rankMoveKindRef = useRef<
+    "great-revolution" | "round-end" | null
+  >(null);
   const seatElementsRef = useRef(new Map<string, HTMLElement>());
   const seatRectsRef = useRef(new Map<string, DOMRect>());
   const tableColumnRef = useRef<HTMLDivElement | null>(null);
@@ -2044,6 +2097,81 @@ export default function OnlinePage() {
       } else {
         seatElementsRef.current.delete(playerId);
       }
+    },
+    [],
+  );
+
+  const stopRankMoveRuntime = useCallback(() => {
+    rankMoveRunRef.current += 1;
+    rankMoveArmedRef.current = false;
+    rankMoveKindRef.current = null;
+    rankMoveAnimatedRunRef.current = 0;
+    if (rankMoveTimerRef.current !== null) {
+      window.clearTimeout(rankMoveTimerRef.current);
+      rankMoveTimerRef.current = null;
+    }
+    if (rankMoveFrameRef.current !== null) {
+      window.cancelAnimationFrame(rankMoveFrameRef.current);
+      rankMoveFrameRef.current = null;
+    }
+    if (rankMoveSecondFrameRef.current !== null) {
+      window.cancelAnimationFrame(rankMoveSecondFrameRef.current);
+      rankMoveSecondFrameRef.current = null;
+    }
+    rankMoveAnimationsRef.current.forEach((animation) => animation.cancel());
+    rankMoveAnimationsRef.current = [];
+  }, []);
+
+  const stageRankMovement = useCallback(
+    (
+      kind: "great-revolution" | "round-end",
+      movingPlayerIds: string[],
+    ) => {
+      stopRankMoveRuntime();
+      const runId = rankMoveRunRef.current;
+      rankMoveKindRef.current = kind;
+      setRankMovingPlayerIds(movingPlayerIds);
+
+      // Paint the moving class at the old coordinates first. Releasing the
+      // coordinate override two frames later prevents the canonical online
+      // snapshot from flashing at the destination before FLIP takes control.
+      rankMoveFrameRef.current = window.requestAnimationFrame(() => {
+        rankMoveFrameRef.current = null;
+        rankMoveSecondFrameRef.current = window.requestAnimationFrame(() => {
+          rankMoveSecondFrameRef.current = null;
+          if (rankMoveRunRef.current !== runId) return;
+          rankMoveArmedRef.current = true;
+          setSeatRankOverrides(null);
+        });
+      });
+    },
+    [stopRankMoveRuntime],
+  );
+
+  const scheduleRankMoveCompletion = useCallback(
+    (runId: number, reducedMotion: boolean) => {
+      if (rankMoveRunRef.current !== runId) return;
+      if (rankMoveTimerRef.current !== null) {
+        window.clearTimeout(rankMoveTimerRef.current);
+      }
+      const kind = rankMoveKindRef.current;
+      const settleMs = reducedMotion
+        ? 100
+        : kind === "round-end"
+          ? ROUND_END_MOVE_SETTLE_MS
+          : GREAT_REVOLUTION_MOVE_SETTLE_MS;
+      rankMoveTimerRef.current = window.setTimeout(() => {
+        if (rankMoveRunRef.current !== runId) return;
+        setRankMovingPlayerIds([]);
+        setRankMoveOriginById(null);
+        rankMoveAnimationsRef.current = [];
+        rankMoveArmedRef.current = false;
+        rankMoveKindRef.current = null;
+        if (kind === "round-end") {
+          setRoundEndResultReady(true);
+        }
+        rankMoveTimerRef.current = null;
+      }, settleMs);
     },
     [],
   );
@@ -2112,17 +2240,14 @@ export default function OnlinePage() {
             previousRankById.get(player.id) !== nextRankById.get(player.id),
         )
         .map((player) => player.id);
-      setSeatRankOverrides(
-        Object.fromEntries(
-          previous.players.map((player, index) => [player.id, index]),
-        ),
+      const previousRanks = Object.fromEntries(
+        previous.players.map((player, index) => [player.id, index]),
       );
+      stopRankMoveRuntime();
+      setSeatRankOverrides(previousRanks);
+      setRankMoveOriginById(previousRanks);
       setRankMovingPlayerIds([]);
       setPendingGreatRevolutionMoveIds(movingPlayerIds);
-      if (rankMoveTimerRef.current !== null) {
-        window.clearTimeout(rankMoveTimerRef.current);
-        rankMoveTimerRef.current = null;
-      }
     }
     const enteringRoundEnd =
       previous &&
@@ -2142,24 +2267,24 @@ export default function OnlinePage() {
             previousRankById.get(player.id) !== nextRankById.get(player.id),
         )
         .map((player) => player.id);
+      const previousRanks = Object.fromEntries(
+        previous.players.map((player, index) => [player.id, index]),
+      );
+      stopRankMoveRuntime();
       if (movingPlayerIds.length) {
-        setSeatRankOverrides(
-          Object.fromEntries(
-            previous.players.map((player, index) => [player.id, index]),
-          ),
-        );
+        setSeatRankOverrides(previousRanks);
+        setRankMoveOriginById(previousRanks);
       } else {
         setSeatRankOverrides(null);
+        setRankMoveOriginById(null);
       }
       setRankMovingPlayerIds([]);
       setPendingRoundEndMoveIds(movingPlayerIds);
       setRoundEndResultReady(false);
-      if (rankMoveTimerRef.current !== null) {
-        window.clearTimeout(rankMoveTimerRef.current);
-        rankMoveTimerRef.current = null;
-      }
     } else if (previous?.phase === "round-end" && next.phase !== "round-end") {
+      stopRankMoveRuntime();
       setSeatRankOverrides(null);
+      setRankMoveOriginById(null);
       setPendingRoundEndMoveIds(null);
       setRankMovingPlayerIds([]);
       setRoundEndResultReady(true);
@@ -2200,13 +2325,48 @@ export default function OnlinePage() {
     if (next.events.length) {
       setEventBuffer((current) => {
         const merged = new Map(current.map((event) => [event.id, event]));
-        next.events.forEach((event) => merged.set(event.id, event));
+        next.events.forEach((event) => {
+          const existing = merged.get(event.id);
+          if (existing) {
+            merged.set(event.id, {
+              ...event,
+              presentationStartsAt: existing.presentationStartsAt,
+              suppressPresentation: existing.suppressPresentation,
+            });
+            return;
+          }
+
+          const serverAge = Math.max(0, next.serverTime - event.startsAt);
+          const shouldUseDeliveryGrace =
+            (isTableActionEvent(event) &&
+              event.actorPlayerId !== next.viewerId) ||
+            event.type === "GREAT_REVOLUTION_RANK_SWAP_STARTED";
+          if (!shouldUseDeliveryGrace) {
+            merged.set(event.id, event);
+            return;
+          }
+
+          const presentationStartsAt =
+            event.startsAt +
+            Math.min(serverAge, REMOTE_ACTION_PRESENTATION_GRACE_MS);
+          const presentationElapsed = Math.max(
+            0,
+            next.serverTime - presentationStartsAt,
+          );
+          merged.set(event.id, {
+            ...event,
+            presentationStartsAt,
+            suppressPresentation:
+              event.durationMs - presentationElapsed <
+              MIN_REMOTE_ACTION_PRESENTATION_MS,
+          });
+        });
         return [...merged.values()]
           .sort((a, b) => a.seq - b.seq || a.startsAt - b.startsAt)
           .slice(-24);
       });
     }
-  }, []);
+  }, [stopRankMoveRuntime]);
 
   const ingestChatMessages = useCallback(
     (
@@ -2316,11 +2476,37 @@ export default function OnlinePage() {
 
   useEffect(() => {
     if (!session || screen !== "room") return;
-    const initialPoll = window.setTimeout(() => void pollRoom(), 0);
-    const interval = window.setInterval(() => void pollRoom(), POLL_INTERVAL_MS);
+    let stopped = false;
+    let pollTimer: number | null = null;
+
+    const intervalForCurrentPhase = () => {
+      const phase = snapshotRef.current?.phase;
+      if (phase === "lobby") return LOBBY_POLL_INTERVAL_MS;
+      if (phase === "playing") return PLAYING_POLL_INTERVAL_MS;
+      return TRANSITION_POLL_INTERVAL_MS;
+    };
+    const schedulePoll = (delayMs: number) => {
+      if (stopped) return;
+      if (pollTimer !== null) window.clearTimeout(pollTimer);
+      pollTimer = window.setTimeout(() => void runPoll(), delayMs);
+    };
+    const runPoll = async () => {
+      pollTimer = null;
+      await pollRoom();
+      schedulePoll(intervalForCurrentPhase());
+    };
+    const refreshNow = () => {
+      if (document.visibilityState === "visible") schedulePoll(0);
+    };
+
+    schedulePoll(0);
+    window.addEventListener("focus", refreshNow);
+    document.addEventListener("visibilitychange", refreshNow);
     return () => {
-      window.clearTimeout(initialPoll);
-      window.clearInterval(interval);
+      stopped = true;
+      if (pollTimer !== null) window.clearTimeout(pollTimer);
+      window.removeEventListener("focus", refreshNow);
+      document.removeEventListener("visibilitychange", refreshNow);
     };
   }, [pollRoom, screen, session]);
 
@@ -2329,14 +2515,7 @@ export default function OnlinePage() {
     return () => window.clearInterval(interval);
   }, []);
 
-  useEffect(
-    () => () => {
-      if (rankMoveTimerRef.current !== null) {
-        window.clearTimeout(rankMoveTimerRef.current);
-      }
-    },
-    [],
-  );
+  useEffect(() => () => stopRankMoveRuntime(), [stopRankMoveRuntime]);
 
   const submitEntry = async (event: FormEvent) => {
     event.preventDefault();
@@ -2717,7 +2896,11 @@ export default function OnlinePage() {
   const allReady = Boolean(
     snapshot &&
       snapshot.players.length >= 4 &&
-      snapshot.players.every((player) => player.ready && player.connected),
+      snapshot.players.every(
+        (player) =>
+          player.id === snapshot.hostId ||
+          (player.ready && player.connected),
+      ),
   );
   const taxObserverCopy = useMemo(() => {
     if (
@@ -2762,6 +2945,7 @@ export default function OnlinePage() {
             "GREAT_REVOLUTION_RANK_SWAP_STARTED",
             "PLAYER_PASSED",
           ].includes(event.type) &&
+            !event.suppressPresentation &&
             !(
               event.type === "REVOLUTION_DECLARED" &&
               eventBuffer.some(
@@ -2770,8 +2954,9 @@ export default function OnlinePage() {
                   Math.abs(candidate.startsAt - event.startsAt) < 2_000,
               )
             ) &&
-            effectiveClock >= event.startsAt - 120 &&
-            effectiveClock <= event.startsAt + event.durationMs,
+            effectiveClock >= eventPresentationStartsAt(event) - 120 &&
+            effectiveClock <=
+              eventPresentationStartsAt(event) + event.durationMs,
       );
     return (
       [...candidates].reverse().find(
@@ -2797,6 +2982,14 @@ export default function OnlinePage() {
     isRankSelectionPhase,
     snapshot?.phase,
   ]);
+  const activeEventAnchorsReady =
+    !activeEvent ||
+    !isTableActionEvent(activeEvent) ||
+    Boolean(
+      motionAnchors.center &&
+        activeEvent.actorPlayerId &&
+        motionAnchors.players[activeEvent.actorPlayerId],
+    );
   const visibleTable = useMemo<TableView>(() => {
     if (
       !activeEvent ||
@@ -2954,46 +3147,26 @@ export default function OnlinePage() {
   );
 
   useEffect(() => {
-    if (
-      snapshot?.phase !== "great-revolution-swap" ||
-      pendingGreatRevolutionMoveIds === null
-    ) {
-      return;
-    }
+    if (pendingGreatRevolutionMoveIds === null) return;
 
     const movingPlayerIds = pendingGreatRevolutionMoveIds;
     const startTimer = window.setTimeout(() => {
-      setSeatRankOverrides(null);
       setPendingGreatRevolutionMoveIds(null);
-      setRankMovingPlayerIds(movingPlayerIds);
-      if (rankMoveTimerRef.current !== null) {
-        window.clearTimeout(rankMoveTimerRef.current);
+      if (!movingPlayerIds.length) {
+        stopRankMoveRuntime();
+        setSeatRankOverrides(null);
+        setRankMoveOriginById(null);
+        return;
       }
-      const reduceMotion = window.matchMedia(
-        "(prefers-reduced-motion: reduce)",
-      ).matches;
-      const remainingMs =
-        snapshot.phaseEndsAt === null
-          ? RANK_MOVE_DURATION_MS
-          : Math.max(
-              120,
-              Math.min(
-                RANK_MOVE_DURATION_MS,
-                snapshot.phaseEndsAt - (Date.now() + serverOffset),
-              ),
-            );
-      rankMoveTimerRef.current = window.setTimeout(() => {
-        setRankMovingPlayerIds([]);
-        rankMoveTimerRef.current = null;
-      }, reduceMotion ? 80 : remainingMs);
-    }, 40);
+
+      stageRankMovement("great-revolution", movingPlayerIds);
+    }, GREAT_REVOLUTION_MOVE_PRELUDE_MS);
 
     return () => window.clearTimeout(startTimer);
   }, [
     pendingGreatRevolutionMoveIds,
-    serverOffset,
-    snapshot?.phase,
-    snapshot?.phaseEndsAt,
+    stageRankMovement,
+    stopRankMoveRuntime,
   ]);
 
   useEffect(() => {
@@ -3010,28 +3183,17 @@ export default function OnlinePage() {
     const startTimer = window.setTimeout(() => {
       setPendingRoundEndMoveIds(null);
       if (!movingPlayerIds.length) {
-        window.setTimeout(
-          () => setRoundEndResultReady(true),
-          ROUND_END_MOVE_SETTLE_MS,
-        );
+        stopRankMoveRuntime();
+        setSeatRankOverrides(null);
+        setRankMoveOriginById(null);
+        rankMoveTimerRef.current = window.setTimeout(() => {
+          setRoundEndResultReady(true);
+          rankMoveTimerRef.current = null;
+        }, ROUND_END_MOVE_SETTLE_MS);
         return;
       }
 
-      setSeatRankOverrides(null);
-      setRankMovingPlayerIds(movingPlayerIds);
-      if (rankMoveTimerRef.current !== null) {
-        window.clearTimeout(rankMoveTimerRef.current);
-      }
-      const reduceMotion = window.matchMedia(
-        "(prefers-reduced-motion: reduce)",
-      ).matches;
-      rankMoveTimerRef.current = window.setTimeout(() => {
-        setRankMovingPlayerIds([]);
-        setRoundEndResultReady(true);
-        rankMoveTimerRef.current = null;
-      }, reduceMotion
-        ? 120
-        : RANK_MOVE_DURATION_MS + ROUND_END_MOVE_SETTLE_MS);
+      stageRankMovement("round-end", movingPlayerIds);
     }, ROUND_END_MOVE_PRELUDE_MS);
     return () => window.clearTimeout(startTimer);
   }, [
@@ -3039,6 +3201,8 @@ export default function OnlinePage() {
     activeEvent,
     pendingRoundEndMoveIds,
     snapshot?.phase,
+    stageRankMovement,
+    stopRankMoveRuntime,
   ]);
 
   useLayoutEffect(() => {
@@ -3047,9 +3211,17 @@ export default function OnlinePage() {
       nextRects.set(playerId, element.getBoundingClientRect());
     });
 
-    const useGridFlip =
-      !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (useGridFlip && rankMovingPlayerIds.length) {
+    const reducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    const runId = rankMoveRunRef.current;
+    const shouldStartMovement =
+      rankMoveArmedRef.current &&
+      rankMovingPlayerIds.length > 0 &&
+      rankMoveAnimatedRunRef.current !== runId;
+    if (shouldStartMovement) {
+      rankMoveAnimatedRunRef.current = runId;
+      const animations: Animation[] = [];
       for (const playerId of rankMovingPlayerIds) {
         const element = seatElementsRef.current.get(playerId);
         const previousRect = seatRectsRef.current.get(playerId);
@@ -3058,44 +3230,56 @@ export default function OnlinePage() {
         const deltaX = previousRect.left - nextRect.left;
         const deltaY = previousRect.top - nextRect.top;
         if (Math.abs(deltaX) < 1 && Math.abs(deltaY) < 1) continue;
-        element.animate(
-          [
+        if (reducedMotion) continue;
+        animations.push(
+          element.animate(
+            [
+              {
+                translate: `${deltaX}px ${deltaY}px`,
+                scale: "1",
+              },
+              {
+                offset: 0.3,
+                translate: `${deltaX * 0.7 + Math.sign(deltaY || 1) * 34}px ${
+                  deltaY * 0.7 - 22
+                }px`,
+                scale: "1.07",
+              },
+              {
+                offset: 0.72,
+                translate: `${deltaX * 0.24 - Math.sign(deltaY || 1) * 18}px ${
+                  deltaY * 0.24 + 8
+                }px`,
+                scale: "1.035",
+              },
+              {
+                translate: "0 0",
+                scale: "1",
+              },
+            ],
             {
-              translate: `${deltaX}px ${deltaY}px`,
-              scale: "1",
-              filter: "brightness(1)",
+              duration: RANK_MOVE_DURATION_MS,
+              easing: "cubic-bezier(0.16, 0.74, 0.2, 1)",
             },
-            {
-              offset: 0.3,
-              translate: `${deltaX * 0.7 + Math.sign(deltaY || 1) * 34}px ${
-                deltaY * 0.7 - 22
-              }px`,
-              scale: "1.07",
-              filter: "brightness(1.32)",
-            },
-            {
-              offset: 0.72,
-              translate: `${deltaX * 0.24 - Math.sign(deltaY || 1) * 18}px ${
-                deltaY * 0.24 + 8
-              }px`,
-              scale: "1.035",
-              filter: "brightness(1.16)",
-            },
-            {
-              translate: "0 0",
-              scale: "1",
-              filter: "brightness(1)",
-            },
-          ],
-          {
-            duration: RANK_MOVE_DURATION_MS,
-            easing: "cubic-bezier(0.16, 0.74, 0.2, 1)",
-          },
+          ),
         );
+      }
+      rankMoveAnimationsRef.current = animations;
+      if (!animations.length) {
+        scheduleRankMoveCompletion(runId, true);
+      } else {
+        void Promise.allSettled(
+          animations.map((animation) => animation.finished),
+        ).then(() => scheduleRankMoveCompletion(runId, false));
       }
     }
     seatRectsRef.current = nextRects;
-  }, [rankMovingPlayerIds, seatRankOverrides, tableRankedPlayers]);
+  }, [
+    rankMovingPlayerIds,
+    scheduleRankMoveCompletion,
+    seatRankOverrides,
+    tableRankedPlayers,
+  ]);
 
   const toggleCard = (cardId: string) => {
     if ((!isMyTurn || !turnPresentationReady) && !isTaxSelection) return;
@@ -3399,8 +3583,8 @@ export default function OnlinePage() {
               기다리는 중
             </h1>
             <p>
-              참가자와 봇을 합쳐 최소 4명이 준비되면 방장이 PLAY를
-              누를 수 있습니다.
+              참가자와 봇을 합쳐 최소 4명이 모이고 방장 외 전원이
+              준비되면 PLAY를 누를 수 있습니다.
             </p>
             <button
               type="button"
@@ -3502,10 +3686,14 @@ export default function OnlinePage() {
                     ) : (
                       <em
                         className={
-                          player.ready ? styles.readyBadge : styles.waitBadge
+                          player.id === snapshot.hostId || player.ready
+                            ? styles.readyBadge
+                            : styles.waitBadge
                         }
                       >
-                        {player.isBot
+                        {player.id === snapshot.hostId
+                          ? "방장 · 준비 불필요"
+                          : player.isBot
                           ? `BOT · ${
                               BOT_DIFFICULTY_LABELS[
                                 player.botDifficulty ?? "normal"
@@ -3540,21 +3728,25 @@ export default function OnlinePage() {
               })}
             </ol>
             <div className={styles.lobbyControls}>
-              <button
-                type="button"
-                className={`${styles.readyButton} ${
-                  me?.ready ? styles.readyButtonOn : ""
-                }`}
-                disabled={!me || busy}
-                onClick={() =>
-                  void sendCommand("SET_READY", { ready: !me?.ready })
-                }
-              >
-                <span>{me?.ready ? "준비 취소" : "준비하기"}</span>
-                <small>
-                  {me?.ready ? "방장이 시작하기를 기다립니다" : "게임 참가 준비"}
-                </small>
-              </button>
+              {!isHost && (
+                <button
+                  type="button"
+                  className={`${styles.readyButton} ${
+                    me?.ready ? styles.readyButtonOn : ""
+                  }`}
+                  disabled={!me || busy}
+                  onClick={() =>
+                    void sendCommand("SET_READY", { ready: !me?.ready })
+                  }
+                >
+                  <span>{me?.ready ? "준비 취소" : "준비하기"}</span>
+                  <small>
+                    {me?.ready
+                      ? "방장이 시작하기를 기다립니다"
+                      : "게임 참가 준비"}
+                  </small>
+                </button>
+              )}
               {isHost && (
                 <button
                   type="button"
@@ -3566,7 +3758,7 @@ export default function OnlinePage() {
                   <small>
                     {allReady
                       ? "첫 계급 정하기 시작"
-                      : "4명 이상(봇 포함) · 모두 준비 필요"}
+                      : "4명 이상(봇 포함) · 방장 제외 모두 준비 필요"}
                   </small>
                 </button>
               )}
@@ -3860,7 +4052,7 @@ export default function OnlinePage() {
                   (candidate) => candidate.id === player.id,
                 );
                 const movementOriginRankIndex =
-                  seatRankOverrides?.[player.id] ?? priorRankIndex;
+                  rankMoveOriginById?.[player.id] ?? priorRankIndex;
                 const movementDirection =
                   movementOriginRankIndex > rankIndex
                     ? "up"
@@ -4094,7 +4286,7 @@ export default function OnlinePage() {
                 isRankMoving={rankMovingPlayerIds.includes(me.id)}
                 rankMovement={(() => {
                   const priorRankIndex =
-                    seatRankOverrides?.[me.id] ??
+                    rankMoveOriginById?.[me.id] ??
                     snapshot.players.findIndex(
                       (player) => player.id === me.id,
                     );
@@ -4264,6 +4456,7 @@ export default function OnlinePage() {
             </div>
           </section>
           {activeEvent &&
+            activeEventAnchorsReady &&
             !(snapshot.phase === "round-end" && roundEndResultReady) && (
               <EventOverlay
                 key={activeEvent.id}

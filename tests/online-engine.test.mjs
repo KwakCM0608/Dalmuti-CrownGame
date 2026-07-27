@@ -208,7 +208,7 @@ test("a host can fill a three-human room with a ready connected bot and start PL
   );
 
   state = command(withoutBot, "p1", "ADD_BOT", {}, 9);
-  for (const [offset, playerId] of ["p1", "p2", "p3"].entries()) {
+  for (const [offset, playerId] of ["p2", "p3"].entries()) {
     state = command(
       state,
       playerId,
@@ -217,7 +217,17 @@ test("a host can fill a three-human room with a ready connected bot and start PL
       10 + offset,
     );
   }
-  assert.equal(state.players.every((player) => player.ready), true);
+  assert.equal(
+    state.players.find((player) => player.id === state.hostId)?.ready,
+    false,
+    "the host does not need to ready up",
+  );
+  assert.equal(
+    state.players
+      .filter((player) => player.id !== state.hostId)
+      .every((player) => player.ready && player.connected),
+    true,
+  );
 
   state = applyOnlineCommand(
     state,
@@ -236,6 +246,43 @@ test("a host can fill a three-human room with a ready connected bot and start PL
   assert.equal(state.players.length, 4);
   assert.equal(state.phase, "rank-intro");
   assert.equal(state.round, 1);
+});
+
+test("PLAY requires every connected non-host player to be ready", () => {
+  let state = createFourPlayerLobby();
+  state = command(state, "p2", "SET_READY", { ready: true }, 10);
+  state = command(state, "p3", "SET_READY", { ready: true }, 11);
+
+  assert.throws(
+    () => command(state, "p1", "START_MATCH", {}, 12),
+    (error) =>
+      error instanceof OnlineGameError &&
+      error.code === "PLAYERS_NOT_READY",
+    "an unready guest must keep PLAY disabled on the server",
+  );
+
+  state = command(state, "p4", "SET_READY", { ready: true }, 13);
+  const disconnectedGuest = state.players.find(
+    (player) => player.id === "p3",
+  );
+  assert.ok(disconnectedGuest);
+  disconnectedGuest.connected = false;
+
+  assert.throws(
+    () => command(state, "p1", "START_MATCH", {}, 14),
+    (error) =>
+      error instanceof OnlineGameError &&
+      error.code === "PLAYERS_NOT_READY",
+    "a disconnected guest must keep PLAY disabled on the server",
+  );
+
+  disconnectedGuest.connected = true;
+  state = command(state, "p1", "START_MATCH", {}, 15);
+  assert.equal(state.phase, "rank-intro");
+  assert.equal(
+    state.players.find((player) => player.id === state.hostId)?.ready,
+    false,
+  );
 });
 
 test("server bots act automatically during rank choice, revolution, tax, and play", () => {
