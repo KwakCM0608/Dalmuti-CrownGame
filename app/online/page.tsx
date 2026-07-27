@@ -22,6 +22,10 @@ import {
   BOT_DIFFICULTIES,
   type BotDifficulty,
 } from "@/lib/bot-strategy";
+import {
+  collectRemoteActionPresentations,
+  isOnlineTableActionEvent as isTableActionEvent,
+} from "@/lib/online-action-presentation";
 import styles from "./online.module.css";
 
 type LooseRecord = Record<string, unknown>;
@@ -59,7 +63,7 @@ type EventView = {
   at: number;
   startsAt: number;
   presentationStartsAt?: number;
-  suppressPresentation?: boolean;
+  localPlaybackStartedAt?: number;
   durationMs: number;
   playerIds: string[];
   actorPlayerId: string | null;
@@ -205,7 +209,7 @@ const TRANSITION_POLL_INTERVAL_MS = 240;
 const LOBBY_POLL_INTERVAL_MS = 420;
 const MAX_EVENT_CATCHUP_MS = 120;
 const REMOTE_ACTION_PRESENTATION_GRACE_MS = 300;
-const MIN_REMOTE_ACTION_PRESENTATION_MS = 450;
+const MAX_REMOTE_ACTION_QUEUE_LENGTH = 3;
 const TURN_DURATION_MS = 30_000;
 const RANK_MOVE_DURATION_MS = 2_300;
 const GREAT_REVOLUTION_MOVE_PRELUDE_MS = 180;
@@ -222,16 +226,6 @@ const BOT_DIFFICULTY_DESCRIPTIONS: Record<BotDifficulty, string> = {
   normal: "조커와 묶음을 관리",
   hard: "상대의 완주 위협까지 대응",
 };
-
-const TABLE_ACTION_EVENT_TYPES = new Set([
-  "CARDS_PLAYED",
-  "DALMUTI_EFFECT",
-  "PLAYER_PASSED",
-]);
-
-function isTableActionEvent(event: Pick<EventView, "type">): boolean {
-  return TABLE_ACTION_EVENT_TYPES.has(event.type);
-}
 
 function eventPresentationStartsAt(
   event: Pick<EventView, "startsAt" | "presentationStartsAt">,
@@ -1402,7 +1396,9 @@ function EventOverlayView({
       0,
       Math.min(
         event.durationMs,
-        effectiveClock - eventPresentationStartsAt(event),
+        event.localPlaybackStartedAt === undefined
+          ? effectiveClock - eventPresentationStartsAt(event)
+          : Date.now() - event.localPlaybackStartedAt,
       ),
     ),
   );
@@ -1868,6 +1864,8 @@ function eventOverlayPropsEqual(
     previous.event.startsAt !== next.event.startsAt ||
     previous.event.presentationStartsAt !==
       next.event.presentationStartsAt ||
+    previous.event.localPlaybackStartedAt !==
+      next.event.localPlaybackStartedAt ||
     previous.event.durationMs !== next.event.durationMs ||
     previous.event.actorPlayerId !== next.event.actorPlayerId ||
     (!isTableActionEvent(previous.event) &&
@@ -2030,6 +2028,7 @@ export default function OnlinePage() {
   const [snapshot, setSnapshot] = useState<SnapshotView | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [eventBuffer, setEventBuffer] = useState<EventView[]>([]);
+  const [remoteActionQueue, setRemoteActionQueue] = useState<EventView[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessageView[]>([]);
   const [clock, setClock] = useState(() => Date.now());
   const [observedRevolution, setObservedRevolution] =
@@ -2073,6 +2072,7 @@ export default function OnlinePage() {
   const failureCountRef = useRef(0);
   const snapshotRef = useRef<SnapshotView | null>(null);
   const sessionRef = useRef<StoredSession | null>(null);
+  const remoteActionSeenIdsRef = useRef(new Set<string>());
   const latestChatSeqRef = useRef(0);
   const rankChoiceInFlightRef = useRef<number | null>(null);
   const rankMoveTimerRef = useRef<number | null>(null);
@@ -2298,7 +2298,8 @@ export default function OnlinePage() {
       rankChoiceInFlightRef.current = null;
       setOptimisticRankSlotIndex(null);
     }
-    setServerOffset(next.serverTime - Date.now());
+    const nextServerOffset = next.serverTime - Date.now();
+    setServerOffset(nextServerOffset);
     const declarationEvent = [...next.events]
       .reverse()
       .find((event) => event.type === "REVOLUTION_DECLARED");
@@ -2323,6 +2324,54 @@ export default function OnlinePage() {
       return current.filter((id) => handIds.has(id));
     });
     if (next.events.length) {
+      const remotePresentations = previous
+        ? collectRemoteActionPresentations(
+            next.events,
+            next.viewerId,
+            next.serverTime,
+            remoteActionSeenIdsRef.current,
+          )
+        : {
+            events: [],
+            // A restored session must not replay the room's retained history.
+            // Seed the cursor on its first snapshot and only animate actions
+            // that arrive after the viewer is live.
+            seenIds: next.events
+              .filter(
+                (event) =>
+                  isTableActionEvent(event) &&
+                  event.actorPlayerId !== null &&
+                  event.actorPlayerId !== next.viewerId,
+              )
+              .map((event) => event.id),
+          };
+      remotePresentations.seenIds.forEach((id) =>
+        remoteActionSeenIdsRef.current.add(id),
+      );
+      while (remoteActionSeenIdsRef.current.size > 512) {
+        const oldestId = remoteActionSeenIdsRef.current.values().next()
+          .value;
+        if (typeof oldestId !== "string") break;
+        remoteActionSeenIdsRef.current.delete(oldestId);
+      }
+      if (remotePresentations.events.length) {
+        setRemoteActionQueue((current) => {
+          const queuedIds = new Set(current.map((event) => event.id));
+          const incoming = remotePresentations.events.filter(
+            (event) => !queuedIds.has(event.id),
+          );
+          if (!incoming.length) return current;
+          const combined = [...current, ...incoming];
+          if (combined.length <= MAX_REMOTE_ACTION_QUEUE_LENGTH) {
+            return combined;
+          }
+          return [
+            combined[0],
+            ...combined.slice(-(MAX_REMOTE_ACTION_QUEUE_LENGTH - 1)),
+          ];
+        });
+      }
+
       setEventBuffer((current) => {
         const merged = new Map(current.map((event) => [event.id, event]));
         next.events.forEach((event) => {
@@ -2331,34 +2380,22 @@ export default function OnlinePage() {
             merged.set(event.id, {
               ...event,
               presentationStartsAt: existing.presentationStartsAt,
-              suppressPresentation: existing.suppressPresentation,
             });
             return;
           }
 
-          const serverAge = Math.max(0, next.serverTime - event.startsAt);
-          const shouldUseDeliveryGrace =
-            (isTableActionEvent(event) &&
-              event.actorPlayerId !== next.viewerId) ||
-            event.type === "GREAT_REVOLUTION_RANK_SWAP_STARTED";
-          if (!shouldUseDeliveryGrace) {
+          if (event.type !== "GREAT_REVOLUTION_RANK_SWAP_STARTED") {
             merged.set(event.id, event);
             return;
           }
 
+          const serverAge = Math.max(0, next.serverTime - event.startsAt);
           const presentationStartsAt =
             event.startsAt +
             Math.min(serverAge, REMOTE_ACTION_PRESENTATION_GRACE_MS);
-          const presentationElapsed = Math.max(
-            0,
-            next.serverTime - presentationStartsAt,
-          );
           merged.set(event.id, {
             ...event,
             presentationStartsAt,
-            suppressPresentation:
-              event.durationMs - presentationElapsed <
-              MIN_REMOTE_ACTION_PRESENTATION_MS,
           });
         });
         return [...merged.values()]
@@ -2492,8 +2529,12 @@ export default function OnlinePage() {
     };
     const runPoll = async () => {
       pollTimer = null;
+      const startedAt = performance.now();
       await pollRoom();
-      schedulePoll(intervalForCurrentPhase());
+      const elapsedMs = performance.now() - startedAt;
+      schedulePoll(
+        Math.max(0, intervalForCurrentPhase() - elapsedMs),
+      );
     };
     const refreshNow = () => {
       if (document.visibilityState === "visible") schedulePoll(0);
@@ -2919,7 +2960,8 @@ export default function OnlinePage() {
         : names.join(", ") || "상위 계급 플레이어";
     return `${subject}이(가) 세금 교환 중`;
   }, [isTaxSelection, snapshot]);
-  const activeEvent = useMemo(() => {
+  const queuedRemoteAction = remoteActionQueue[0] ?? null;
+  const timedEvent = useMemo(() => {
     if (
       isHandRevealing ||
       snapshot?.phase === "tax-selection" ||
@@ -2945,7 +2987,11 @@ export default function OnlinePage() {
             "GREAT_REVOLUTION_RANK_SWAP_STARTED",
             "PLAYER_PASSED",
           ].includes(event.type) &&
-            !event.suppressPresentation &&
+            !(
+              isTableActionEvent(event) &&
+              event.actorPlayerId !== null &&
+              event.actorPlayerId !== snapshot?.viewerId
+            ) &&
             !(
               event.type === "REVOLUTION_DECLARED" &&
               eventBuffer.some(
@@ -2981,7 +3027,65 @@ export default function OnlinePage() {
     isHandRevealing,
     isRankSelectionPhase,
     snapshot?.phase,
+    snapshot?.viewerId,
   ]);
+  const activeEvent = queuedRemoteAction ?? timedEvent;
+  const queuedRemoteActionAnchorsReady = Boolean(
+    !queuedRemoteAction ||
+      (motionAnchors.center &&
+        queuedRemoteAction.actorPlayerId &&
+        motionAnchors.players[queuedRemoteAction.actorPlayerId]),
+  );
+  useLayoutEffect(() => {
+    if (
+      !queuedRemoteAction ||
+      queuedRemoteAction.localPlaybackStartedAt !== undefined ||
+      !queuedRemoteActionAnchorsReady
+    ) {
+      return;
+    }
+    const startFrame = window.requestAnimationFrame(() => {
+      const localPlaybackStartedAt = Date.now();
+      setRemoteActionQueue((current) => {
+        const first = current[0];
+        if (
+          !first ||
+          first.id !== queuedRemoteAction.id ||
+          first.localPlaybackStartedAt !== undefined
+        ) {
+          return current;
+        }
+        return [{ ...first, localPlaybackStartedAt }, ...current.slice(1)];
+      });
+    });
+    return () => window.cancelAnimationFrame(startFrame);
+  }, [queuedRemoteAction, queuedRemoteActionAnchorsReady]);
+
+  useEffect(() => {
+    if (
+      !queuedRemoteAction ||
+      queuedRemoteAction.localPlaybackStartedAt === undefined
+    ) {
+      return;
+    }
+    const remainingMs = Math.max(
+      0,
+      queuedRemoteAction.localPlaybackStartedAt +
+        queuedRemoteAction.durationMs -
+        Date.now(),
+    );
+    const completionTimer = window.setTimeout(() => {
+      setRemoteActionQueue((current) => {
+        if (current[0]?.id !== queuedRemoteAction.id) return current;
+        return current.slice(1);
+      });
+    }, remainingMs);
+    return () => window.clearTimeout(completionTimer);
+  }, [queuedRemoteAction]);
+
+  const activeEventPlaybackReady =
+    !queuedRemoteAction ||
+    queuedRemoteAction.localPlaybackStartedAt !== undefined;
   const activeEventAnchorsReady =
     !activeEvent ||
     !isTableActionEvent(activeEvent) ||
@@ -3327,6 +3431,8 @@ export default function OnlinePage() {
     snapshotRef.current = null;
     setSelectedIds([]);
     setEventBuffer([]);
+    setRemoteActionQueue([]);
+    remoteActionSeenIdsRef.current.clear();
     setChatMessages([]);
     latestChatSeqRef.current = 0;
     setTaxVisualOverride(null);
@@ -4456,6 +4562,7 @@ export default function OnlinePage() {
             </div>
           </section>
           {activeEvent &&
+            activeEventPlaybackReady &&
             activeEventAnchorsReady &&
             !(snapshot.phase === "round-end" && roundEndResultReady) && (
               <EventOverlay

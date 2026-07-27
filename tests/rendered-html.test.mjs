@@ -678,6 +678,25 @@ test("online phase locks and visual animation timing mirror quick match", async 
     onlinePage,
     /REMOTE_ACTION_PRESENTATION_GRACE_MS = 300/,
   );
+  assert.match(
+    onlinePage,
+    /collectRemoteActionPresentations\(/,
+  );
+  assert.match(onlinePage, /const \[remoteActionQueue, setRemoteActionQueue\]/);
+  assert.match(
+    onlinePage,
+    /const localPlaybackStartedAt = Date\.now\(\)/,
+  );
+  assert.match(
+    onlinePage,
+    /Date\.now\(\) - event\.localPlaybackStartedAt/,
+  );
+  assert.doesNotMatch(onlinePage, /serverOffsetRef/);
+  assert.doesNotMatch(onlinePage, /suppressPresentation/);
+  assert.match(
+    onlineStyles,
+    /onlinePublicPassToTable 1\.38s[\s\S]*?both;/,
+  );
   assert.match(onlinePage, /const turnPresentationReady =/);
   assert.match(onlinePage, /ROUND_END_MOVE_PRELUDE_MS = 380/);
   assert.match(onlinePage, /ROUND_END_MOVE_SETTLE_MS = 520/);
