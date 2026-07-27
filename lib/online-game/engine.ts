@@ -19,8 +19,12 @@ const MAX_PLAYERS = 8;
 const MAX_EVENTS = 240;
 const MAX_PROCESSED_COMMANDS = 512;
 const PUBLIC_ACTION_LOCK_MS = 1_500;
+const RANK_COUNTDOWN_MS = 3_000;
 
 const DEFAULT_DURATIONS: OnlinePhaseDurations = {
+  rankChoiceIntroMs: 5_000,
+  rankRevealDelayMs: 1_000,
+  rankRevealMs: 1_800,
   revealIntroMs: 1_600,
   handRevealMs: 900,
   revolutionDecisionMs: 15_000,
@@ -107,6 +111,15 @@ function cloneRoom(state: OnlineRoomState): OnlineRoomState {
       : null,
     passedPlayerIds: [...state.passedPlayerIds],
     finishOrder: [...state.finishOrder],
+    rankSelection: state.rankSelection
+      ? {
+          ...state.rankSelection,
+          cards: state.rankSelection.cards.map((card) => ({ ...card })),
+        }
+      : null,
+    declaredRevolution: state.declaredRevolution
+      ? { ...state.declaredRevolution }
+      : null,
     taxExchanges: state.taxExchanges.map((exchange) => ({
       ...exchange,
       peonCardIds: [...exchange.peonCardIds],
@@ -124,7 +137,13 @@ function resolveDurations(
   base: OnlinePhaseDurations,
   deps?: OnlineEngineDeps,
 ): OnlinePhaseDurations {
-  const durations = { ...base, ...deps?.durations };
+  // Persisted rooms from an older deployment do not contain newly introduced
+  // duration keys, so always hydrate from the current defaults first.
+  const durations = {
+    ...DEFAULT_DURATIONS,
+    ...base,
+    ...deps?.durations,
+  };
   for (const [key, value] of Object.entries(durations)) {
     if (!Number.isFinite(value) || value < 0) {
       fail("INVALID_DURATION", `${key} must be a non-negative finite number`);
@@ -258,6 +277,38 @@ function clearSealedDeal(state: OnlineRoomState): void {
   state.dealSealed = false;
 }
 
+function resetRoomToLobby(state: OnlineRoomState): void {
+  state.players = withAssignedRoles(
+    [...state.players].sort(
+      (left, right) =>
+        left.joinedAt - right.joinedAt || left.id.localeCompare(right.id),
+    ),
+  ).map((player) => ({
+    ...player,
+    ready: false,
+    score: 0,
+  }));
+  state.hands = {};
+  state.dealSealed = false;
+  state.phase = "lobby";
+  state.phaseEndsAt = null;
+  state.round = 0;
+  state.currentIndex = 0;
+  state.table = null;
+  state.lastPlayedId = null;
+  state.passedPlayerIds = [];
+  state.finishOrder = [];
+  state.rankSelection = null;
+  state.revolutionHolderId = null;
+  state.declaredRevolution = null;
+  state.taxExchanges = [];
+  state.actionLockUntil = null;
+  // A reset is a new client timeline. Keep the sequence monotonic so an
+  // existing cursor still receives the reset event, but discard stale private
+  // hand/tax events and animation instructions from the abandoned match.
+  state.events = [];
+}
+
 function sealDeal(
   state: OnlineRoomState,
   at: number,
@@ -273,6 +324,162 @@ function sealDeal(
         state.hands[player.id]?.length ?? 0,
       ]),
     ),
+  });
+}
+
+function beginRankSelection(
+  state: OnlineRoomState,
+  at: number,
+  deps?: OnlineEngineDeps,
+): void {
+  state.durations = resolveDurations(state.durations, deps);
+  clearSealedDeal(state);
+
+  const countdownEndsAt = at + state.durations.rankChoiceIntroMs;
+  const countdownStartsAt =
+    countdownEndsAt -
+    Math.min(RANK_COUNTDOWN_MS, state.durations.rankChoiceIntroMs);
+  const shuffledRankCards = shuffle(
+    state.players.map((_, index) => ({
+      id: `rank-card-${index + 1}`,
+      rank: index + 1,
+    })),
+    deps?.randomInt,
+  );
+
+  state.round = 1;
+  state.phase = "rank-intro";
+  state.phaseEndsAt = countdownEndsAt;
+  state.rankSelection = {
+    cards: shuffledRankCards.map((card, slotIndex) => ({
+      slotIndex,
+      rank: card.rank,
+      claimedByPlayerId: null,
+      claimedAt: null,
+    })),
+    introStartedAt: at,
+    countdownStartsAt,
+    countdownEndsAt,
+    revealAt: null,
+    revealEndsAt: null,
+  };
+  state.currentIndex = 0;
+  state.table = null;
+  state.lastPlayedId = null;
+  state.passedPlayerIds = [];
+  state.finishOrder = [];
+  state.revolutionHolderId = null;
+  state.declaredRevolution = null;
+  state.taxExchanges = [];
+  state.actionLockUntil = null;
+
+  appendEvent(state, "RANK_CHOICE_INTRO_STARTED", at, {
+    playerCount: state.players.length,
+    introStartedAt: at,
+    countdownStartsAt,
+    countdownEndsAt,
+  });
+}
+
+function enterRankSelection(state: OnlineRoomState, at: number): void {
+  const rankSelection = state.rankSelection;
+  if (!rankSelection) {
+    fail("ROOM_INVARIANT", "rank selection state is missing");
+  }
+  state.phase = "rank-selection";
+  state.phaseEndsAt = null;
+  appendEvent(state, "RANK_CHOICE_STARTED", at, {
+    cards: rankSelection.cards.map((card) => ({
+      slotIndex: card.slotIndex,
+    })),
+  });
+}
+
+function allRankCardsChosen(state: OnlineRoomState): boolean {
+  return (
+    state.rankSelection?.cards.length === state.players.length &&
+    state.rankSelection.cards.every(
+      (card) => card.claimedByPlayerId !== null,
+    )
+  );
+}
+
+function lockRankChoices(state: OnlineRoomState, at: number): void {
+  const rankSelection = state.rankSelection;
+  if (!rankSelection || !allRankCardsChosen(state)) {
+    fail("ROOM_INVARIANT", "rank choices cannot lock before every player chooses");
+  }
+  rankSelection.revealAt = at + state.durations.rankRevealDelayMs;
+  state.phaseEndsAt = rankSelection.revealAt;
+  appendEvent(state, "RANK_CHOICES_LOCKED", at, {
+    revealAt: rankSelection.revealAt,
+  });
+}
+
+function enterRankReveal(state: OnlineRoomState, at: number): void {
+  const rankSelection = state.rankSelection;
+  if (!rankSelection || !allRankCardsChosen(state)) {
+    fail("ROOM_INVARIANT", "rank cards cannot reveal before every player chooses");
+  }
+
+  rankSelection.revealAt = at;
+  rankSelection.revealEndsAt = at + state.durations.rankRevealMs;
+  state.phase = "rank-reveal";
+  state.phaseEndsAt = rankSelection.revealEndsAt;
+
+  const assignments = [...rankSelection.cards]
+    .sort((left, right) => left.slotIndex - right.slotIndex)
+    .map((card) => ({
+      slotIndex: card.slotIndex,
+      playerId: card.claimedByPlayerId,
+      rank: card.rank,
+    }));
+  appendEvent(state, "RANK_CARDS_REVEALED", at, {
+    cards: assignments,
+    endsAt: state.phaseEndsAt,
+  });
+}
+
+function finalizeRankOrder(state: OnlineRoomState, at: number): void {
+  const rankSelection = state.rankSelection;
+  if (!rankSelection || !allRankCardsChosen(state)) {
+    fail("ROOM_INVARIANT", "rank order cannot finalize before every player chooses");
+  }
+  const playerById = new Map(
+    state.players.map((player) => [player.id, player]),
+  );
+  const orderedCards = [...rankSelection.cards].sort(
+    (left, right) => left.rank - right.rank,
+  );
+  const assignedPlayerIds = orderedCards.map(
+    (card) => card.claimedByPlayerId,
+  );
+  if (
+    assignedPlayerIds.some((playerId) => !playerId) ||
+    new Set(assignedPlayerIds).size !== state.players.length
+  ) {
+    fail("ROOM_INVARIANT", "rank card claims do not assign every player once");
+  }
+
+  state.players = withAssignedRoles(
+    assignedPlayerIds.map((playerId) => {
+      const player = playerById.get(playerId!);
+      if (!player) {
+        fail("ROOM_INVARIANT", "a rank card belongs to an unknown player");
+      }
+      return player;
+    }),
+  );
+  const assignments = [...rankSelection.cards]
+    .sort((left, right) => left.slotIndex - right.slotIndex)
+    .map((card) => ({
+      slotIndex: card.slotIndex,
+      playerId: card.claimedByPlayerId,
+      rank: card.rank,
+    }));
+  appendEvent(state, "RANK_ORDER_ASSIGNED", at, {
+    playerIds: state.players.map((player) => player.id),
+    assignments,
   });
 }
 
@@ -365,6 +572,7 @@ function startRound(
     ...player,
     ready: true,
   }));
+  if (round > 1) state.rankSelection = null;
   if (!useSealedDeal || !state.dealSealed) {
     sealDeal(state, at, deps);
   }
@@ -377,6 +585,7 @@ function startRound(
   state.passedPlayerIds = [];
   state.finishOrder = [];
   state.revolutionHolderId = null;
+  state.declaredRevolution = null;
   state.taxExchanges = [];
   state.actionLockUntil = null;
 
@@ -640,6 +849,11 @@ function chooseRevolution(
   if (isGreatRevolution) {
     state.players = withAssignedRoles([...state.players].reverse());
   }
+  state.declaredRevolution = {
+    round: state.round,
+    playerId: holderId,
+    kind: isGreatRevolution ? "great-revolution" : "revolution",
+  };
   appendEvent(state, "REVOLUTION_DECLARED", at, {
     playerId: holderId,
     kind: isGreatRevolution ? "great" : "normal",
@@ -668,8 +882,22 @@ function autoSelectTaxReturns(state: OnlineRoomState, at: number): void {
   });
 }
 
-function advanceOneTimedPhase(state: OnlineRoomState, at: number): void {
+function advanceOneTimedPhase(
+  state: OnlineRoomState,
+  at: number,
+  deps?: OnlineEngineDeps,
+): void {
   switch (state.phase) {
+    case "rank-intro":
+      enterRankSelection(state, at);
+      return;
+    case "rank-selection":
+      enterRankReveal(state, at);
+      return;
+    case "rank-reveal":
+      finalizeRankOrder(state, at);
+      startRound(state, 1, at, deps);
+      return;
     case "reveal-intro":
       enterHandReveal(state, at);
       return;
@@ -787,6 +1015,29 @@ function handlePlayCards(
   state.passedPlayerIds = [];
   appendEvent(state, "CARDS_PLAYED", at, { ...table });
   state.actionLockUntil = at + PUBLIC_ACTION_LOCK_MS;
+  const isDalmutiEffect = normalized.rank === 1;
+  const automaticallyPassedPlayerIds = isDalmutiEffect
+    ? state.players
+        .filter(
+          (player) =>
+            player.id !== actorId && state.hands[player.id].length > 0,
+        )
+        .map((player) => player.id)
+    : [];
+
+  if (isDalmutiEffect) {
+    appendEvent(state, "DALMUTI_EFFECT", at, {
+      playerId: actorId,
+      autoPassedPlayerIds: automaticallyPassedPlayerIds,
+    });
+    for (const playerId of automaticallyPassedPlayerIds) {
+      appendEvent(state, "PLAYER_PASSED", at, {
+        playerId,
+        automatic: true,
+        reason: "dalmuti",
+      });
+    }
+  }
 
   if (state.hands[actorId].length === 0) {
     state.finishOrder.push(actorId);
@@ -805,6 +1056,25 @@ function handlePlayCards(
   }
 
   if (finishRoundIfNeeded(state, at)) return;
+  if (isDalmutiEffect) {
+    const actorIndex = state.players.findIndex(
+      (player) => player.id === actorId,
+    );
+    const actorStillActive = state.hands[actorId].length > 0;
+    state.table = null;
+    state.passedPlayerIds = [];
+    state.currentIndex = actorStillActive
+      ? actorIndex
+      : nextActiveIndex(state, actorIndex);
+    appendEvent(state, "TRICK_CLEARED", at, {
+      previousLeaderId: actorId,
+      nextPlayerId: state.players[state.currentIndex].id,
+      reason: "dalmuti",
+      automatic: true,
+    });
+    addTurnStartedEvent(state, at);
+    return;
+  }
   state.currentIndex = nextActiveIndex(state, state.currentIndex);
   addTurnStartedEvent(state, at);
 }
@@ -891,7 +1161,9 @@ export function createOnlineRoom(
     lastPlayedId: null,
     passedPlayerIds: [],
     finishOrder: [],
+    rankSelection: null,
     revolutionHolderId: null,
+    declaredRevolution: null,
     taxExchanges: [],
     actionLockUntil: null,
     events: [],
@@ -955,7 +1227,7 @@ export function advanceOnlineRoom(
       fail("TRANSITION_LOOP", "too many timed room transitions");
     }
     const transitionAt = next.phaseEndsAt;
-    advanceOneTimedPhase(next, transitionAt);
+    advanceOneTimedPhase(next, transitionAt, deps);
     commit(next, transitionAt);
     transitions += 1;
   }
@@ -982,6 +1254,7 @@ export function applyOnlineCommand(
   }
   if (
     command.type !== "SET_READY" &&
+    command.type !== "CHOOSE_RANK_CARD" &&
     command.expectedRevision !== undefined &&
     command.expectedRevision !== advanced.revision
   ) {
@@ -1013,12 +1286,10 @@ export function applyOnlineCommand(
           ? { ...candidate, ready: command.ready }
           : candidate,
       );
-      if (
-        next.players.length >= MIN_PLAYERS &&
-        next.players.every((candidate) => candidate.ready)
-      ) {
-        sealDeal(next, now, deps);
-      } else if (next.dealSealed) {
+      // The opening deal depends on the rank-card result, so it cannot be
+      // assigned by temporary lobby order. Clear a legacy pre-sealed deal and
+      // deal only after the rank reveal has established the real order.
+      if (next.dealSealed) {
         clearSealedDeal(next);
       }
       appendEvent(next, "PLAYER_READY_CHANGED", now, {
@@ -1043,10 +1314,50 @@ export function applyOnlineCommand(
       if (next.players.some((player) => !player.ready)) {
         fail("PLAYERS_NOT_READY", "every player must be ready");
       }
-      if (!next.dealSealed) {
-        fail("DEAL_NOT_SEALED", "the hidden deal is not ready");
+      beginRankSelection(next, now, deps);
+      break;
+    }
+    case "CHOOSE_RANK_CARD": {
+      if (next.phase !== "rank-selection") {
+        fail("WRONG_PHASE", "rank cards can only be chosen during rank selection");
       }
-      startRound(next, 1, now, deps, true);
+      if (next.phaseEndsAt !== null) {
+        fail("RANK_CHOICES_LOCKED", "rank choices are already locked");
+      }
+      if (
+        !Number.isInteger(command.slotIndex) ||
+        command.slotIndex < 0 ||
+        command.slotIndex >= next.players.length
+      ) {
+        fail("INVALID_RANK_SLOT", "slotIndex must identify an available rank card");
+      }
+      const rankSelection = next.rankSelection;
+      if (!rankSelection) {
+        fail("ROOM_INVARIANT", "rank selection state is missing");
+      }
+      if (
+        rankSelection.cards.some(
+          (card) => card.claimedByPlayerId === actorId,
+        )
+      ) {
+        fail("RANK_ALREADY_CHOSEN", "each player may choose exactly one rank card");
+      }
+      const card = rankSelection.cards.find(
+        (candidate) => candidate.slotIndex === command.slotIndex,
+      );
+      if (!card) {
+        fail("INVALID_RANK_SLOT", "the selected rank card does not exist");
+      }
+      if (card.claimedByPlayerId) {
+        fail("RANK_CARD_CLAIMED", "that rank card has already been chosen");
+      }
+      card.claimedByPlayerId = actorId;
+      card.claimedAt = now;
+      appendEvent(next, "RANK_CARD_CHOSEN", now, {
+        slotIndex: card.slotIndex,
+        playerId: actorId,
+      });
+      if (allRankCardsChosen(next)) lockRankChoices(next, now);
       break;
     }
     case "CHOOSE_REVOLUTION": {
@@ -1123,6 +1434,38 @@ export function applyOnlineCommand(
       startRound(next, next.round + 1, now, deps);
       break;
     }
+    case "RESET_ROOM": {
+      if (actorId !== next.hostId) {
+        fail("HOST_ONLY", "only the host can reset the room");
+      }
+      resetRoomToLobby(next);
+      appendEvent(next, "ROOM_RESET", now, {
+        byPlayerId: actorId,
+        reason: "host-reset",
+      });
+      break;
+    }
+    case "LEAVE_ROOM": {
+      if (actorId === next.hostId) {
+        fail(
+          "HOST_CANNOT_LEAVE",
+          "the host must reset the room instead of leaving it",
+        );
+      }
+      const leavingPlayer = next.players.find(
+        (player) => player.id === actorId,
+      )!;
+      next.players = next.players.filter((player) => player.id !== actorId);
+      resetRoomToLobby(next);
+      appendEvent(next, "PLAYER_LEFT", now, {
+        playerId: actorId,
+        name: leavingPlayer.name,
+      });
+      appendEvent(next, "ROOM_RESET", now, {
+        reason: "player-left",
+      });
+      break;
+    }
     default: {
       fail("INVALID_COMMAND_TYPE", "unknown online game command");
     }
@@ -1132,7 +1475,13 @@ export function applyOnlineCommand(
 }
 
 function handIsVisible(phase: OnlineRoomState["phase"]): boolean {
-  return phase !== "lobby" && phase !== "reveal-intro";
+  return ![
+    "lobby",
+    "rank-intro",
+    "rank-selection",
+    "rank-reveal",
+    "reveal-intro",
+  ].includes(phase);
 }
 
 function projectEventForPlayer(
@@ -1180,6 +1529,18 @@ export function projectOnlineRoom(
     .filter((event) => event.seq > sinceEventSeq)
     .map((event) => projectEventForPlayer(event, actorId))
     .filter((event): event is OnlineEvent => event !== null);
+  const rankSelection = state.rankSelection ?? null;
+  const selectedRankCard =
+    rankSelection?.cards.find(
+      (card) => card.claimedByPlayerId === actorId,
+    ) ?? null;
+  const rankChoicesLocked =
+    state.phase === "rank-selection" &&
+    rankSelection?.revealAt !== null &&
+    rankSelection?.revealAt !== undefined;
+  const rankCardsRevealed =
+    rankSelection?.revealEndsAt !== null &&
+    rankSelection?.revealEndsAt !== undefined;
 
   return {
     code: state.code,
@@ -1217,6 +1578,36 @@ export function projectOnlineRoom(
     finishOrder: [...state.finishOrder],
     events,
     latestEventSeq: state.nextEventSeq - 1,
+    rankSelection: rankSelection
+      ? {
+          stage:
+            state.phase === "rank-intro"
+              ? "intro"
+              : state.phase === "rank-selection"
+                ? rankChoicesLocked
+                  ? "locked"
+                  : "selecting"
+                : "revealed",
+          cards: rankSelection.cards.map((card) => ({
+            slotIndex: card.slotIndex,
+            claimedByPlayerId: card.claimedByPlayerId,
+            revealedRank: rankCardsRevealed ? card.rank : null,
+          })),
+          introStartedAt: rankSelection.introStartedAt,
+          countdownStartsAt: rankSelection.countdownStartsAt,
+          countdownEndsAt: rankSelection.countdownEndsAt,
+          revealAt: rankSelection.revealAt,
+          revealEndsAt: rankSelection.revealEndsAt,
+          canChoose:
+            state.phase === "rank-selection" &&
+            !rankChoicesLocked &&
+            selectedRankCard === null,
+          selectedSlotIndex: selectedRankCard?.slotIndex ?? null,
+        }
+      : null,
+    declaredRevolution: state.declaredRevolution
+      ? { ...state.declaredRevolution }
+      : null,
     tax:
       state.phase.startsWith("tax-") && viewerExchange
         ? {

@@ -8,7 +8,10 @@ import {
 import {
   OnlineStoreError,
   authenticateOnlineRoomRequest,
+  deleteStoredOnlineRoom,
   mutateStoredOnlineRoom,
+  readStoredOnlineRoom,
+  removeOnlineRoomMember,
 } from "@/lib/online-room-store";
 import {
   onlineApiErrorResponse,
@@ -40,6 +43,32 @@ export async function POST(
     const command = candidate as OnlineCommand;
     const now = Date.now();
 
+    if (command.type === "RESET_ROOM") {
+      const stored = await readStoredOnlineRoom<OnlineRoomState>(code);
+      if (!stored) {
+        throw new OnlineStoreError(
+          "ROOM_NOT_FOUND",
+          "The room no longer exists.",
+          404,
+        );
+      }
+      // Validate membership, host authority, command id, and revision through
+      // the same server-authoritative engine before performing the deletion.
+      applyOnlineCommand(
+        advanceOnlineRoom(stored.state, now),
+        member.playerId,
+        command,
+        now,
+      );
+      await deleteStoredOnlineRoom(code);
+      return onlineJson({
+        roomCode: code,
+        playerId: member.playerId,
+        serverTime: Date.now(),
+        reset: true,
+      });
+    }
+
     const room = await mutateStoredOnlineRoom<OnlineRoomState>(
       code,
       (state) => {
@@ -52,6 +81,16 @@ export async function POST(
         );
       },
     );
+    if (command.type === "LEAVE_ROOM") {
+      await removeOnlineRoomMember(code, member.playerId);
+      return onlineJson({
+        roomCode: room.code,
+        playerId: member.playerId,
+        revision: room.revision,
+        serverTime: Date.now(),
+        left: true,
+      });
+    }
     const snapshot = projectOnlineRoom(room.state, member.playerId);
 
     return onlineJson({

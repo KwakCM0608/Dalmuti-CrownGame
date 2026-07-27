@@ -17,12 +17,16 @@ type Role =
 
 type Phase =
   | "ready"
+  | "rank-intro"
+  | "rank-selection"
+  | "rank-reveal"
   | "reveal-intro"
   | "hand-reveal"
   | "tax-intro"
   | "playing"
   | "play-intro"
   | "revolution"
+  | "revolution-intro"
   | "taxation"
   | "round-end";
 
@@ -83,6 +87,20 @@ type TaxAnchorMap = {
   midpoint: Point | null;
 };
 
+type OpeningRankSelection = {
+  cards: number[];
+  selectedBy: Array<string | null>;
+  pickOrder: string[];
+  countdown: number;
+};
+
+type RevolutionAnnouncement = {
+  id: string;
+  playerId: string;
+  playerName: string;
+  kind: "revolution" | "great-revolution";
+};
+
 type GameState = {
   phase: Phase;
   round: number;
@@ -103,9 +121,15 @@ type GameState = {
   tributeHands: Record<string, Card[]> | null;
   taxedHands: Record<string, Card[]> | null;
   publicAction: PublicTurnAction | null;
+  openingRankSelection: OpeningRankSelection | null;
+  revolutionAnnouncement: RevolutionAnnouncement | null;
 };
 
 const HUMAN_ID = "you";
+const RANK_COUNTDOWN_STEP_MS = 850;
+const BOT_RANK_PICK_DELAY_MS = 620;
+const RANK_ALL_SELECTED_PAUSE_MS = 1000;
+const RANK_REVEAL_DURATION_MS = 2400;
 const TAX_STAGE_DURATION_MS = 4000;
 const REVEAL_INTRO_DURATION_MS = 1600;
 const HAND_REVEAL_DURATION_MS = 900;
@@ -120,6 +144,18 @@ function createTaxAnimationId() {
 
 function createPublicActionId(kind: PublicTurnAction["kind"]) {
   return `${kind}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function createRevolutionAnnouncement(
+  player: Player,
+  kind: RevolutionAnnouncement["kind"],
+): RevolutionAnnouncement {
+  return {
+    id: `${kind}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    playerId: player.id,
+    playerName: player.name,
+    kind,
+  };
 }
 
 const BASE_PLAYERS: Omit<Player, "role">[] = [
@@ -335,6 +371,95 @@ function applyTax(
   return { hands, tributeHands, notes, exchanges };
 }
 
+function createOpeningRound(
+  basePlayers: Omit<Player, "role">[],
+  scores: Record<string, number>,
+): GameState {
+  const players = assignRoles(basePlayers);
+  return {
+    phase: "ready",
+    round: 1,
+    revision: 0,
+    players,
+    hands: Object.fromEntries(players.map((player) => [player.id, []])),
+    scores,
+    currentIndex: 0,
+    table: null,
+    lastPlayedId: null,
+    passed: [],
+    finishOrder: [],
+    log: [
+      "제 1막은 계급 카드를 직접 골라 서열을 정합니다.",
+      "방장의 PLAY를 기다리고 있습니다.",
+    ],
+    revolutionHolder: null,
+    taxExchanges: [],
+    taxStage: null,
+    taxAnimationId: null,
+    tributeHands: null,
+    taxedHands: null,
+    publicAction: null,
+    openingRankSelection: null,
+    revolutionAnnouncement: null,
+  };
+}
+
+function selectedOpeningRank(
+  selection: OpeningRankSelection | null,
+  playerId: string,
+): number | null {
+  if (!selection) return null;
+  const cardIndex = selection.selectedBy.findIndex(
+    (selectedPlayerId) => selectedPlayerId === playerId,
+  );
+  return cardIndex >= 0 ? selection.cards[cardIndex] : null;
+}
+
+function completeOpeningRankSelection(state: GameState): GameState {
+  const selection = state.openingRankSelection;
+  if (!selection || selection.selectedBy.some((playerId) => !playerId)) {
+    return state;
+  }
+
+  const rankByPlayer = new Map(
+    selection.selectedBy.map((playerId, cardIndex) => [
+      playerId!,
+      selection.cards[cardIndex],
+    ]),
+  );
+  const players = assignRoles(
+    [...state.players].sort(
+      (left, right) =>
+        (rankByPlayer.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+        (rankByPlayer.get(right.id) ?? Number.MAX_SAFE_INTEGER),
+    ),
+  );
+  const hands = deal(players);
+  const holder = players.find(
+    (player) => hands[player.id].filter((card) => card.rank === 13).length === 2,
+  );
+  const rankLog = players.map(
+    (player) =>
+      `${player.name} · ${RANK_NAMES[rankByPlayer.get(player.id)!]}(${rankByPlayer.get(player.id)})`,
+  );
+
+  return {
+    ...state,
+    phase: "reveal-intro",
+    revision: state.revision + 1,
+    players,
+    hands,
+    currentIndex: 0,
+    revolutionHolder: holder?.id ?? null,
+    openingRankSelection: null,
+    log: [
+      "계급 선택이 끝났습니다. 확정된 서열대로 패를 나눴습니다.",
+      ...rankLog,
+      ...state.log,
+    ].slice(0, 12),
+  };
+}
+
 function prepareRound(
   orderedPlayers: Player[],
   round: number,
@@ -356,6 +481,7 @@ function prepareRound(
   let taxAnimationId: string | null = null;
   let tributeHands: Record<string, Card[]> | null = null;
   let taxedHands: Record<string, Card[]> | null = null;
+  let revolutionAnnouncement: RevolutionAnnouncement | null = null;
   let log = [`제 ${round}막이 시작되었습니다.`];
 
   if (waitForHost) {
@@ -367,12 +493,18 @@ function prepareRound(
     if (holder.role === "great-peon") {
       players = assignRoles([...players].reverse());
       log = [`${holder.name}의 대혁명! 모든 계급이 뒤집혔습니다.`, ...log];
+      revolutionAnnouncement = createRevolutionAnnouncement(
+        holder,
+        "great-revolution",
+      );
     } else {
       log = [
         `${subjectLabel(holder.name)} 혁명을 선포해 세금이 취소되었습니다.`,
         ...log,
       ];
+      revolutionAnnouncement = createRevolutionAnnouncement(holder, "revolution");
     }
+    phase = "revolution-intro";
     revolutionHolder = null;
   } else {
     const taxed = applyTax(players, hands);
@@ -405,6 +537,8 @@ function prepareRound(
     tributeHands,
     taxedHands,
     publicAction: null,
+    openingRankSelection: null,
+    revolutionAnnouncement,
   };
 }
 
@@ -436,11 +570,15 @@ function advanceAfterHandReveal(state: GameState): GameState {
 
     return {
       ...state,
-      phase: "play-intro",
+      phase: "revolution-intro",
       revision: state.revision + 1,
       players,
       currentIndex: 0,
       revolutionHolder: null,
+      revolutionAnnouncement: createRevolutionAnnouncement(
+        holder,
+        isGreatRevolution ? "great-revolution" : "revolution",
+      ),
       log: [
         "패 공개가 끝났습니다.",
         isGreatRevolution
@@ -636,6 +774,8 @@ function PlayerSeat({
   isFocusedTaxParty,
   showHandBacks,
   isHandRevealing,
+  rankSelectionLabel,
+  rankSelectionMark,
   seatRef,
 }: {
   player: Player;
@@ -647,8 +787,12 @@ function PlayerSeat({
   isFocusedTaxParty: boolean;
   showHandBacks: boolean;
   isHandRevealing: boolean;
+  rankSelectionLabel?: string;
+  rankSelectionMark?: string;
   seatRef?: (node: HTMLElement | null) => void;
 }) {
+  const visibleRoleLabel = rankSelectionLabel ?? ROLE_LABELS[player.role];
+  const visibleRoleMark = rankSelectionMark ?? ROLE_MARKS[player.role];
   return (
     <article
       ref={seatRef}
@@ -657,15 +801,15 @@ function PlayerSeat({
       } ${taxDirection ? `is-tax-${taxDirection}` : ""} ${
         isFocusedTaxParty ? "is-focused-tax-party" : ""
       }`}
-      aria-label={`${player.name}, ${ROLE_LABELS[player.role]}, 카드 ${handCount}장`}
+      aria-label={`${player.name}, ${visibleRoleLabel}, 카드 ${handCount}장`}
     >
       <div className="player-avatar">
         <span>{player.monogram}</span>
-        <i>{ROLE_MARKS[player.role]}</i>
+        <i>{visibleRoleMark}</i>
       </div>
       <div className="player-copy">
         <strong>{player.name}</strong>
-        <span>{ROLE_LABELS[player.role]}</span>
+        <span>{visibleRoleLabel}</span>
       </div>
       <div className="player-count">
         <b>{isFinished ? "완료" : handCount}</b>
@@ -1016,8 +1160,25 @@ export default function Home() {
   const humanHand = game?.hands[HUMAN_ID] ?? [];
   const humanFinished = Boolean(game?.finishOrder.includes(HUMAN_ID));
   const humanFinishRank = game?.finishOrder.indexOf(HUMAN_ID) ?? -1;
+  const isOpeningRankEvent =
+    game?.phase === "rank-intro" ||
+    game?.phase === "rank-selection" ||
+    game?.phase === "rank-reveal";
+  const openingRankRolesHidden =
+    !game ||
+    (game.round === 1 &&
+      (game.phase === "ready" || isOpeningRankEvent));
+  const humanOpeningRank = selectedOpeningRank(
+    game?.openingRankSelection ?? null,
+    HUMAN_ID,
+  );
+  const hasDealtHands = Boolean(
+    game && Object.values(game.hands).some((hand) => hand.length > 0),
+  );
   const isHandConcealed =
-    game?.phase === "ready" || game?.phase === "reveal-intro";
+    game?.phase === "ready" ||
+    isOpeningRankEvent ||
+    game?.phase === "reveal-intro";
   const isHandRevealing = game?.phase === "hand-reveal";
   const pendingHumanTaxExchange =
     game?.phase === "taxation" && game.taxStage === "selection"
@@ -1190,6 +1351,173 @@ export default function Home() {
   }, [game?.publicAction?.id]);
 
   useEffect(() => {
+    if (
+      !game ||
+      game.phase !== "rank-intro" ||
+      !game.openingRankSelection
+    ) {
+      return;
+    }
+    const introRevision = game.revision;
+    const timer = window.setTimeout(() => {
+      setGame((latest) => {
+        if (
+          !latest ||
+          latest.phase !== "rank-intro" ||
+          latest.revision !== introRevision ||
+          !latest.openingRankSelection
+        ) {
+          return latest;
+        }
+
+        if (latest.openingRankSelection.countdown > 1) {
+          return {
+            ...latest,
+            revision: latest.revision + 1,
+            openingRankSelection: {
+              ...latest.openingRankSelection,
+              countdown: latest.openingRankSelection.countdown - 1,
+            },
+          };
+        }
+
+        return {
+          ...latest,
+          phase: "rank-selection",
+          revision: latest.revision + 1,
+          openingRankSelection: {
+            ...latest.openingRankSelection,
+            countdown: 0,
+          },
+          log: ["계급 카드 선택이 시작되었습니다.", ...latest.log].slice(0, 12),
+        };
+      });
+    }, RANK_COUNTDOWN_STEP_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [game]);
+
+  useEffect(() => {
+    if (
+      !game ||
+      game.phase !== "rank-selection" ||
+      !game.openingRankSelection ||
+      game.openingRankSelection.selectedBy.every(Boolean)
+    ) {
+      return;
+    }
+
+    const unpickedBot = game.players.find(
+      (player) =>
+        !player.isHuman &&
+        !game.openingRankSelection!.pickOrder.includes(player.id),
+    );
+    if (!unpickedBot) return;
+
+    const selectionRevision = game.revision;
+    const timer = window.setTimeout(() => {
+      setGame((latest) => {
+        if (
+          !latest ||
+          latest.phase !== "rank-selection" ||
+          latest.revision !== selectionRevision ||
+          !latest.openingRankSelection
+        ) {
+          return latest;
+        }
+        const bot = latest.players.find(
+          (player) =>
+            !player.isHuman &&
+            !latest.openingRankSelection!.pickOrder.includes(player.id),
+        );
+        if (!bot) return latest;
+        const availableIndexes = latest.openingRankSelection.selectedBy
+          .map((selectedPlayerId, index) => (selectedPlayerId ? -1 : index))
+          .filter((index) => index >= 0);
+        if (!availableIndexes.length) return latest;
+        const cardIndex =
+          availableIndexes[Math.floor(Math.random() * availableIndexes.length)];
+        const selectedBy = [...latest.openingRankSelection.selectedBy];
+        selectedBy[cardIndex] = bot.id;
+
+        return {
+          ...latest,
+          revision: latest.revision + 1,
+          openingRankSelection: {
+            ...latest.openingRankSelection,
+            selectedBy,
+            pickOrder: [...latest.openingRankSelection.pickOrder, bot.id],
+          },
+          log: [
+            `${subjectLabel(bot.name)} 계급 카드 한 장을 골랐습니다.`,
+            ...latest.log,
+          ].slice(0, 12),
+        };
+      });
+    }, BOT_RANK_PICK_DELAY_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [game]);
+
+  useEffect(() => {
+    if (
+      !game ||
+      game.phase !== "rank-selection" ||
+      !game.openingRankSelection ||
+      !game.openingRankSelection.selectedBy.every(Boolean)
+    ) {
+      return;
+    }
+    const selectionRevision = game.revision;
+    const timer = window.setTimeout(() => {
+      setGame((latest) => {
+        if (
+          !latest ||
+          latest.phase !== "rank-selection" ||
+          latest.revision !== selectionRevision ||
+          !latest.openingRankSelection ||
+          !latest.openingRankSelection.selectedBy.every(Boolean)
+        ) {
+          return latest;
+        }
+        return {
+          ...latest,
+          phase: "rank-reveal",
+          revision: latest.revision + 1,
+          log: ["선택한 계급 카드를 공개합니다.", ...latest.log].slice(0, 12),
+        };
+      });
+    }, RANK_ALL_SELECTED_PAUSE_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [game]);
+
+  useEffect(() => {
+    if (
+      !game ||
+      game.phase !== "rank-reveal" ||
+      !game.openingRankSelection
+    ) {
+      return;
+    }
+    const revealRevision = game.revision;
+    const timer = window.setTimeout(() => {
+      setGame((latest) => {
+        if (
+          !latest ||
+          latest.phase !== "rank-reveal" ||
+          latest.revision !== revealRevision
+        ) {
+          return latest;
+        }
+        return completeOpeningRankSelection(latest);
+      });
+    }, RANK_REVEAL_DURATION_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [game]);
+
+  useEffect(() => {
     if (!game || game.phase !== "reveal-intro") return;
     const introRevision = game.revision;
     const timer = window.setTimeout(() => {
@@ -1209,6 +1537,29 @@ export default function Home() {
         };
       });
     }, REVEAL_INTRO_DURATION_MS);
+    return () => window.clearTimeout(timer);
+  }, [game]);
+
+  useEffect(() => {
+    if (!game || game.phase !== "revolution-intro") return;
+    const revolutionRevision = game.revision;
+    const timer = window.setTimeout(() => {
+      setGame((latest) => {
+        if (
+          !latest ||
+          latest.phase !== "revolution-intro" ||
+          latest.revision !== revolutionRevision
+        ) {
+          return latest;
+        }
+        return {
+          ...latest,
+          phase: "play-intro",
+          revision: latest.revision + 1,
+        };
+      });
+    }, PLAY_INTRO_DURATION_MS);
+
     return () => window.clearTimeout(timer);
   }, [game]);
 
@@ -1368,18 +1719,71 @@ export default function Home() {
     const players = assignRoles(BASE_PLAYERS);
     const scores = Object.fromEntries(players.map((player) => [player.id, 0]));
     setSelectedIds([]);
-    setGame(prepareRound(players, 1, scores, true, true));
+    setGame(createOpeningRound(BASE_PLAYERS, scores));
   };
 
   const beginHostedGame = () => {
     setSelectedIds([]);
     setGame((current) => {
       if (!current || current.phase !== "ready") return current;
+      const alreadyDealt = Object.values(current.hands).some(
+        (hand) => hand.length > 0,
+      );
+      if (current.round > 1 || alreadyDealt) {
+        return {
+          ...current,
+          phase: "reveal-intro",
+          revision: current.revision + 1,
+          log: [
+            "방장이 패 공개를 시작했습니다.",
+            ...current.log,
+          ].slice(0, 12),
+        };
+      }
+      const cards = shuffle(
+        Array.from({ length: current.players.length }, (_, index) => index + 1),
+      );
       return {
         ...current,
-        phase: "reveal-intro",
+        phase: "rank-intro",
         revision: current.revision + 1,
-        log: ["방장이 패 공개를 시작했습니다.", ...current.log].slice(0, 12),
+        openingRankSelection: {
+          cards,
+          selectedBy: cards.map(() => null),
+          pickOrder: [],
+          countdown: 3,
+        },
+        log: [
+          "첫 게임의 계급은 선착순 카드 선택으로 정합니다.",
+          ...current.log,
+        ].slice(0, 12),
+      };
+    });
+  };
+
+  const chooseOpeningRankCard = (cardIndex: number) => {
+    setGame((current) => {
+      if (
+        !current ||
+        current.phase !== "rank-selection" ||
+        !current.openingRankSelection ||
+        current.openingRankSelection.pickOrder.includes(HUMAN_ID) ||
+        current.openingRankSelection.selectedBy[cardIndex]
+      ) {
+        return current;
+      }
+
+      const selectedBy = [...current.openingRankSelection.selectedBy];
+      selectedBy[cardIndex] = HUMAN_ID;
+      return {
+        ...current,
+        revision: current.revision + 1,
+        openingRankSelection: {
+          ...current.openingRankSelection,
+          selectedBy,
+          pickOrder: [...current.openingRankSelection.pickOrder, HUMAN_ID],
+        },
+        log: ["내 계급 카드 한 장을 골랐습니다.", ...current.log].slice(0, 12),
       };
     });
   };
@@ -1397,14 +1801,25 @@ export default function Home() {
       let taxAnimationId: string | null = null;
       let tributeHands: Record<string, Card[]> | null = null;
       let taxedHands: Record<string, Card[]> | null = null;
+      let revolutionAnnouncement = current.revolutionAnnouncement;
       const holder = current.players.find(
         (player) => player.id === current.revolutionHolder,
       );
 
       if (declare && holder?.role === "great-peon") {
         players = assignRoles([...current.players].reverse());
+        phase = "revolution-intro";
+        revolutionAnnouncement = createRevolutionAnnouncement(
+          holder,
+          "great-revolution",
+        );
         log = ["당신의 대혁명으로 모든 계급이 뒤집혔습니다.", ...log];
-      } else if (declare) {
+      } else if (declare && holder) {
+        phase = "revolution-intro";
+        revolutionAnnouncement = createRevolutionAnnouncement(
+          holder,
+          "revolution",
+        );
         log = ["당신이 혁명을 선포했습니다. 이번 막의 세금은 없습니다.", ...log];
       } else {
         const taxed = applyTax(players, hands);
@@ -1431,6 +1846,7 @@ export default function Home() {
         tributeHands,
         taxedHands,
         currentIndex: 0,
+        revolutionAnnouncement,
       };
     });
   };
@@ -1553,20 +1969,38 @@ export default function Home() {
         ? `${subjectLabel(game.publicAction.player.name)} ${RANK_NAMES[publicPlayedSet.rank]} 카드 ${publicPlayedSet.count}장을 내는 중`
         : `${subjectLabel(game.publicAction.player.name)} 패스했습니다`
       : game.phase === "ready"
-        ? "방장이 PLAY를 누르면 패를 공개합니다"
-        : game.phase === "reveal-intro"
-          ? "모든 플레이어의 패 공개를 준비합니다"
-          : game.phase === "hand-reveal"
-            ? "각 플레이어가 자신의 패를 확인하는 중"
-            : game.phase === "tax-intro"
-              ? "세금 교환을 준비합니다"
-              : game.phase === "play-intro"
-                ? `${subjectLabel(currentPlayer?.name ?? "")} 먼저 시작합니다`
-                : game.phase === "round-end"
-                  ? "새로운 계급이 결정되었습니다"
-                  : game.phase === "revolution"
-                    ? "두 광대가 혁명을 기다립니다"
-                    : game.phase === "taxation"
+        ? game.round === 1 && !hasDealtHands
+          ? "방장이 PLAY를 누르면 계급 정하기를 시작합니다"
+          : "방장이 PLAY를 누르면 패를 공개합니다"
+        : game.phase === "rank-intro"
+          ? `계급 카드 선택까지 ${game.openingRankSelection?.countdown ?? 3}`
+          : game.phase === "rank-selection"
+            ? game.openingRankSelection?.selectedBy.every(Boolean)
+              ? "모든 선택 완료 · 카드를 공개합니다"
+              : game.openingRankSelection?.pickOrder.includes(HUMAN_ID)
+                ? "다른 플레이어가 계급 카드를 고르는 중"
+                : "선착순으로 계급 카드 한 장을 고르세요"
+            : game.phase === "rank-reveal"
+              ? "숫자가 낮은 카드부터 높은 계급을 얻습니다"
+              : game.phase === "reveal-intro"
+                ? "모든 플레이어의 패 공개를 준비합니다"
+                : game.phase === "hand-reveal"
+                  ? "각 플레이어가 자신의 패를 확인하는 중"
+                  : game.phase === "tax-intro"
+                    ? "세금 교환을 준비합니다"
+                    : game.phase === "play-intro"
+                      ? `${subjectLabel(currentPlayer?.name ?? "")} 먼저 시작합니다`
+                      : game.phase === "round-end"
+                        ? "새로운 계급이 결정되었습니다"
+                        : game.phase === "revolution"
+                          ? "두 광대가 혁명을 기다립니다"
+                          : game.phase === "revolution-intro"
+                            ? `${subjectLabel(game.revolutionAnnouncement?.playerName ?? "")} ${
+                                game.revolutionAnnouncement?.kind === "great-revolution"
+                                  ? "대혁명을 일으켰습니다"
+                                  : "혁명을 일으켰습니다"
+                              }`
+                          : game.phase === "taxation"
                       ? game.taxStage === "selection"
                         ? `농노에게 돌려줄 카드 ${humanTaxSelectionCount}장을 선택하세요`
                         : focusedTaxRoute
@@ -1616,16 +2050,27 @@ export default function Home() {
             <small>현재 계급</small>
           </div>
           <ol>
-            {(game?.players ?? assignRoles(BASE_PLAYERS)).map((player) => (
-              <li key={player.id} className={player.id === HUMAN_ID ? "is-you" : ""}>
-                <span>{ROLE_MARKS[player.role]}</span>
-                <div>
-                  <b>{player.name}</b>
-                  <small>{ROLE_LABELS[player.role]}</small>
-                </div>
-                <em>{game?.scores[player.id] ?? 0}</em>
-              </li>
-            ))}
+            {(game?.players ?? assignRoles(BASE_PLAYERS)).map((player) => {
+              const rankLabel = openingRankRolesHidden
+                ? "계급 미정"
+                : ROLE_LABELS[player.role];
+              const rankMark = openingRankRolesHidden
+                ? "·"
+                : ROLE_MARKS[player.role];
+              return (
+                <li
+                  key={player.id}
+                  className={player.id === HUMAN_ID ? "is-you" : ""}
+                >
+                  <span>{rankMark}</span>
+                  <div>
+                    <b>{player.name}</b>
+                    <small>{rankLabel}</small>
+                  </div>
+                  <em>{game?.scores[player.id] ?? 0}</em>
+                </li>
+              );
+            })}
           </ol>
           <div className="rail-note">
             <span>계급의 법칙</span>
@@ -1652,6 +2097,12 @@ export default function Home() {
                   ? "source"
                   : "destination"
                 : null;
+              const rankSelectionLabel = openingRankRolesHidden
+                ? "계급 미정"
+                : undefined;
+              const rankSelectionMark = openingRankRolesHidden
+                ? "·"
+                : undefined;
 
               return (
                 <PlayerSeat
@@ -1667,8 +2118,10 @@ export default function Home() {
                   isFinished={Boolean(game?.finishOrder.includes(player.id))}
                   taxDirection={taxDirection}
                   isFocusedTaxParty={Boolean(route?.reveal)}
-                  showHandBacks={Boolean(game)}
+                  showHandBacks={hasDealtHands}
                   isHandRevealing={isHandRevealing}
+                  rankSelectionLabel={rankSelectionLabel}
+                  rankSelectionMark={rankSelectionMark}
                   seatRef={(node) => {
                     seatRefs.current[player.id] = node;
                   }}
@@ -1696,7 +2149,12 @@ export default function Home() {
             />
           )}
 
-          <div className="felt-table" ref={feltCenterRef}>
+          <div
+            className={`felt-table ${
+              game?.revolutionAnnouncement ? "is-revolution" : ""
+            }`}
+            ref={feltCenterRef}
+          >
             <div className="table-ring" aria-hidden="true">
               <span>♜</span>
               <i />
@@ -1715,7 +2173,11 @@ export default function Home() {
                 <div className="phase-intro is-ready">
                   <small>HOST CONTROL</small>
                   <strong>준비가 끝났습니다</strong>
-                  <span>방장이 시작 신호를 보내면 모두의 패를 공개합니다</span>
+                  <span>
+                    {game.round === 1 && !hasDealtHands
+                      ? "PLAY를 누르면 제1막의 계급 정하기를 시작합니다"
+                      : "PLAY를 누르면 새로운 계급의 패를 공개합니다"}
+                  </span>
                   <button
                     type="button"
                     className="ready-play-button"
@@ -1724,6 +2186,105 @@ export default function Home() {
                     <i>▶</i>
                     PLAY
                   </button>
+                </div>
+              ) : game?.phase === "rank-intro" &&
+                game.openingRankSelection ? (
+                <div className="opening-rank-intro">
+                  <small>ACT I · RANK DRAW</small>
+                  <strong>계급 정하기</strong>
+                  <span>
+                    첫 게임은 선착순으로 카드를 한 장씩 골라 계급을 정합니다
+                  </span>
+                  <b
+                    key={`rank-countdown-${game.openingRankSelection.countdown}`}
+                    aria-label={`${game.openingRankSelection.countdown}초 후 선택 시작`}
+                  >
+                    {game.openingRankSelection.countdown}
+                  </b>
+                  <em>숫자가 낮을수록 높은 계급입니다</em>
+                </div>
+              ) : (game?.phase === "rank-selection" ||
+                  game?.phase === "rank-reveal") &&
+                game.openingRankSelection ? (
+                <div
+                  className={`opening-rank-board ${
+                    game.phase === "rank-reveal" ? "is-revealed" : ""
+                  }`}
+                >
+                  <div className="opening-rank-heading">
+                    <small>ACT I · RANK DRAW</small>
+                    <strong>
+                      {game.phase === "rank-reveal"
+                        ? "계급 카드 공개"
+                        : game.openingRankSelection.selectedBy.every(Boolean)
+                          ? "모든 선택 완료"
+                          : game.openingRankSelection.pickOrder.includes(HUMAN_ID)
+                            ? "다른 플레이어를 기다리는 중"
+                            : "계급 카드를 고르세요"}
+                    </strong>
+                    <span>
+                      {game.phase === "rank-reveal"
+                        ? "낮은 숫자의 카드를 뽑은 순서로 서열이 정해집니다"
+                        : game.openingRankSelection.selectedBy.every(Boolean)
+                          ? "1초 뒤에 선택한 카드를 공개합니다"
+                          : "빛나는 카드는 이미 다른 플레이어가 선택했습니다"}
+                    </span>
+                  </div>
+                  <div
+                    className="opening-rank-cards"
+                    aria-label="계급 선택 카드"
+                  >
+                    {game.openingRankSelection.cards.map((rank, cardIndex) => {
+                      const selectedPlayerId =
+                        game.openingRankSelection!.selectedBy[cardIndex];
+                      const selectedPlayer = game.players.find(
+                        (player) => player.id === selectedPlayerId,
+                      );
+                      const humanAlreadyPicked =
+                        game.openingRankSelection!.pickOrder.includes(HUMAN_ID);
+                      const canChoose =
+                        game.phase === "rank-selection" &&
+                        !humanAlreadyPicked &&
+                        !selectedPlayerId;
+                      return (
+                        <button
+                          key={`opening-rank-${cardIndex}`}
+                          type="button"
+                          className={`opening-rank-card ${
+                            selectedPlayerId ? "is-selected" : ""
+                          } ${selectedPlayerId === HUMAN_ID ? "is-yours" : ""}`}
+                          disabled={!canChoose}
+                          onClick={() => chooseOpeningRankCard(cardIndex)}
+                          aria-label={
+                            game.phase === "rank-reveal"
+                              ? `${selectedPlayer?.name ?? "선택자"}의 계급 카드, ${RANK_NAMES[rank]} ${rank}`
+                              : selectedPlayer
+                                ? `${selectedPlayer.name}이(가) 선택한 카드`
+                                : `${cardIndex + 1}번째 뒤집힌 계급 카드 선택`
+                          }
+                        >
+                          <span className="opening-rank-card-inner">
+                            <span
+                              className="opening-rank-card-back"
+                              aria-hidden="true"
+                            />
+                            <span className="opening-rank-card-front">
+                              <img
+                                src={`/cards/${String(rank).padStart(2, "0")}.webp?v=${CARD_ART_VERSION}`}
+                                alt=""
+                                aria-hidden="true"
+                              />
+                            </span>
+                          </span>
+                          <em>
+                            {selectedPlayer
+                              ? `${selectedPlayer.name} 선택`
+                              : "선택 가능"}
+                          </em>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               ) : game?.phase === "reveal-intro" ? (
                 <div
@@ -1739,6 +2300,36 @@ export default function Home() {
                   <span className="play-kicker">HAND REVEAL</span>
                   <strong>패를 확인하는 중</strong>
                   <small>패 공개가 끝나면 세금 교환을 시작합니다</small>
+                </div>
+              ) : game?.phase === "revolution-intro" &&
+                game.revolutionAnnouncement ? (
+                <div
+                  key={game.revolutionAnnouncement.id}
+                  className={`revolution-announcement is-${game.revolutionAnnouncement.kind}`}
+                  role="status"
+                  aria-live="assertive"
+                >
+                  <small>
+                    {game.revolutionAnnouncement.kind === "great-revolution"
+                      ? "GREAT REVOLUTION"
+                      : "REVOLUTION"}
+                  </small>
+                  <strong>
+                    {game.revolutionAnnouncement.kind === "great-revolution"
+                      ? "대혁명"
+                      : "혁명"}
+                  </strong>
+                  <span>
+                    {subjectLabel(game.revolutionAnnouncement.playerName)}{" "}
+                    {game.revolutionAnnouncement.kind === "great-revolution"
+                      ? "대혁명을 일으켰습니다"
+                      : "혁명을 일으켰습니다"}
+                  </span>
+                  <em>
+                    {game.revolutionAnnouncement.kind === "great-revolution"
+                      ? "모든 계급이 뒤집히고 이번 막의 세금이 사라집니다"
+                      : "이번 막의 세금이 사라집니다"}
+                  </em>
                 </div>
               ) : game?.phase === "tax-intro" ? (
                 <div
@@ -1840,10 +2431,25 @@ export default function Home() {
             <div className="human-status">
               <div className="human-avatar">나</div>
               <div>
-                <span>{game ? ROLE_LABELS[game.players.find((p) => p.id === HUMAN_ID)!.role] : "상인"}</span>
+                <span>
+                  {openingRankRolesHidden
+                    ? "계급 미정"
+                    : game
+                      ? ROLE_LABELS[
+                          game.players.find((p) => p.id === HUMAN_ID)!.role
+                        ]
+                      : "상인"}
+                </span>
                 <strong>
                   {humanFinished
                     ? `이번 막 완료 · ${humanFinishRank + 1}위`
+                    : isOpeningRankEvent
+                      ? game?.phase === "rank-selection" &&
+                        !game.openingRankSelection?.pickOrder.includes(HUMAN_ID)
+                        ? "계급 카드를 고르세요"
+                        : game?.phase === "rank-reveal"
+                          ? "선택한 계급을 확인하는 중"
+                          : "계급 정하기 진행 중"
                     : isHumanTaxSelecting
                       ? `반환 카드 ${humanTaxSelectionCount}장을 선택하세요`
                     : isHandConcealed
@@ -1863,7 +2469,13 @@ export default function Home() {
                       : "나의 손패"}
                 </strong>
               </div>
-              <em>{humanFinished ? "완료" : `${game ? humanHand.length : 16}장`}</em>
+              <em>
+                {humanFinished
+                  ? "완료"
+                  : isOpeningRankEvent
+                    ? "선택"
+                    : `${game ? humanHand.length : 16}장`}
+              </em>
               {humanTaxDirection && (
                 <i className={`human-tax-flag is-${humanTaxDirection}`}>
                   {humanTaxDirection === "source" ? "보냄" : "받음"}
@@ -1924,7 +2536,25 @@ export default function Home() {
             </div>
 
             <div className="turn-controls">
-              {humanFinished ? (
+              {isOpeningRankEvent ? (
+                <div className="selection-hint is-valid opening-rank-control-state">
+                  <span>
+                    {game?.phase === "rank-selection" &&
+                    !game.openingRankSelection?.pickOrder.includes(HUMAN_ID)
+                      ? "필드의 카드 한 장을 선택하세요"
+                      : game?.phase === "rank-reveal"
+                        ? humanOpeningRank
+                          ? `${RANK_NAMES[humanOpeningRank]}(${humanOpeningRank}) 선택`
+                          : "계급 확인 중"
+                        : "계급 정하기 진행 중"}
+                  </span>
+                  <small>
+                    {game?.phase === "rank-selection"
+                      ? "이미 빛나는 카드는 다른 플레이어가 먼저 선택했습니다"
+                      : "계급이 확정되면 패를 나누고 공개합니다"}
+                  </small>
+                </div>
+              ) : humanFinished ? (
                 <div className="selection-hint is-valid finished-control-state">
                   <span>이번 막 완료</span>
                   <small>다른 플레이어가 순위를 결정하는 중입니다</small>
@@ -1999,8 +2629,8 @@ export default function Home() {
           <ul>
             {(game?.log ?? [
               "빠른 대전을 시작해 왕관을 차지하세요.",
-              "첫 판의 계급은 이미 정해져 있습니다.",
-              "방장의 PLAY 이후 세금과 게임이 진행됩니다.",
+              "첫 판은 계급 카드를 직접 골라 서열을 정합니다.",
+              "방장의 PLAY 이후 계급 정하기가 시작됩니다.",
             ]).map((entry, index) => (
               <li key={`${entry}-${index}`}>
                 <span>{String(index + 1).padStart(2, "0")}</span>
@@ -2053,7 +2683,12 @@ export default function Home() {
           <section className="decision-card" role="dialog" aria-labelledby="revolution-title">
             <span className="decision-icon">☾ ☾</span>
             <small>두 광대가 한 손에 모였습니다</small>
-            <h2 id="revolution-title">혁명을 선포하시겠습니까?</h2>
+            <h2 id="revolution-title">
+              {game.players.find((player) => player.id === game.revolutionHolder)
+                ?.role === "great-peon"
+                ? "대혁명을 선포하시겠습니까?"
+                : "혁명을 선포하시겠습니까?"}
+            </h2>
             <p>
               혁명을 선포하면 이번 막의 세금이 사라집니다.
               대 농노라면 모든 계급까지 뒤집힙니다.
@@ -2063,7 +2698,10 @@ export default function Home() {
                 조용히 지나간다
               </button>
               <button type="button" className="play-button" onClick={() => resolveRevolution(true)}>
-                혁명 선포
+                {game.players.find((player) => player.id === game.revolutionHolder)
+                  ?.role === "great-peon"
+                  ? "대혁명 선포"
+                  : "혁명 선포"}
               </button>
             </div>
           </section>

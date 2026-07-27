@@ -44,6 +44,30 @@ type EventView = {
   data: LooseRecord;
 };
 
+type RankChoiceCardView = {
+  slotIndex: number;
+  claimedByPlayerId: string | null;
+  revealedRank: number | null;
+};
+
+type RankSelectionView = {
+  stage: "intro" | "selecting" | "locked" | "revealed";
+  cards: RankChoiceCardView[];
+  introStartedAt: number | null;
+  countdownStartsAt: number | null;
+  countdownEndsAt: number | null;
+  revealAt: number | null;
+  revealEndsAt: number | null;
+  canChoose: boolean;
+  selectedSlotIndex: number | null;
+};
+
+type DeclaredRevolutionView = {
+  round: number;
+  playerId: string;
+  kind: "great" | "normal";
+};
+
 type SnapshotView = {
   code: string;
   revision: number;
@@ -66,8 +90,12 @@ type SnapshotView = {
   actionLockUntil: number | null;
   events: EventView[];
   requiredReturnCount: number;
+  selectedReturnCount: number;
+  waitingTaxPlayerIds: string[];
   revolutionHolderId: string | null;
   canChooseRevolution: boolean;
+  rankSelection: RankSelectionView | null;
+  declaredRevolution: DeclaredRevolutionView | null;
 };
 
 type StoredSession = {
@@ -153,6 +181,10 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === "string")
     : [];
+}
+
+function nullableNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function normalizePhase(value: unknown): string {
@@ -257,6 +289,7 @@ function eventFrom(value: unknown, index: number): EventView {
 function defaultEventDuration(type: unknown): number {
   const label = stringValue(type).toUpperCase();
   if (label.includes("HAND_REVEAL")) return 900;
+  if (label.includes("REVOLUTION")) return 2800;
   if (label.includes("TAX") || label.includes("TRIBUTE")) return 3400;
   if (label.includes("PLAY")) return 2200;
   if (label.includes("PASS")) return 1500;
@@ -280,6 +313,15 @@ function snapshotFrom(
     publicView.revolution,
     selfView.revolution,
   );
+  const rankSelectionView = firstRecord(
+    root.rankSelection,
+    publicView.rankSelection,
+    selfView.rankSelection,
+  );
+  const declaredRevolutionView = firstRecord(
+    root.declaredRevolution,
+    publicView.declaredRevolution,
+  );
   const playersValue = publicView.players ?? root.players;
   const eventsValue = root.events ?? publicView.events ?? responseMeta.events;
   const handValue = root.hand ?? selfView.hand;
@@ -302,6 +344,58 @@ function snapshotFrom(
   const metaServerTime = numberValue(
     responseMeta.serverTime,
     numberValue(root.serverTime, Date.now()),
+  );
+  const normalizedPhase = normalizePhase(publicView.phase ?? root.phase);
+  const rankCardsValue =
+    rankSelectionView.cards ?? rankSelectionView.slots;
+  const rankCards = Array.isArray(rankCardsValue)
+    ? rankCardsValue.map((value, index): RankChoiceCardView => {
+        const source = record(value);
+        const revealedRank = nullableNumber(
+          source.revealedRank ?? source.rank,
+        );
+        return {
+          slotIndex: numberValue(
+            source.slotIndex,
+            numberValue(source.id, index),
+          ),
+          claimedByPlayerId:
+            stringValue(
+              source.claimedByPlayerId,
+              stringValue(source.chosenBy),
+            ) || null,
+          revealedRank:
+            revealedRank !== null && revealedRank >= 1 && revealedRank <= 12
+              ? revealedRank
+              : null,
+        };
+      })
+    : [];
+  const rankStageValue = stringValue(
+    rankSelectionView.stage,
+    normalizedPhase === "rank-intro"
+      ? "intro"
+      : normalizedPhase === "rank-reveal"
+        ? "revealed"
+        : "selecting",
+  );
+  const rankStage: RankSelectionView["stage"] =
+    rankStageValue === "intro" ||
+    rankStageValue === "locked" ||
+    rankStageValue === "revealed"
+      ? rankStageValue
+      : "selecting";
+  const declaredKind = stringValue(declaredRevolutionView.kind).toLowerCase();
+  const normalizedDeclaredKind: DeclaredRevolutionView["kind"] | null =
+    declaredKind === "great" || declaredKind === "great-revolution"
+      ? "great"
+      : declaredKind === "normal" || declaredKind === "revolution"
+        ? "normal"
+        : null;
+  const declaredRound = numberValue(declaredRevolutionView.round);
+  const declaredPlayerId = stringValue(
+    declaredRevolutionView.playerId,
+    stringValue(declaredRevolutionView.actorPlayerId),
   );
 
   return {
@@ -335,7 +429,7 @@ function snapshotFrom(
       ),
     ),
     serverTime: metaServerTime,
-    phase: normalizePhase(publicView.phase ?? root.phase),
+    phase: normalizedPhase,
     phaseEndsAt:
       typeof (publicView.phaseEndsAt ?? root.phaseEndsAt) === "number"
         ? numberValue(publicView.phaseEndsAt ?? root.phaseEndsAt)
@@ -387,6 +481,8 @@ function snapshotFrom(
       taxView.requiredReturnCount,
       numberValue(selfView.pendingTaxCount),
     ),
+    selectedReturnCount: numberValue(taxView.selectedReturnCount),
+    waitingTaxPlayerIds: stringArray(taxView.waitingForPlayerIds),
     revolutionHolderId:
       stringValue(
         revolutionView.holderId,
@@ -396,6 +492,41 @@ function snapshotFrom(
       revolutionView.canChoose,
       booleanValue(selfView.isRevolutionHolder),
     ),
+    rankSelection:
+      rankCards.length ||
+      ["rank-intro", "rank-selection", "rank-reveal"].includes(normalizedPhase)
+        ? {
+            stage: rankStage,
+            cards: rankCards,
+            introStartedAt: nullableNumber(rankSelectionView.introStartedAt),
+            countdownStartsAt: nullableNumber(
+              rankSelectionView.countdownStartsAt,
+            ),
+            countdownEndsAt: nullableNumber(
+              rankSelectionView.countdownEndsAt,
+            ),
+            revealAt: nullableNumber(rankSelectionView.revealAt),
+            revealEndsAt: nullableNumber(rankSelectionView.revealEndsAt),
+            canChoose: booleanValue(
+              rankSelectionView.canChoose,
+              booleanValue(selfView.canChooseRankCard),
+            ),
+            selectedSlotIndex: nullableNumber(
+              rankSelectionView.selectedSlotIndex ??
+                selfView.selectedRankSlotIndex,
+            ),
+          }
+        : null,
+    declaredRevolution:
+      declaredPlayerId &&
+      declaredRound > 0 &&
+      normalizedDeclaredKind
+        ? {
+            round: declaredRound,
+            playerId: declaredPlayerId,
+            kind: normalizedDeclaredKind,
+          }
+        : null,
   };
 }
 
@@ -434,6 +565,18 @@ function saveSession(session: StoredSession): void {
   localStorage.setItem(LAST_SESSION_KEY, JSON.stringify(session));
 }
 
+function clearSavedSession(session: StoredSession | null): void {
+  if (!session) return;
+  localStorage.removeItem(sessionKey(session.roomCode));
+  const remembered = readSession();
+  if (
+    remembered?.roomCode === session.roomCode &&
+    remembered.token === session.token
+  ) {
+    localStorage.removeItem(LAST_SESSION_KEY);
+  }
+}
+
 function readSession(code?: string): StoredSession | null {
   try {
     const key = code ? sessionKey(code) : LAST_SESSION_KEY;
@@ -467,6 +610,31 @@ function roleMark(role: string): string {
 function playerName(players: PlayerView[], id: unknown): string {
   const playerId = stringValue(id);
   return players.find((player) => player.id === playerId)?.name ?? "플레이어";
+}
+
+function declaredRevolutionFromEvent(
+  event: EventView | undefined,
+  round: number,
+): DeclaredRevolutionView | null {
+  if (!event || event.type !== "REVOLUTION_DECLARED") return null;
+  const playerId =
+    event.actorPlayerId ??
+    stringValue(
+      event.data.playerId,
+      stringValue(event.data.actorPlayerId),
+    );
+  if (!playerId) return null;
+  return {
+    round: numberValue(event.data.round, round),
+    playerId,
+    kind:
+      ["great", "great-revolution"].includes(
+        stringValue(event.data.kind).toLowerCase(),
+      ) ||
+      booleanValue(event.data.isGreatRevolution)
+        ? "great"
+        : "normal",
+  };
 }
 
 function seatPosition(index: number, total: number): CSSProperties {
@@ -564,6 +732,8 @@ function PlayerSeat({
   isHost,
   isCurrent,
   passed,
+  isHandRevealing = false,
+  roleHidden = false,
   style,
 }: {
   player: PlayerView;
@@ -571,28 +741,34 @@ function PlayerSeat({
   isHost: boolean;
   isCurrent: boolean;
   passed: boolean;
+  isHandRevealing?: boolean;
+  roleHidden?: boolean;
   style?: CSSProperties;
 }) {
+  const visibleRoleLabel = roleHidden ? "계급 미정" : roleLabel(player.role);
+  const visibleRoleMark = roleHidden ? "?" : roleMark(player.role);
   return (
     <article
       className={`${styles.playerSeat} ${
         isSelf ? styles.playerSeatSelf : ""
       } ${isCurrent ? styles.playerSeatCurrent : ""} ${
         !player.connected ? styles.playerSeatDisconnected : ""
-      } ${player.finishedPlace ? styles.playerSeatFinished : ""}`}
+      } ${player.finishedPlace ? styles.playerSeatFinished : ""} ${
+        isHandRevealing ? styles.playerSeatRevealing : ""
+      }`}
       style={style}
-      aria-label={`${player.name}, ${roleLabel(player.role)}, 카드 ${player.handCount}장`}
+      aria-label={`${player.name}, ${visibleRoleLabel}, 카드 ${player.handCount}장`}
     >
       <span className={styles.avatar}>
         {player.monogram}
-        <i>{roleMark(player.role)}</i>
+        <i>{visibleRoleMark}</i>
       </span>
       <span className={styles.playerCopy}>
         <strong>
           {player.name}
           {isSelf && <small>나</small>}
         </strong>
-        <em>{roleLabel(player.role)}</em>
+        <em>{visibleRoleLabel}</em>
       </span>
       <span className={styles.handCount}>
         <b>
@@ -606,7 +782,196 @@ function PlayerSeat({
       {isCurrent && <span className={styles.turnMark}>차례</span>}
       {passed && <span className={styles.passedMark}>PASS</span>}
       {!player.connected && <span className={styles.offlineMark}>재접속 대기</span>}
+      {isHandRevealing && player.handCount > 0 && (
+        <span className={styles.seatRevealCards} aria-hidden="true">
+          <i />
+          <i />
+          <i />
+        </span>
+      )}
     </article>
+  );
+}
+
+function RankSelectionField({
+  rankSelection,
+  players,
+  viewerId,
+  effectiveClock,
+  busy,
+  onChoose,
+}: {
+  rankSelection: RankSelectionView;
+  players: PlayerView[];
+  viewerId: string;
+  effectiveClock: number;
+  busy: boolean;
+  onChoose: (slotIndex: number) => void;
+}) {
+  const isIntro = rankSelection.stage === "intro";
+  const isRevealed = rankSelection.stage === "revealed";
+  const isLocked = rankSelection.stage === "locked";
+  const countdownRemaining = rankSelection.countdownEndsAt
+    ? Math.max(
+        0,
+        Math.min(
+          3,
+          Math.ceil((rankSelection.countdownEndsAt - effectiveClock) / 1000),
+        ),
+      )
+    : 0;
+  const countdownStarted =
+    !rankSelection.countdownStartsAt ||
+    effectiveClock >= rankSelection.countdownStartsAt;
+  const cards = [...rankSelection.cards].sort(
+    (a, b) => a.slotIndex - b.slotIndex,
+  );
+  const claimedCount = cards.filter(
+    (card) => card.claimedByPlayerId,
+  ).length;
+  const viewerHasChosen =
+    rankSelection.selectedSlotIndex !== null ||
+    cards.some((card) => card.claimedByPlayerId === viewerId);
+
+  if (isIntro) {
+    return (
+      <div
+        className={styles.rankChoiceIntro}
+        role="status"
+        aria-live="polite"
+      >
+        <small>ACT I · RANK DRAW</small>
+        <strong>계급 정하기</strong>
+        <p>
+          첫 게임은 선착순으로 카드를 선택해
+          <br />
+          랩실의 첫 서열을 정합니다
+        </p>
+        <div className={styles.rankCountdown} aria-label="선택 시작 카운트다운">
+          {countdownStarted && countdownRemaining > 0 ? (
+            <b key={countdownRemaining}>{countdownRemaining}</b>
+          ) : (
+            <b className={styles.rankCountdownReady}>READY</b>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`${styles.rankChoiceField} ${
+        isRevealed ? styles.rankChoiceFieldRevealed : ""
+      }`}
+      role="group"
+      aria-label={isRevealed ? "공개된 계급 카드" : "계급 카드 선택"}
+    >
+      <div className={styles.rankChoiceHeading}>
+        <small>{isRevealed ? "RANKS REVEALED" : "FIRST COME, FIRST SERVED"}</small>
+        <strong>
+          {isRevealed
+            ? "첫 서열이 정해졌습니다"
+            : isLocked
+              ? "모든 선택 완료"
+              : viewerHasChosen
+                ? "선택 완료"
+                : "카드 한 장을 고르세요"}
+        </strong>
+        <p>
+          {isRevealed
+            ? "낮은 숫자를 고른 플레이어부터 높은 계급을 얻습니다"
+            : isLocked
+              ? "1초 뒤 선택한 카드를 공개합니다"
+              : viewerHasChosen
+                ? "다른 플레이어의 선택을 기다리는 중입니다"
+                : rankSelection.canChoose
+                  ? "먼저 고른 카드가 당신의 첫 계급이 됩니다"
+                  : "다른 플레이어들이 카드를 선택하는 중입니다"}
+        </p>
+      </div>
+      <div
+        className={styles.rankChoiceCards}
+        style={{ "--rank-card-count": Math.max(1, cards.length) } as CSSProperties}
+      >
+        {cards.map((card, index) => {
+          const claimant = card.claimedByPlayerId
+            ? players.find((player) => player.id === card.claimedByPlayerId)
+            : null;
+          const claimed = Boolean(card.claimedByPlayerId);
+          const mine = card.claimedByPlayerId === viewerId;
+          const canChoose =
+            !isLocked &&
+            !isRevealed &&
+            rankSelection.canChoose &&
+            !viewerHasChosen &&
+            !claimed &&
+            !busy;
+          const rank = card.revealedRank;
+          return (
+            <div
+              className={`${styles.rankChoiceSlot} ${
+                claimed ? styles.rankChoiceSlotClaimed : ""
+              } ${mine ? styles.rankChoiceSlotMine : ""} ${
+                isRevealed ? styles.rankChoiceSlotRevealed : ""
+              }`}
+              key={card.slotIndex}
+              style={{ "--rank-card-index": index } as CSSProperties}
+            >
+              <button
+                type="button"
+                className={styles.rankChoiceCard}
+                disabled={!canChoose}
+                aria-label={
+                  isRevealed
+                    ? `${claimant?.name ?? "플레이어"}, ${formatRank(rank ?? index + 1)}`
+                    : claimed
+                      ? mine
+                        ? "내가 선택한 카드"
+                        : "이미 선택된 카드"
+                      : canChoose
+                        ? `${index + 1}번째 계급 카드 선택`
+                        : "선택 가능한 계급 카드"
+                }
+                aria-pressed={mine}
+                onClick={() => onChoose(card.slotIndex)}
+              >
+                <span className={styles.rankChoiceCardInner}>
+                  <i className={styles.rankChoiceCardBack} />
+                  <i className={styles.rankChoiceCardFront}>
+                    {rank !== null && <img src={cardImage(rank)} alt="" />}
+                  </i>
+                </span>
+                {!isRevealed && claimed && (
+                  <b className={styles.rankChoiceClaim}>
+                    {mine ? "내 선택" : "선택됨"}
+                  </b>
+                )}
+              </button>
+              {isRevealed && (
+                <span className={styles.rankChoiceOwner}>
+                  <strong>{claimant?.name ?? "플레이어"}</strong>
+                  <small>{formatRank(rank ?? index + 1)}</small>
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {!isRevealed && (
+        <div className={styles.rankChoiceProgress} aria-live="polite">
+          <span>
+            <i
+              style={{
+                width: `${cards.length ? (claimedCount / cards.length) * 100 : 0}%`,
+              }}
+            />
+          </span>
+          <small>
+            {claimedCount} / {cards.length} 선택
+          </small>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -652,6 +1017,33 @@ function EventOverlay({
       ),
     ),
   );
+  const autoPassedIds = stringArray(data.autoPassedPlayerIds);
+
+  if (type === "REVOLUTION_DECLARED") {
+    const isGreatRevolution =
+      stringValue(data.kind).toLowerCase() === "great" ||
+      booleanValue(data.isGreatRevolution) ||
+      booleanValue(data.great);
+    return (
+      <div
+        className={`${styles.eventOverlay} ${styles.introOverlay} ${
+          styles.revolutionOverlay
+        } ${isGreatRevolution ? styles.greatRevolutionOverlay : ""}`}
+      >
+        <small>{isGreatRevolution ? "GREAT REVOLUTION" : "REVOLUTION"}</small>
+        <strong>{isGreatRevolution ? "대혁명" : "혁명"}</strong>
+        <b>
+          {playerName(players, actorId)}이(가){" "}
+          {isGreatRevolution ? "대혁명" : "혁명"}을 일으켰습니다
+        </b>
+        <span>
+          {isGreatRevolution
+            ? "모든 계급이 뒤집혔습니다 · 세금 없이 게임을 시작합니다"
+            : "이번 막의 세금 교환이 취소되었습니다 · 게임을 시작합니다"}
+        </span>
+      </div>
+    );
+  }
 
   if (type.includes("TAX") || type.includes("TRIBUTE")) {
     const isIntro = type.includes("INTRO");
@@ -703,6 +1095,30 @@ function EventOverlay({
             ? "이 카드 정보는 교환 당사자에게만 보입니다"
             : "카드의 정체는 교환 당사자만 확인할 수 있습니다"}
         </small>
+      </div>
+    );
+  }
+
+  if (type === "DALMUTI_EFFECT") {
+    return (
+      <div className={`${styles.eventOverlay} ${styles.dalmutiEffectOverlay}`}>
+        <small>DALMUTI EFFECT</small>
+        <div className={styles.dalmutiEffectCard}>
+          <PlayingCard
+            card={{ id: `${event.id}-dalmuti`, rank: 1 }}
+            displayOnly
+          />
+        </div>
+        <strong>달무티 효과</strong>
+        <span>
+          {playerName(players, actorId)}이(가) 달무티를 냈습니다
+        </span>
+        <div className={styles.autoPassPlayers}>
+          {autoPassedIds.map((playerId) => (
+            <i key={playerId}>{playerName(players, playerId)} PASS</i>
+          ))}
+        </div>
+        <b>나머지 플레이어 자동 PASS</b>
       </div>
     );
   }
@@ -790,6 +1206,9 @@ export default function OnlinePage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [eventBuffer, setEventBuffer] = useState<EventView[]>([]);
   const [clock, setClock] = useState(() => Date.now());
+  const [handRevealUntil, setHandRevealUntil] = useState(0);
+  const [observedRevolution, setObservedRevolution] =
+    useState<DeclaredRevolutionView | null>(null);
   const [serverOffset, setServerOffset] = useState(0);
   const [connection, setConnection] = useState<ConnectionState>("idle");
   const [busy, setBusy] = useState(false);
@@ -803,9 +1222,36 @@ export default function OnlinePage() {
   const sessionRef = useRef<StoredSession | null>(null);
 
   const ingestSnapshot = useCallback((next: SnapshotView) => {
+    const previous = snapshotRef.current;
+    if (
+      next.hand !== null &&
+      next.phase === "hand-reveal" &&
+      (previous?.hand === null || previous?.phase !== "hand-reveal")
+    ) {
+      setHandRevealUntil(Date.now() + 920);
+    }
     snapshotRef.current = next;
     setSnapshot(next);
     setServerOffset(next.serverTime - Date.now());
+    const declarationEvent = [...next.events]
+      .reverse()
+      .find((event) => event.type === "REVOLUTION_DECLARED");
+    const eventDeclaration = declaredRevolutionFromEvent(
+      declarationEvent,
+      next.round,
+    );
+    setObservedRevolution((current) => {
+      const declaration = next.declaredRevolution ?? eventDeclaration;
+      if (declaration?.round === next.round) return declaration;
+      if (
+        ["lobby", "rank-intro", "rank-selection", "rank-reveal"].includes(
+          next.phase,
+        )
+      ) {
+        return null;
+      }
+      return current?.round === next.round ? current : null;
+    });
     setSelectedIds((current) => {
       const handIds = new Set((next.hand ?? []).map((card) => card.id));
       return current.filter((id) => handIds.has(id));
@@ -867,6 +1313,7 @@ export default function OnlinePage() {
         },
       );
       const body: unknown = await response.json().catch(() => ({}));
+      if (sessionRef.current?.token !== activeSession.token) return;
       if (!response.ok) {
         const message = apiErrorMessage(body, "방에 다시 연결하지 못했습니다.");
         if (response.status === 401 || response.status === 404) {
@@ -881,6 +1328,7 @@ export default function OnlinePage() {
       setConnection("online");
       setError(null);
     } catch (reason) {
+      if (sessionRef.current?.token !== activeSession.token) return;
       failureCountRef.current += 1;
       setConnection(
         failureCountRef.current >= 4 ? "offline" : "reconnecting",
@@ -1029,6 +1477,7 @@ export default function OnlinePage() {
           },
         );
         const body: unknown = await response.json().catch(() => ({}));
+        if (sessionRef.current?.token !== activeSession.token) return;
         if (!response.ok) {
           throw new Error(apiErrorMessage(body, "행동을 처리하지 못했습니다."));
         }
@@ -1070,7 +1519,18 @@ export default function OnlinePage() {
   const isTaxSelection = Boolean(
     snapshot &&
       snapshot.phase === "tax-selection" &&
-      snapshot.requiredReturnCount > 0,
+      snapshot.requiredReturnCount > 0 &&
+      snapshot.selectedReturnCount < snapshot.requiredReturnCount,
+  );
+  const isHandRevealing = Boolean(
+    snapshot &&
+      snapshot.hand !== null &&
+      clock < handRevealUntil,
+  );
+  const isRankSelectionPhase = Boolean(
+    snapshot &&
+      ["rank-intro", "rank-selection", "rank-reveal"].includes(snapshot.phase) &&
+      snapshot.rankSelection,
   );
   const hand = snapshot?.hand ?? [];
   const selectedCards = hand.filter((card) => selectedIds.includes(card.id));
@@ -1113,14 +1573,36 @@ export default function OnlinePage() {
       snapshot.players.length >= 4 &&
       snapshot.players.every((player) => player.ready && player.connected),
   );
-  const activeEvent = useMemo(
-    () =>
-      [...eventBuffer]
-        .filter((event) =>
+  const taxObserverCopy = useMemo(() => {
+    if (
+      !snapshot ||
+      snapshot.phase !== "tax-selection" ||
+      isTaxSelection
+    ) {
+      return null;
+    }
+    const names = snapshot.waitingTaxPlayerIds.map((id) =>
+      playerName(snapshot.players, id),
+    );
+    const subject =
+      names.length > 2
+        ? `${names[0]} 외 ${names.length - 1}명`
+        : names.join(", ") || "달무티 플레이어";
+    return `${subject}이(가) 세금 교환 중`;
+  }, [isTaxSelection, snapshot]);
+  const activeEvent = useMemo(() => {
+    if (
+      isHandRevealing ||
+      snapshot?.phase === "tax-selection" ||
+      isRankSelectionPhase
+    ) {
+      return null;
+    }
+    const candidates = [...eventBuffer]
+      .filter(
+        (event) =>
           [
             "MATCH_STARTED",
-            "HAND_REVEAL_STARTED",
-            "HAND_REVEALED",
             "TAX_INTRO_STARTED",
             "TAX_TRIBUTE_STARTED",
             "TAX_TRIBUTE",
@@ -1128,17 +1610,36 @@ export default function OnlinePage() {
             "TAX_RETURN",
             "PLAY_INTRO_STARTED",
             "CARDS_PLAYED",
+            "DALMUTI_EFFECT",
+            "REVOLUTION_DECLARED",
             "PLAYER_PASSED",
-          ].includes(event.type),
-        )
-        .reverse()
-        .find(
-          (event) =>
+          ].includes(event.type) &&
             effectiveClock >= event.startsAt - 120 &&
             effectiveClock <= event.startsAt + event.durationMs + 220,
-        ) ?? null,
-    [effectiveClock, eventBuffer],
-  );
+      );
+    return (
+      [...candidates].reverse().find(
+        (event) => event.type === "DALMUTI_EFFECT",
+      ) ??
+      [...candidates].reverse().find(
+        (event) => event.type === "REVOLUTION_DECLARED",
+      ) ??
+      candidates.at(-1) ??
+      null
+    );
+  }, [
+    effectiveClock,
+    eventBuffer,
+    isHandRevealing,
+    isRankSelectionPhase,
+    snapshot?.phase,
+  ]);
+  const declaredRevolution =
+    snapshot && snapshot.declaredRevolution?.round === snapshot.round
+      ? snapshot.declaredRevolution
+      : observedRevolution?.round === snapshot?.round
+        ? observedRevolution
+        : null;
   const opponents = useMemo(
     () => snapshot?.players.filter((player) => player.id !== me?.id) ?? [],
     [me?.id, snapshot?.players],
@@ -1195,17 +1696,91 @@ export default function OnlinePage() {
     }
   };
 
-  const leaveToEntry = () => {
+  const finishLocalExit = () => {
+    const leavingSession = sessionRef.current;
+    clearSavedSession(leavingSession);
     setScreen("entry");
     setSession(null);
+    setLastSession(null);
     sessionRef.current = null;
     setSnapshot(null);
     snapshotRef.current = null;
+    setSelectedIds([]);
     setEventBuffer([]);
+    setHandRevealUntil(0);
+    setObservedRevolution(null);
     setConnection("idle");
     setFatalError(false);
     setError(null);
+    setBusy(false);
+    failureCountRef.current = 0;
+    setEntryMode("create");
+    setRoomCodeInput("");
     window.history.replaceState(null, "", "/online");
+  };
+
+  const exitRoom = async () => {
+    const activeSession = sessionRef.current;
+    const current = snapshotRef.current;
+    if (!activeSession || !current || fatalError) {
+      finishLocalExit();
+      return;
+    }
+    const confirmed = window.confirm(
+      isHost
+        ? "방을 초기화하면 현재 방과 모든 참가자의 접속 정보가 삭제됩니다. 계속할까요?"
+        : "현재 방에서 나가면 진행 중인 막은 대기실로 초기화됩니다. 계속할까요?",
+    );
+    if (!confirmed) return;
+
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/online/rooms/${activeSession.roomCode}/${
+          isHost ? "reset" : "leave"
+        }`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${activeSession.token}`,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            id: createCommandId(),
+          }),
+        },
+      );
+      const body: unknown = await response.json().catch(() => ({}));
+      if (sessionRef.current?.token !== activeSession.token) return;
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 404) {
+          finishLocalExit();
+          return;
+        }
+        throw new Error(
+          apiErrorMessage(
+            body,
+            isHost
+              ? "방을 초기화하지 못했습니다."
+              : "방에서 나가지 못했습니다.",
+          ),
+        );
+      }
+      finishLocalExit();
+    } catch (reason) {
+      if (sessionRef.current?.token !== activeSession.token) return;
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "퇴장 요청을 처리하지 못했습니다.",
+      );
+    } finally {
+      if (sessionRef.current?.token === activeSession.token) {
+        setBusy(false);
+      }
+    }
   };
 
   if (screen === "entry") {
@@ -1356,8 +1931,13 @@ export default function OnlinePage() {
           </div>
           <div className={styles.headerActions}>
             <ConnectionPill state={connection} />
-            <button type="button" onClick={leaveToEntry}>
-              나가기
+            <button
+              type="button"
+              onClick={() => void exitRoom()}
+              disabled={busy}
+              aria-label={isHost ? "방 초기화 후 나가기" : "방 나가기"}
+            >
+              {busy ? "처리 중" : isHost ? "방 초기화" : "방 나가기"}
             </button>
           </div>
         </header>
@@ -1480,7 +2060,7 @@ export default function OnlinePage() {
                   <span>PLAY</span>
                   <small>
                     {allReady
-                      ? "패 공개와 세금 교환 시작"
+                      ? "첫 계급 정하기 시작"
                       : "4명 이상 · 모두 준비 필요"}
                   </small>
                 </button>
@@ -1504,7 +2084,12 @@ export default function OnlinePage() {
                   지금 다시 연결
                 </button>
               )}
-              <button type="button" onClick={leaveToEntry}>
+              <button
+                type="button"
+                onClick={() =>
+                  fatalError ? finishLocalExit() : void exitRoom()
+                }
+              >
                 입장 화면으로
               </button>
             </div>
@@ -1522,7 +2107,11 @@ export default function OnlinePage() {
         <div className={styles.roundInfo}>
           <span>ROUND {snapshot.round}</span>
           <i />
-          <strong>{roleLabel(me?.role ?? "merchant")}</strong>
+          <strong>
+            {isRankSelectionPhase
+              ? "계급 미정"
+              : roleLabel(me?.role ?? "merchant")}
+          </strong>
           <i />
           <span>{snapshot.players.length} PLAYERS</span>
         </div>
@@ -1530,6 +2119,14 @@ export default function OnlinePage() {
           <ConnectionPill state={connection} />
           <button type="button" onClick={copyInvite}>
             {displayCode}
+          </button>
+          <button
+            type="button"
+            onClick={() => void exitRoom()}
+            disabled={busy}
+            aria-label={isHost ? "방 초기화 후 나가기" : "방 나가기"}
+          >
+            {busy ? "처리 중" : isHost ? "방 초기화" : "방 나가기"}
           </button>
         </div>
       </header>
@@ -1546,10 +2143,14 @@ export default function OnlinePage() {
                 key={player.id}
                 className={player.id === me?.id ? styles.rankSelf : ""}
               >
-                <span>{index + 1}</span>
+                <span>{isRankSelectionPhase ? "?" : index + 1}</span>
                 <p>
                   <strong>{player.name}</strong>
-                  <small>{roleLabel(player.role)}</small>
+                  <small>
+                    {isRankSelectionPhase
+                      ? "계급 미정"
+                      : roleLabel(player.role)}
+                  </small>
                 </p>
                 <em>{player.score}점</em>
               </li>
@@ -1564,8 +2165,16 @@ export default function OnlinePage() {
           </div>
         </aside>
 
-        <section className={styles.boardColumn}>
-          <div className={styles.table}>
+        <section
+          className={`${styles.boardColumn} ${
+            isRankSelectionPhase ? styles.boardColumnRankSelection : ""
+          }`}
+        >
+          <div
+            className={`${styles.table} ${
+              declaredRevolution ? styles.tableRevolution : ""
+            } ${isRankSelectionPhase ? styles.tableRankSelection : ""}`}
+          >
             <div className={styles.tableLine} />
             <div className={styles.seatRing}>
               {opponents.map((player, index) => (
@@ -1575,12 +2184,63 @@ export default function OnlinePage() {
                   isHost={player.id === snapshot.hostId}
                   isCurrent={player.id === snapshot.currentPlayerId}
                   passed={snapshot.passedPlayerIds.includes(player.id)}
+                  isHandRevealing={isHandRevealing}
+                  roleHidden={isRankSelectionPhase}
                   style={seatPosition(index, opponents.length)}
                 />
               ))}
             </div>
             <div className={styles.tableCenter}>
-              {snapshot.table?.cards.length ? (
+              {isRankSelectionPhase && snapshot.rankSelection ? (
+                <RankSelectionField
+                  rankSelection={snapshot.rankSelection}
+                  players={snapshot.players}
+                  viewerId={snapshot.viewerId}
+                  effectiveClock={effectiveClock}
+                  busy={busy}
+                  onChoose={(slotIndex) =>
+                    void sendCommand("CHOOSE_RANK_CARD", { slotIndex })
+                  }
+                />
+              ) : snapshot.phase === "revolution" &&
+              !snapshot.canChooseRevolution ? (
+                <div
+                  className={styles.taxWaitingField}
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span aria-hidden="true">◇</span>
+                  <small>REVOLUTION DECISION</small>
+                  <strong>한 플레이어가 혁명 여부를 결정 중</strong>
+                  <p>결정이 끝나면 세금 교환 또는 게임 시작으로 이어집니다</p>
+                </div>
+              ) : isTaxSelection ? (
+                <div
+                  className={styles.taxDecisionField}
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span aria-hidden="true">↕</span>
+                  <small>PRIVATE TAX RETURN</small>
+                  <strong>
+                    돌려줄 카드 {snapshot.requiredReturnCount}장을 선택하세요
+                  </strong>
+                  <p>
+                    내 패에서 원하는 카드를 고른 뒤 반환 확정을 누르세요
+                  </p>
+                </div>
+              ) : taxObserverCopy ? (
+                <div
+                  className={styles.taxWaitingField}
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span aria-hidden="true">◇</span>
+                  <small>TAX EXCHANGE</small>
+                  <strong>{taxObserverCopy}</strong>
+                  <p>카드의 정체는 교환 당사자에게만 공개됩니다</p>
+                </div>
+              ) : snapshot.table?.cards.length ? (
                 <>
                   <small>마지막으로 놓인 카드</small>
                   <div className={styles.tableCards}>
@@ -1614,7 +2274,12 @@ export default function OnlinePage() {
             </div>
           </div>
 
-          <section className={styles.ownDock}>
+          <section
+            className={`${styles.ownDock} ${
+              isTaxSelection ? styles.ownDockTaxSelection : ""
+            } ${isRankSelectionPhase ? styles.ownDockRankHidden : ""}`}
+            aria-hidden={isRankSelectionPhase || undefined}
+          >
             {me && (
               <PlayerSeat
                 player={me}
@@ -1622,13 +2287,14 @@ export default function OnlinePage() {
                 isHost={isHost}
                 isCurrent={isMyTurn}
                 passed={snapshot.passedPlayerIds.includes(me.id)}
+                isHandRevealing={isHandRevealing}
               />
             )}
             <div className={styles.handScroller}>
               <div
                 className={`${styles.hand} ${
                   snapshot.hand === null ? styles.handConcealed : ""
-                }`}
+                } ${isHandRevealing ? styles.handRevealing : ""}`}
               >
                 {snapshot.hand === null
                   ? Array.from(
@@ -1739,7 +2405,21 @@ export default function OnlinePage() {
                 <li key={event.id}>
                   <span>{String(event.seq).padStart(2, "0")}</span>
                   <p>
-                    {event.type.includes("PASS")
+                    {event.type === "RANK_ORDER_ASSIGNED"
+                      ? "첫 막의 랩실 서열이 정해졌습니다"
+                      : event.type === "RANK_CARD_CHOSEN"
+                        ? "계급 카드가 선택되었습니다"
+                        : event.type === "REVOLUTION_DECLARED"
+                          ? `${playerName(snapshot.players, event.actorPlayerId ?? event.data.playerId)}이(가) ${
+                              ["great", "great-revolution"].includes(
+                                stringValue(event.data.kind),
+                              )
+                                ? "대혁명"
+                                : "혁명"
+                            }을 일으켰습니다`
+                    : event.type === "DALMUTI_EFFECT"
+                      ? `${playerName(snapshot.players, event.actorPlayerId)}의 달무티 효과로 모두 자동 패스했습니다`
+                      : event.type.includes("PASS")
                       ? `${playerName(snapshot.players, event.actorPlayerId)}이(가) 패스했습니다`
                       : event.type.includes("PLAY")
                         ? `${playerName(snapshot.players, event.actorPlayerId)}이(가) 카드를 냈습니다`
@@ -1776,10 +2456,15 @@ export default function OnlinePage() {
             <section className={styles.decisionCard}>
               <span className={styles.decisionJokers}>♠ ♣</span>
               <small>두 어릿광대가 당신의 손에 있습니다</small>
-              <h2>혁명을 선포하시겠습니까?</h2>
+              <h2>
+                {["great-peon", "great_peon"].includes(me?.role ?? "")
+                  ? "대혁명을 선포하시겠습니까?"
+                  : "혁명을 선포하시겠습니까?"}
+              </h2>
               <p>
-                혁명을 선포하면 이번 막의 세금이 사라집니다. 대 농노라면
-                모든 계급이 뒤집힙니다.
+                {["great-peon", "great_peon"].includes(me?.role ?? "")
+                  ? "대혁명을 선포하면 모든 계급이 뒤집히고 이번 막의 세금이 사라집니다."
+                  : "혁명을 선포하면 이번 막의 세금이 사라집니다."}
               </p>
               <div>
                 <button
@@ -1800,7 +2485,9 @@ export default function OnlinePage() {
                     void sendCommand("CHOOSE_REVOLUTION", { declare: true })
                   }
                 >
-                  혁명 선포
+                  {["great-peon", "great_peon"].includes(me?.role ?? "")
+                    ? "대혁명 선포"
+                    : "혁명 선포"}
                 </button>
               </div>
             </section>
@@ -1863,7 +2550,12 @@ export default function OnlinePage() {
                 지금 다시 연결
               </button>
             )}
-            <button type="button" onClick={leaveToEntry}>
+            <button
+              type="button"
+              onClick={() =>
+                fatalError ? finishLocalExit() : void exitRoom()
+              }
+            >
               입장 화면으로
             </button>
           </div>

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const {
@@ -37,6 +38,13 @@ function createFourPlayerLobby() {
   return state;
 }
 
+function createSixPlayerLobby() {
+  let state = createFourPlayerLobby();
+  state = joinOnlineRoom(state, { id: "p5", name: "p5" }, 5);
+  state = joinOnlineRoom(state, { id: "p6", name: "p6" }, 6);
+  return state;
+}
+
 function readyEveryone(state) {
   let next = state;
   for (const [index, player] of next.players.entries()) {
@@ -45,36 +53,330 @@ function readyEveryone(state) {
   return next;
 }
 
-test("online lobby seals one private 80-card deal before PLAY", () => {
-  const state = readyEveryone(createFourPlayerLobby());
+const instantRankDurations = {
+  rankChoiceIntroMs: 0,
+  rankRevealDelayMs: 1,
+  rankRevealMs: 1,
+};
+
+function startAndAssignJoinOrder(
+  state,
+  startAt = 20,
+  durations = {},
+) {
+  const helperDurations = {
+    ...instantRankDurations,
+    ...durations,
+    // Keep the helper parked at reveal-intro even when the tested downstream
+    // flow uses zero-length intro phases.
+    ...(durations.revealIntroMs === 0 ? { revealIntroMs: 1 } : {}),
+  };
+  const deps = {
+    randomInt: () => 0,
+    durations: helperDurations,
+  };
+  let next = applyOnlineCommand(
+    state,
+    state.hostId,
+    {
+      id: `start-rank-choice-${startAt}`,
+      expectedRevision: state.revision,
+      type: "START_MATCH",
+    },
+    startAt,
+    deps,
+  );
+  next = advanceOnlineRoom(next, next.phaseEndsAt, deps);
+  assert.equal(next.phase, "rank-selection");
+
+  const joinedPlayers = [...next.players].sort(
+    (left, right) =>
+      left.joinedAt - right.joinedAt || left.id.localeCompare(right.id),
+  );
+  for (const [index, player] of joinedPlayers.entries()) {
+    const card = next.rankSelection.cards.find(
+      (candidate) => candidate.rank === index + 1,
+    );
+    next = applyOnlineCommand(
+      next,
+      player.id,
+      {
+        id: `choose-rank-${player.id}-${startAt}`,
+        expectedRevision: next.revision,
+        type: "CHOOSE_RANK_CARD",
+        slotIndex: card.slotIndex,
+      },
+      startAt + index + 1,
+      deps,
+    );
+  }
+  assert.equal(next.phase, "rank-selection");
+  assert.notEqual(next.phaseEndsAt, null);
+
+  next = advanceOnlineRoom(next, next.phaseEndsAt, deps);
+  assert.equal(next.phase, "rank-reveal");
+  next = advanceOnlineRoom(next, next.phaseEndsAt, deps);
+  assert.equal(next.phase, "reveal-intro");
+  return next;
+}
+
+test("the opening PLAY runs a hidden, server-authoritative rank choice before dealing", () => {
+  let state = readyEveryone(createFourPlayerLobby());
 
   assert.equal(state.phase, "lobby");
+  assert.equal(state.dealSealed, false);
+  assert.deepEqual(state.hands, {});
+
+  const durations = {
+    rankChoiceIntroMs: 3_000,
+    rankRevealDelayMs: 1_000,
+    rankRevealMs: 1_500,
+  };
+  state = applyOnlineCommand(
+    state,
+    state.hostId,
+    {
+      id: "opening-rank-choice",
+      expectedRevision: state.revision,
+      type: "START_MATCH",
+    },
+    100,
+    { randomInt: () => 0, durations },
+  );
+  assert.equal(state.phase, "rank-intro");
+  assert.equal(state.phaseEndsAt, 3_100);
+  assert.equal(state.rankSelection.cards.length, 4);
+  assert.deepEqual(
+    [...state.rankSelection.cards].map((card) => card.rank).sort(),
+    [1, 2, 3, 4],
+  );
+  assert.notDeepEqual(
+    state.rankSelection.cards.map((card) => card.rank),
+    [1, 2, 3, 4],
+  );
+
+  let view = projectOnlineRoom(state, "p1");
+  assert.equal(view.rankSelection.stage, "intro");
+  assert.equal(view.rankSelection.countdownEndsAt, 3_100);
+  assert.equal(
+    view.rankSelection.cards.every((card) => card.revealedRank === null),
+    true,
+  );
+  state = advanceOnlineRoom(state, 3_100, {
+    randomInt: () => 0,
+    durations,
+  });
+  assert.equal(state.phase, "rank-selection");
+
+  const p1Slot = state.rankSelection.cards[0].slotIndex;
+  state = command(
+    state,
+    "p1",
+    "CHOOSE_RANK_CARD",
+    { slotIndex: p1Slot },
+    3_101,
+  );
+  assert.throws(
+    () =>
+      command(
+        state,
+        "p1",
+        "CHOOSE_RANK_CARD",
+        { slotIndex: state.rankSelection.cards[1].slotIndex },
+        3_102,
+      ),
+    (error) =>
+      error instanceof OnlineGameError && error.code === "RANK_ALREADY_CHOSEN",
+  );
+  assert.throws(
+    () =>
+      command(
+        state,
+        "p2",
+        "CHOOSE_RANK_CARD",
+        { slotIndex: p1Slot },
+        3_103,
+      ),
+    (error) =>
+      error instanceof OnlineGameError && error.code === "RANK_CARD_CLAIMED",
+  );
+
+  for (const [offset, playerId] of ["p2", "p3", "p4"].entries()) {
+    const card = state.rankSelection.cards.find(
+      (candidate) => candidate.claimedByPlayerId === null,
+    );
+    state = command(
+      state,
+      playerId,
+      "CHOOSE_RANK_CARD",
+      { slotIndex: card.slotIndex },
+      3_104 + offset,
+    );
+  }
+  assert.equal(state.phase, "rank-selection");
+  assert.equal(state.phaseEndsAt, 4_106);
+
+  view = projectOnlineRoom(state, "p3");
+  assert.equal(view.rankSelection.stage, "locked");
+  assert.equal(view.rankSelection.canChoose, false);
+  assert.equal(
+    view.rankSelection.cards.every(
+      (card) =>
+        card.claimedByPlayerId !== null && card.revealedRank === null,
+    ),
+    true,
+  );
+
+  state = advanceOnlineRoom(state, 4_106, {
+    randomInt: () => 0,
+    durations,
+  });
+  assert.equal(state.phase, "rank-reveal");
+  view = projectOnlineRoom(state, "p3");
+  assert.equal(view.rankSelection.stage, "revealed");
+  assert.deepEqual(
+    view.rankSelection.cards
+      .map((card) => card.revealedRank)
+      .sort(),
+    [1, 2, 3, 4],
+  );
+  const revealedOrder = [...state.rankSelection.cards]
+    .sort((left, right) => left.rank - right.rank)
+    .map((card) => card.claimedByPlayerId);
+  // During the flip animation, the rank-card result is visible only through
+  // rankSelection. Seat order and role labels must not jump ahead and spoil it.
+  assert.deepEqual(
+    state.players.map((player) => player.id),
+    ["p1", "p2", "p3", "p4"],
+  );
+
+  state = advanceOnlineRoom(state, 5_606, {
+    randomInt: () => 0,
+    durations,
+  });
+  assert.equal(state.phase, "reveal-intro");
   assert.equal(state.dealSealed, true);
+  assert.deepEqual(
+    state.players.map((player) => player.id),
+    revealedOrder,
+  );
+  const allCards = state.players.flatMap((player) => state.hands[player.id]);
+  assert.equal(allCards.length, 80);
+  assert.equal(new Set(allCards.map((card) => card.id)).size, 80);
   assert.deepEqual(
     state.players.map((player) => state.hands[player.id].length),
     [20, 20, 20, 20],
   );
+});
 
-  const allCards = state.players.flatMap((player) => state.hands[player.id]);
-  assert.equal(allCards.length, 80);
-  assert.equal(new Set(allCards.map((card) => card.id)).size, 80);
+test("stale rank-choice revisions allow distinct slots but reject a claimed slot", () => {
+  let state = readyEveryone(createFourPlayerLobby());
+  const deps = {
+    randomInt: () => 0,
+    durations: { ...instantRankDurations },
+  };
+  state = applyOnlineCommand(
+    state,
+    "p1",
+    {
+      id: "start-concurrent-rank-choice",
+      expectedRevision: state.revision,
+      type: "START_MATCH",
+    },
+    100,
+    deps,
+  );
+  state = advanceOnlineRoom(state, state.phaseEndsAt, deps);
+  const sharedRevision = state.revision;
+  const [firstSlot, secondSlot] = state.rankSelection.cards;
 
-  const firstView = projectOnlineRoom(state, "p1");
-  assert.equal(firstView.hand, null);
-  assert.equal(firstView.dealSealed, true);
-  assert.deepEqual(
-    firstView.players.map((player) => player.handCount),
-    [20, 20, 20, 20],
+  state = applyOnlineCommand(
+    state,
+    "p1",
+    {
+      id: "concurrent-rank-p1",
+      expectedRevision: sharedRevision,
+      type: "CHOOSE_RANK_CARD",
+      slotIndex: firstSlot.slotIndex,
+    },
+    101,
+    deps,
+  );
+  assert.throws(
+    () =>
+      applyOnlineCommand(
+        state,
+        "p2",
+        {
+          id: "concurrent-rank-same-slot",
+          expectedRevision: sharedRevision,
+          type: "CHOOSE_RANK_CARD",
+          slotIndex: firstSlot.slotIndex,
+        },
+        102,
+        deps,
+      ),
+    (error) =>
+      error instanceof OnlineGameError && error.code === "RANK_CARD_CLAIMED",
   );
 
-  const hiddenCardId = state.hands.p2[0].id;
-  assert.equal(JSON.stringify(firstView).includes(`"id":"${hiddenCardId}"`), false);
+  state = applyOnlineCommand(
+    state,
+    "p2",
+    {
+      id: "concurrent-rank-distinct-slot",
+      expectedRevision: sharedRevision,
+      type: "CHOOSE_RANK_CARD",
+      slotIndex: secondSlot.slotIndex,
+    },
+    103,
+    deps,
+  );
+  assert.equal(
+    state.rankSelection.cards.find(
+      (card) => card.slotIndex === secondSlot.slotIndex,
+    ).claimedByPlayerId,
+    "p2",
+  );
+});
+
+test("rank order controls remainder dealing and later rounds skip rank choice", () => {
+  let state = readyEveryone(createSixPlayerLobby());
+  state = startAndAssignJoinOrder(state, 200);
+
+  assert.equal(state.round, 1);
+  assert.deepEqual(
+    state.players.map((player) => player.id),
+    ["p1", "p2", "p3", "p4", "p5", "p6"],
+  );
+  assert.deepEqual(
+    state.players.map((player) => state.hands[player.id].length),
+    [13, 13, 13, 13, 14, 14],
+  );
+
+  state.phase = "round-end";
+  state.phaseEndsAt = null;
+  state.finishOrder = ["p6", "p5", "p4", "p3", "p2", "p1"];
+  state = command(state, "p1", "START_NEXT_ROUND", {}, 500);
+
+  assert.equal(state.round, 2);
+  assert.equal(state.phase, "reveal-intro");
+  assert.equal(state.rankSelection, null);
+  assert.deepEqual(
+    state.players.map((player) => player.id),
+    ["p6", "p5", "p4", "p3", "p2", "p1"],
+  );
+  assert.equal(
+    state.events
+      .filter((event) => event.type === "RANK_CHOICE_INTRO_STARTED")
+      .length,
+    1,
+  );
 });
 
 test("PLAY reveals only the viewer hand and never an opponent hand", () => {
   let state = readyEveryone(createFourPlayerLobby());
-  const host = state.hostId;
-  state = command(state, host, "START_MATCH", {}, 20);
+  state = startAndAssignJoinOrder(state);
 
   assert.equal(state.phase, "reveal-intro");
   assert.equal(projectOnlineRoom(state, "p1").hand, null);
@@ -102,28 +404,18 @@ test("PLAY reveals only the viewer hand and never an opponent hand", () => {
   }
 });
 
-test("unreadying discards the sealed deal and readying reseals it", () => {
+test("lobby readiness never deals before opening ranks are assigned", () => {
   let state = readyEveryone(createFourPlayerLobby());
-  const previousCards = state.players.flatMap((player) =>
-    state.hands[player.id].map((card) => card.id),
-  );
+  assert.equal(state.dealSealed, false);
+  assert.deepEqual(state.hands, {});
 
   state = command(state, "p4", "SET_READY", { ready: false }, 30);
   assert.equal(state.dealSealed, false);
   assert.deepEqual(state.hands, {});
 
   state = command(state, "p4", "SET_READY", { ready: true }, 31);
-  assert.equal(state.dealSealed, true);
-  assert.equal(
-    state.players.flatMap((player) => state.hands[player.id]).length,
-    80,
-  );
-  assert.deepEqual(
-    state.players.flatMap((player) =>
-      state.hands[player.id].map((card) => card.id),
-    ),
-    previousCards,
-  );
+  assert.equal(state.dealSealed, false);
+  assert.deepEqual(state.hands, {});
 });
 
 test("the server validates actions, locks animation time, and deduplicates commands", () => {
@@ -227,6 +519,17 @@ test("unknown and malformed online commands cannot corrupt room state", () => {
 
 test("tax card identities are visible only to each exchange pair", () => {
   let state = readyEveryone(createFourPlayerLobby());
+  const shortIntros = {
+    ...instantRankDurations,
+    revealIntroMs: 0,
+    handRevealMs: 0,
+    taxIntroMs: 0,
+    taxSelectionMs: 10_000,
+    taxTributeMs: 1_000,
+    taxReturnMs: 1_000,
+    playIntroMs: 0,
+  };
+  state = startAndAssignJoinOrder(state, 100, shortIntros);
   state.hands = {
     p1: [
       { id: "noble-a", rank: 12 },
@@ -243,28 +546,9 @@ test("tax card identities are visible only to each exchange pair", () => {
       { id: "great-peon-two", rank: 2 },
     ],
   };
-  const shortIntros = {
-    revealIntroMs: 0,
-    handRevealMs: 0,
-    taxIntroMs: 0,
-    taxSelectionMs: 10_000,
-    taxTributeMs: 1_000,
-    taxReturnMs: 1_000,
-    playIntroMs: 0,
-  };
-
-  state = applyOnlineCommand(
-    state,
-    "p1",
-    {
-      id: "start-tax-test",
-      expectedRevision: state.revision,
-      type: "START_MATCH",
-    },
-    100,
-    { durations: shortIntros },
-  );
-  state = advanceOnlineRoom(state, 100, { durations: shortIntros });
+  state = advanceOnlineRoom(state, state.phaseEndsAt, {
+    durations: shortIntros,
+  });
   assert.equal(state.phase, "tax-selection");
   assert.deepEqual(state.taxExchanges[0].peonCardIds, [
     "great-peon-joker",
@@ -317,4 +601,263 @@ test("tax card identities are visible only to each exchange pair", () => {
     state.hands.p4.map((card) => card.id).sort(),
     ["great-peon-two", "noble-a", "noble-b"].sort(),
   );
+});
+
+test("playing rank 1 auto-passes every other active player and starts a new trick", () => {
+  let state = readyEveryone(createFourPlayerLobby());
+  state.phase = "playing";
+  state.phaseEndsAt = null;
+  state.currentIndex = 0;
+  state.actionLockUntil = null;
+  state.table = { rank: 2, count: 1, playerId: "p4", cards: [{ id: "old-2", rank: 2 }] };
+  state.lastPlayedId = "p4";
+  state.hands = {
+    p1: [
+      { id: "dalmuti", rank: 1 },
+      { id: "p1-12", rank: 12 },
+    ],
+    p2: [{ id: "p2-11", rank: 11 }],
+    p3: [{ id: "p3-10", rank: 10 }],
+    p4: [{ id: "p4-9", rank: 9 }],
+  };
+
+  state = command(
+    state,
+    "p1",
+    "PLAY_CARDS",
+    { cardIds: ["dalmuti"] },
+    100,
+  );
+
+  assert.equal(state.table, null);
+  assert.equal(state.currentIndex, 0);
+  assert.equal(state.players[state.currentIndex].id, "p1");
+  assert.deepEqual(state.passedPlayerIds, []);
+  const effect = state.events.find((event) => event.type === "DALMUTI_EFFECT");
+  assert.deepEqual(effect.payload.autoPassedPlayerIds, ["p2", "p3", "p4"]);
+  const automaticPasses = state.events.filter(
+    (event) =>
+      event.type === "PLAYER_PASSED" &&
+      event.payload.reason === "dalmuti",
+  );
+  assert.deepEqual(
+    automaticPasses.map((event) => event.payload.playerId),
+    ["p2", "p3", "p4"],
+  );
+  assert.equal(
+    state.events.some(
+      (event) =>
+        event.type === "TRICK_CLEARED" &&
+        event.payload.reason === "dalmuti",
+    ),
+    true,
+  );
+});
+
+test("the opening round offers revolution and declining it proceeds to tax selection", () => {
+  let state = readyEveryone(createFourPlayerLobby());
+  const durations = {
+    ...instantRankDurations,
+    revealIntroMs: 0,
+    handRevealMs: 0,
+    revolutionDecisionMs: 10_000,
+    taxIntroMs: 0,
+    taxSelectionMs: 10_000,
+    taxTributeMs: 1_000,
+    taxReturnMs: 1_000,
+    playIntroMs: 0,
+  };
+  state = startAndAssignJoinOrder(state, 100, durations);
+  state.hands = {
+    p1: [
+      { id: "joker-1", rank: 13 },
+      { id: "joker-2", rank: 13 },
+      { id: "p1-return-a", rank: 12 },
+      { id: "p1-return-b", rank: 11 },
+    ],
+    p2: [{ id: "p2-return", rank: 10 }],
+    p3: [
+      { id: "p3-tax", rank: 2 },
+      { id: "p3-other", rank: 9 },
+    ],
+    p4: [
+      { id: "p4-tax-a", rank: 1 },
+      { id: "p4-tax-b", rank: 2 },
+      { id: "p4-other", rank: 8 },
+    ],
+  };
+  state = advanceOnlineRoom(state, state.phaseEndsAt, { durations });
+
+  assert.equal(state.round, 1);
+  assert.equal(state.phase, "revolution");
+  assert.equal(state.revolutionHolderId, "p1");
+  assert.equal(
+    state.events.some((event) => event.type === "REVOLUTION_DECISION_STARTED"),
+    true,
+  );
+  const pendingRevolution = state;
+  const declineAt = state.updatedAt + 1;
+
+  state = applyOnlineCommand(
+    state,
+    "p1",
+    {
+      id: "decline-opening-revolution",
+      expectedRevision: state.revision,
+      type: "CHOOSE_REVOLUTION",
+      declare: false,
+    },
+    declineAt,
+    { durations },
+  );
+  state = advanceOnlineRoom(state, declineAt, { durations });
+
+  assert.equal(state.phase, "tax-selection");
+  assert.deepEqual(
+    state.taxExchanges.map((exchange) => [
+      exchange.nobleId,
+      exchange.count,
+    ]),
+    [
+      ["p1", 2],
+      ["p2", 1],
+    ],
+  );
+
+  const timedOut = advanceOnlineRoom(
+    pendingRevolution,
+    pendingRevolution.phaseEndsAt,
+    { durations },
+  );
+  assert.equal(timedOut.phase, "tax-selection");
+  assert.equal(
+    timedOut.events.some((event) => event.type === "REVOLUTION_DECLINED"),
+    true,
+  );
+
+  const declared = applyOnlineCommand(
+    pendingRevolution,
+    "p1",
+    {
+      id: "declare-opening-revolution",
+      expectedRevision: pendingRevolution.revision,
+      type: "CHOOSE_REVOLUTION",
+      declare: true,
+    },
+    pendingRevolution.updatedAt + 1,
+    { durations },
+  );
+  assert.deepEqual(declared.declaredRevolution, {
+    round: 1,
+    playerId: "p1",
+    kind: "revolution",
+  });
+  assert.deepEqual(
+    projectOnlineRoom(declared, "p4").declaredRevolution,
+    declared.declaredRevolution,
+  );
+});
+
+test("legacy persisted room JSON hydrates new optional ranking fields safely", () => {
+  const state = readyEveryone(createFourPlayerLobby());
+  delete state.rankSelection;
+  delete state.declaredRevolution;
+  delete state.durations.rankChoiceIntroMs;
+  delete state.durations.rankRevealDelayMs;
+  delete state.durations.rankRevealMs;
+
+  const view = projectOnlineRoom(state, "p1");
+  assert.equal(view.rankSelection, null);
+  assert.equal(view.declaredRevolution, null);
+
+  const started = applyOnlineCommand(
+    state,
+    "p1",
+    {
+      id: "legacy-start",
+      expectedRevision: state.revision,
+      type: "START_MATCH",
+    },
+    100,
+    { randomInt: () => 0 },
+  );
+  assert.equal(started.phase, "rank-intro");
+  assert.equal(started.durations.rankRevealDelayMs, 1_000);
+});
+
+test("the host can reset a room and a non-host can leave without stale match data", () => {
+  let state = readyEveryone(createFourPlayerLobby());
+  state.phase = "playing";
+  state.round = 3;
+  state.players = state.players.map((player, index) => ({
+    ...player,
+    score: index + 2,
+  }));
+
+  state = command(state, "p1", "RESET_ROOM", {}, 200);
+  assert.equal(state.phase, "lobby");
+  assert.equal(state.round, 0);
+  assert.equal(state.dealSealed, false);
+  assert.deepEqual(state.hands, {});
+  assert.equal(state.players.every((player) => !player.ready), true);
+  assert.equal(state.players.every((player) => player.score === 0), true);
+  assert.equal(state.events.at(-1).type, "ROOM_RESET");
+
+  state = command(state, "p4", "LEAVE_ROOM", {}, 201);
+  assert.deepEqual(
+    state.players.map((player) => player.id),
+    ["p1", "p2", "p3"],
+  );
+  assert.equal(state.phase, "lobby");
+  assert.equal(state.events.some((event) => event.type === "PLAYER_LEFT"), true);
+
+  assert.throws(
+    () => command(state, "p1", "LEAVE_ROOM", {}, 202),
+    (error) =>
+      error instanceof OnlineGameError && error.code === "HOST_CANNOT_LEAVE",
+  );
+});
+
+test("host reset APIs dispose the room and all stored memberships", async () => {
+  const [store, resetRoute, commandRoute, leaveRoute] = await Promise.all([
+    readFile(
+      new URL("../lib/online-room-store.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../app/api/online/rooms/[code]/reset/route.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../app/api/online/rooms/[code]/commands/route.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../app/api/online/rooms/[code]/leave/route.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(store, /export async function deleteStoredOnlineRoom/);
+  assert.match(
+    store,
+    /DELETE FROM online_room_members WHERE room_code = \?/,
+  );
+  assert.match(store, /DELETE FROM online_rooms WHERE code = \?/);
+  assert.match(resetRoute, /applyOnlineCommand\(/);
+  assert.match(resetRoute, /await deleteStoredOnlineRoom\(code\)/);
+  assert.match(resetRoute, /reset: true/);
+  assert.doesNotMatch(resetRoute, /projectOnlineRoom/);
+  assert.match(commandRoute, /command\.type === "RESET_ROOM"/);
+  assert.match(commandRoute, /await deleteStoredOnlineRoom\(code\)/);
+  assert.match(leaveRoute, /await removeOnlineRoomMember\(code, member\.playerId\)/);
 });

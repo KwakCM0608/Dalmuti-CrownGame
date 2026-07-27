@@ -117,11 +117,17 @@ def correct_illumination(card: Image.Image) -> Image.Image:
     )
 
 
-def add_black_edge(card: Image.Image) -> Image.Image:
+def add_black_outer_border(card: Image.Image) -> Image.Image:
+    """Replace only the card's outer stock border with a clean black frame.
+
+    The source cards have a pale physical border about 30 source pixels wide.
+    Working at the 2x output size lets us cover that border completely while
+    keeping the printed header, corner ranks, and illustration untouched.
+    """
     edged = card.copy()
     mask = Image.new("L", edged.size, 255)
     draw = ImageDraw.Draw(mask)
-    edge_width = round(9 * OUTPUT_SCALE)
+    edge_width = round(30 * OUTPUT_SCALE)
     draw.rounded_rectangle(
         (
             edge_width,
@@ -129,10 +135,10 @@ def add_black_edge(card: Image.Image) -> Image.Image:
             edged.width - edge_width - 1,
             edged.height - edge_width - 1,
         ),
-        radius=round(14 * OUTPUT_SCALE),
+        radius=round(24 * OUTPUT_SCALE),
         fill=0,
     )
-    edged.paste((14, 14, 13), (0, 0, edged.width, edged.height), mask)
+    edged.paste((8, 8, 8), (0, 0, edged.width, edged.height), mask)
     return edged
 
 
@@ -210,7 +216,7 @@ def main() -> None:
         if name in ROTATED_CARD_NAMES:
             card = card.transpose(Image.Transpose.ROTATE_180)
         if name in {"01", "joker"}:
-            card = add_black_edge(card)
+            card = add_black_outer_border(card)
         output_path = args.output_dir / f"{name}.webp"
         card.save(output_path, "WEBP", quality=98, method=6)
         cards[name] = card

@@ -191,8 +191,9 @@
   width: 116px;
   height: 178px;
   overflow: hidden;
-  border: 1px solid rgba(240, 211, 144, 0.5);
+  border: 1px solid #080808;
   border-radius: 11px;
+  background: #080808;
   box-shadow: 0 22px 38px rgba(0, 0, 0, 0.4);
   transform:
     rotate(calc((var(--hero-card) - 1) * 8deg))
@@ -204,7 +205,7 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: #eee5d2;
+  background: #080808;
 }
 
 .entryCard {
@@ -1085,11 +1086,58 @@
     inset 0 0 0 3px #7c5b3c,
     inset 0 0 58px rgba(0, 0, 0, 0.5),
     0 22px 42px rgba(0, 0, 0, 0.28);
+  transition:
+    border-color 700ms ease,
+    box-shadow 700ms ease;
+}
+
+.table::before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 50% 44%, rgba(143, 45, 54, 0.84), transparent 46%),
+    linear-gradient(145deg, rgba(102, 27, 38, 0.96), rgba(51, 12, 21, 0.92));
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 800ms ease;
+}
+
+.tableRevolution {
+  border-color: #58302f;
+  box-shadow:
+    inset 0 0 0 3px #8c5548,
+    inset 0 0 74px rgba(21, 2, 8, 0.64),
+    0 22px 46px rgba(60, 6, 17, 0.38);
+}
+
+.tableRevolution::before {
+  opacity: 0.86;
+  animation: revolutionFieldAwakening 1.1s ease both;
+}
+
+@keyframes revolutionFieldAwakening {
+  from {
+    filter: saturate(0.65);
+    opacity: 0;
+  }
+}
+
+.tableRankSelection {
+  min-height: calc(100vh - 104px);
+  border-radius: 35% / 13%;
+}
+
+.boardColumnRankSelection {
+  padding-bottom: 14px;
 }
 
 .tableLine {
   position: absolute;
   inset: 12px;
+  z-index: 1;
   border: 1px solid rgba(232, 199, 117, 0.2);
   border-radius: inherit;
 }
@@ -1205,6 +1253,69 @@
   opacity: 0.63;
 }
 
+.playerSeatRevealing {
+  border-color: rgba(225, 190, 105, 0.56);
+  box-shadow:
+    0 0 0 3px rgba(218, 174, 73, 0.13),
+    0 12px 27px rgba(0, 0, 0, 0.32);
+}
+
+.seatRevealCards {
+  position: absolute;
+  right: -8px;
+  bottom: -17px;
+  z-index: 4;
+  display: flex;
+  width: 38px;
+  height: 31px;
+  align-items: flex-end;
+  justify-content: center;
+  perspective: 180px;
+  pointer-events: none;
+}
+
+.seatRevealCards i {
+  width: 17px;
+  height: 26px;
+  margin-left: -9px;
+  border: 1px solid rgba(239, 220, 171, 0.82);
+  border-radius: 3px;
+  background: #76549b url("/cards/back.webp") center / cover no-repeat;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.34);
+  transform-origin: 50% 50%;
+  animation: seatHandReveal 820ms cubic-bezier(0.34, 0.02, 0.2, 1) both;
+}
+
+.seatRevealCards i:first-child {
+  margin-left: 0;
+}
+
+.seatRevealCards i:nth-child(2) {
+  animation-delay: 45ms;
+}
+
+.seatRevealCards i:nth-child(3) {
+  animation-delay: 90ms;
+}
+
+@keyframes seatHandReveal {
+  0% {
+    opacity: 0.68;
+    transform: translateY(6px) rotateY(0deg);
+  }
+  48% {
+    opacity: 1;
+    transform: translateY(-3px) rotateY(88deg);
+  }
+  52% {
+    transform: translateY(-3px) rotateY(-88deg);
+  }
+  100% {
+    opacity: 0.88;
+    transform: translateY(0) rotateY(0deg);
+  }
+}
+
 .hostMark,
 .turnMark,
 .passedMark,
@@ -1260,6 +1371,12 @@
   color: white;
   text-align: center;
   transform: translate(-50%, -50%);
+}
+
+.tableRankSelection .tableCenter {
+  z-index: 7;
+  width: min(860px, 88%);
+  min-height: 390px;
 }
 
 .tableCenter > small {
@@ -1332,6 +1449,430 @@
   font-size: 8px;
 }
 
+.taxDecisionField,
+.taxWaitingField {
+  display: grid;
+  width: min(340px, 90vw);
+  justify-items: center;
+  padding: 24px 28px;
+  border: 1px solid rgba(229, 191, 96, 0.38);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 50% 0, rgba(211, 163, 65, 0.16), transparent 55%),
+    rgba(28, 12, 15, 0.76);
+  box-shadow:
+    0 18px 38px rgba(0, 0, 0, 0.3),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.025);
+  animation: taxFieldArrival 430ms cubic-bezier(0.2, 0.76, 0.22, 1) both;
+}
+
+.taxDecisionField > span,
+.taxWaitingField > span {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  margin-bottom: 10px;
+  border: 1px solid rgba(226, 185, 87, 0.52);
+  border-radius: 50%;
+  color: #e2ba5c;
+  font-family: Georgia, serif;
+  font-size: 21px;
+}
+
+.taxDecisionField > small,
+.taxWaitingField > small {
+  color: #b88d3c;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.2em;
+}
+
+.taxDecisionField > strong,
+.taxWaitingField > strong {
+  margin-top: 8px;
+  color: #f4ddb0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+.taxDecisionField > p,
+.taxWaitingField > p {
+  margin: 7px 0 0;
+  color: rgba(255, 255, 255, 0.57);
+  font-size: 8px;
+  line-height: 1.5;
+}
+
+.taxDecisionField {
+  border-color: rgba(232, 190, 87, 0.62);
+  box-shadow:
+    0 0 0 4px rgba(211, 166, 65, 0.09),
+    0 18px 38px rgba(0, 0, 0, 0.32);
+}
+
+@keyframes taxFieldArrival {
+  from {
+    opacity: 0;
+    transform: translateY(13px) scale(0.97);
+  }
+}
+
+.rankChoiceIntro {
+  display: grid;
+  justify-items: center;
+  animation: rankChoiceIntroArrival 650ms cubic-bezier(0.2, 0.78, 0.2, 1) both;
+}
+
+.rankChoiceIntro > small,
+.rankChoiceHeading > small {
+  color: #d7ad52;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.22em;
+}
+
+.rankChoiceIntro > strong {
+  margin-top: 9px;
+  color: #fff0c8;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(39px, 5vw, 62px);
+  font-weight: 500;
+  letter-spacing: -0.05em;
+  text-shadow: 0 13px 34px rgba(0, 0, 0, 0.52);
+}
+
+.rankChoiceIntro > p {
+  margin: 12px 0 0;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 10px;
+  line-height: 1.65;
+}
+
+.rankCountdown {
+  display: grid;
+  width: 96px;
+  height: 96px;
+  place-items: center;
+  margin-top: 22px;
+  border: 1px solid rgba(231, 194, 106, 0.48);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(212, 164, 62, 0.17), transparent 64%),
+    rgba(17, 7, 10, 0.4);
+  box-shadow:
+    0 0 0 8px rgba(214, 169, 68, 0.055),
+    0 17px 38px rgba(0, 0, 0, 0.3);
+}
+
+.rankCountdown b {
+  color: #ffe8ad;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 49px;
+  font-weight: 400;
+  animation: rankCountdownBeat 1s ease both;
+}
+
+.rankCountdown .rankCountdownReady {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+}
+
+@keyframes rankChoiceIntroArrival {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.97);
+  }
+}
+
+@keyframes rankCountdownBeat {
+  from {
+    filter: blur(6px);
+    opacity: 0;
+    transform: scale(1.55);
+  }
+  28% {
+    filter: none;
+    opacity: 1;
+  }
+}
+
+.rankChoiceField {
+  display: grid;
+  width: 100%;
+  justify-items: center;
+  animation: rankChoiceFieldArrival 460ms ease both;
+}
+
+.rankChoiceHeading {
+  display: grid;
+  justify-items: center;
+}
+
+.rankChoiceHeading > strong {
+  margin-top: 6px;
+  color: #f7dfaa;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(22px, 3vw, 34px);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+
+.rankChoiceHeading > p {
+  margin: 6px 0 0;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 8px;
+}
+
+.rankChoiceCards {
+  display: grid;
+  width: 100%;
+  max-width: 830px;
+  grid-template-columns: repeat(var(--rank-card-count), minmax(0, 1fr));
+  gap: clamp(5px, 0.8vw, 10px);
+  align-items: start;
+  margin-top: 20px;
+}
+
+.rankChoiceSlot {
+  display: grid;
+  min-width: 0;
+  justify-items: center;
+  opacity: 0;
+  animation: rankChoiceCardDeal 520ms cubic-bezier(0.18, 0.72, 0.22, 1)
+    forwards;
+  animation-delay: calc(var(--rank-card-index) * 55ms);
+  perspective: 900px;
+}
+
+.rankChoiceCard {
+  position: relative;
+  width: 100%;
+  max-width: 91px;
+  aspect-ratio: 13 / 20;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: white;
+  cursor: pointer;
+  perspective: 900px;
+}
+
+.rankChoiceCard:disabled {
+  cursor: default;
+}
+
+.rankChoiceCardInner {
+  position: absolute;
+  inset: 0;
+  display: block;
+  border-radius: inherit;
+  box-shadow:
+    0 15px 28px rgba(0, 0, 0, 0.42),
+    0 0 0 1px rgba(222, 193, 132, 0.22);
+  transform-style: preserve-3d;
+  transition:
+    transform 300ms ease,
+    box-shadow 200ms ease;
+}
+
+.rankChoiceCardBack,
+.rankChoiceCardFront {
+  position: absolute;
+  inset: 0;
+  display: block;
+  overflow: hidden;
+  border: 1px solid rgba(213, 190, 213, 0.74);
+  border-radius: inherit;
+  backface-visibility: hidden;
+}
+
+.rankChoiceCardBack {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.035), rgba(24, 11, 32, 0.08)),
+    #75539a url("/cards/back.webp") center / cover no-repeat;
+}
+
+.rankChoiceCardFront {
+  background: #eee3ca;
+  transform: rotateY(180deg);
+}
+
+.rankChoiceCardFront img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.rankChoiceCard:not(:disabled):hover .rankChoiceCardInner,
+.rankChoiceCard:not(:disabled):focus-visible .rankChoiceCardInner {
+  box-shadow:
+    0 0 0 3px rgba(239, 198, 95, 0.38),
+    0 19px 33px rgba(0, 0, 0, 0.5);
+  transform: translateY(-9px);
+}
+
+.rankChoiceCard:focus-visible {
+  outline: 2px solid #f3cc6f;
+  outline-offset: 5px;
+}
+
+.rankChoiceSlotClaimed .rankChoiceCardInner {
+  box-shadow:
+    0 0 0 2px rgba(207, 164, 255, 0.9),
+    0 0 24px rgba(166, 102, 230, 0.86),
+    0 18px 34px rgba(0, 0, 0, 0.48);
+  animation: rankCardClaimGlow 1.5s ease-in-out infinite;
+}
+
+.rankChoiceSlotMine .rankChoiceCardInner {
+  box-shadow:
+    0 0 0 3px rgba(244, 202, 98, 0.94),
+    0 0 29px rgba(228, 174, 56, 0.8),
+    0 18px 34px rgba(0, 0, 0, 0.48);
+}
+
+.rankChoiceClaim {
+  position: absolute;
+  bottom: 7px;
+  left: 50%;
+  z-index: 4;
+  width: max-content;
+  padding: 4px 6px;
+  border: 1px solid rgba(255, 236, 187, 0.36);
+  border-radius: 999px;
+  background: rgba(42, 15, 51, 0.82);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.3);
+  color: #f5e6ff;
+  font-size: 6px;
+  font-weight: 900;
+  transform: translateX(-50%);
+}
+
+.rankChoiceSlotMine .rankChoiceClaim {
+  background: rgba(111, 77, 20, 0.9);
+  color: #fff0bb;
+}
+
+.rankChoiceSlotRevealed .rankChoiceCardInner {
+  animation: rankCardReveal 820ms cubic-bezier(0.3, 0.03, 0.18, 1) both;
+  animation-delay: calc(var(--rank-card-index) * 90ms);
+}
+
+.rankChoiceOwner {
+  display: grid;
+  max-width: 96px;
+  justify-items: center;
+  margin-top: 9px;
+  opacity: 0;
+  animation: rankOwnerArrival 380ms ease forwards;
+  animation-delay: calc(650ms + var(--rank-card-index) * 90ms);
+}
+
+.rankChoiceOwner strong,
+.rankChoiceOwner small {
+  display: block;
+  overflow: hidden;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rankChoiceOwner strong {
+  color: #fff2cf;
+  font-size: 8px;
+}
+
+.rankChoiceOwner small {
+  margin-top: 3px;
+  color: rgba(234, 196, 108, 0.78);
+  font-size: 6px;
+}
+
+.rankChoiceProgress {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 17px;
+}
+
+.rankChoiceProgress > span {
+  display: block;
+  overflow: hidden;
+  width: 110px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.11);
+}
+
+.rankChoiceProgress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #8c4db2, #edc86f);
+  transition: width 260ms ease;
+}
+
+.rankChoiceProgress small {
+  color: rgba(255, 255, 255, 0.54);
+  font-size: 7px;
+  font-weight: 800;
+}
+
+@keyframes rankChoiceFieldArrival {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+@keyframes rankChoiceCardDeal {
+  from {
+    opacity: 0;
+    transform: translateY(64px) rotate(4deg) scale(0.84);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes rankCardClaimGlow {
+  50% {
+    filter: brightness(1.08);
+  }
+}
+
+@keyframes rankCardReveal {
+  0% {
+    transform: rotateY(0deg) translateY(0);
+  }
+  46% {
+    transform: rotateY(88deg) translateY(-8px);
+  }
+  54% {
+    transform: rotateY(92deg) translateY(-8px);
+  }
+  100% {
+    transform: rotateY(180deg) translateY(0);
+  }
+}
+
+@keyframes rankOwnerArrival {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .card {
   position: relative;
   display: block;
@@ -1359,6 +1900,17 @@
   background: #eee3ca;
   pointer-events: none;
   user-select: none;
+}
+
+.card:has(> img[src*="/cards/01.webp"]),
+.card:has(> img[src*="/cards/joker.webp"]) {
+  border-color: #080808;
+  background: #080808;
+}
+
+.card:has(> img[src*="/cards/01.webp"]) > img,
+.card:has(> img[src*="/cards/joker.webp"]) > img {
+  background: #080808;
 }
 
 .card:hover:not(:disabled, .cardDisplayOnly) {
@@ -1431,6 +1983,81 @@
 .handConcealed .card {
   animation: dealCard 520ms ease both;
   animation-delay: calc(var(--card-index, 0) * 30ms);
+}
+
+.handRevealing {
+  perspective: 1000px;
+  user-select: none;
+}
+
+.handRevealing .card {
+  pointer-events: none;
+  transform-style: preserve-3d;
+  animation: onlineHandCardReveal 820ms cubic-bezier(0.34, 0.02, 0.2, 1) both;
+}
+
+.handRevealing .card::after {
+  position: absolute;
+  inset: -1px;
+  z-index: 20;
+  border: 1px solid rgba(239, 220, 171, 0.88);
+  border-radius: inherit;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.025), rgba(39, 19, 57, 0.08)),
+    #76549b url("/cards/back.webp") center / cover no-repeat;
+  box-shadow: inset 0 0 0 2px rgba(37, 20, 52, 0.25);
+  content: "";
+  transform: translateZ(1px);
+  backface-visibility: hidden;
+  animation: onlineHandBackSwap 820ms step-end both;
+}
+
+.ownDockTaxSelection {
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, transparent, rgba(194, 143, 45, 0.075));
+  box-shadow: inset 0 -2px 0 rgba(222, 178, 73, 0.23);
+}
+
+.ownDockTaxSelection .actionBar {
+  border-color: rgba(224, 180, 76, 0.48);
+  box-shadow:
+    0 0 0 3px rgba(213, 165, 58, 0.08),
+    0 8px 22px rgba(0, 0, 0, 0.24);
+}
+
+.ownDockRankHidden {
+  display: none;
+}
+
+@keyframes onlineHandCardReveal {
+  0% {
+    filter: saturate(0.86) brightness(0.9);
+    transform: translateY(0) rotateY(0deg);
+  }
+  48% {
+    filter: saturate(0.95) brightness(0.96);
+    transform: translateY(-8px) rotateY(89deg);
+  }
+  52% {
+    filter: saturate(1) brightness(1);
+    transform: translateY(-8px) rotateY(-89deg);
+  }
+  100% {
+    filter: none;
+    transform: translateY(0) rotateY(0deg);
+  }
+}
+
+@keyframes onlineHandBackSwap {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
 }
 
 @keyframes dealCard {
@@ -1651,6 +2278,77 @@
   font-size: 11px;
 }
 
+.revolutionOverlay {
+  background:
+    radial-gradient(circle at 50% 45%, rgba(142, 36, 49, 0.52), transparent 42%),
+    linear-gradient(150deg, rgba(48, 8, 17, 0.86), rgba(16, 3, 8, 0.84));
+  backdrop-filter: blur(6px) saturate(1.15);
+}
+
+.revolutionOverlay::before,
+.revolutionOverlay::after {
+  position: absolute;
+  width: min(680px, 76vw);
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(236, 132, 136, 0.7),
+    transparent
+  );
+  content: "";
+  animation: revolutionRuleArrival 1.2s ease both;
+}
+
+.revolutionOverlay::before {
+  top: 24%;
+}
+
+.revolutionOverlay::after {
+  bottom: 24%;
+}
+
+.revolutionOverlay > small {
+  color: #ee999e;
+}
+
+.revolutionOverlay > strong {
+  color: #fff0e2;
+  text-shadow:
+    0 0 32px rgba(218, 71, 81, 0.38),
+    0 12px 32px rgba(0, 0, 0, 0.55);
+  animation: revolutionTitleArrival 760ms cubic-bezier(0.17, 0.79, 0.22, 1)
+    both;
+}
+
+.revolutionOverlay > b {
+  margin-top: 10px;
+  color: #ffd6cf;
+  font-size: clamp(12px, 1.6vw, 17px);
+  font-weight: 800;
+}
+
+.greatRevolutionOverlay {
+  background:
+    radial-gradient(circle at 50% 45%, rgba(164, 42, 45, 0.62), transparent 41%),
+    linear-gradient(150deg, rgba(55, 7, 15, 0.9), rgba(15, 3, 7, 0.88));
+}
+
+@keyframes revolutionRuleArrival {
+  from {
+    opacity: 0;
+    transform: scaleX(0.25);
+  }
+}
+
+@keyframes revolutionTitleArrival {
+  from {
+    filter: blur(9px);
+    opacity: 0;
+    transform: scale(1.18);
+  }
+}
+
 .eventCards {
   display: flex;
   min-height: 210px;
@@ -1733,6 +2431,82 @@
 .passOverlay small {
   color: rgba(255, 255, 255, 0.58);
   font-size: 9px;
+}
+
+.dalmutiEffectOverlay {
+  background:
+    radial-gradient(circle at 50% 44%, rgba(197, 151, 52, 0.28), transparent 36%),
+    rgba(10, 4, 7, 0.78);
+}
+
+.dalmutiEffectOverlay > small {
+  color: #d9ae51;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.23em;
+}
+
+.dalmutiEffectCard {
+  margin: 14px 0 10px;
+  animation: dalmutiEffectArrival 720ms cubic-bezier(0.2, 0.76, 0.22, 1) both;
+}
+
+.dalmutiEffectCard .card {
+  width: 119px;
+  height: 183px;
+  border: 2px solid #060606;
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 5px rgba(225, 181, 79, 0.13),
+    0 25px 52px rgba(0, 0, 0, 0.55);
+}
+
+.dalmutiEffectOverlay > strong {
+  color: #ffe4a0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(38px, 6vw, 68px);
+  font-weight: 500;
+  letter-spacing: -0.05em;
+}
+
+.dalmutiEffectOverlay > span {
+  margin-top: 6px;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 10px;
+}
+
+.autoPassPlayers {
+  display: flex;
+  max-width: min(620px, 90vw);
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.autoPassPlayers i {
+  padding: 5px 9px;
+  border: 1px solid rgba(235, 203, 129, 0.25);
+  border-radius: 999px;
+  background: rgba(116, 36, 55, 0.48);
+  color: #f2dce0;
+  font-size: 7px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.dalmutiEffectOverlay > b {
+  margin-top: 9px;
+  color: #e4bd66;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+@keyframes dalmutiEffectArrival {
+  from {
+    opacity: 0;
+    transform: translateY(80px) scale(0.72) rotate(7deg);
+  }
 }
 
 .revealCard {
@@ -2095,6 +2869,11 @@
     border-radius: 36% / 11%;
   }
 
+  .tableRankSelection {
+    min-height: calc(100vh - 84px);
+    border-radius: 28% / 9%;
+  }
+
   .seatRing {
     position: absolute;
     top: 15px;
@@ -2154,6 +2933,27 @@
   .tableCenter {
     top: 56%;
     width: 74%;
+  }
+
+  .tableRankSelection .tableCenter {
+    top: 57%;
+    width: 94%;
+    min-height: 350px;
+  }
+
+  .rankChoiceCards {
+    overflow-x: auto;
+    grid-template-columns: repeat(
+      var(--rank-card-count),
+      minmax(54px, 1fr)
+    );
+    padding: 5px 5px 13px;
+    scrollbar-color: rgba(215, 170, 72, 0.32) transparent;
+    scrollbar-width: thin;
+  }
+
+  .rankChoiceCard {
+    max-width: 79px;
   }
 
   .tableCards .card {
@@ -2235,6 +3035,10 @@
     min-height: 420px;
   }
 
+  .tableRankSelection {
+    min-height: calc(100vh - 80px);
+  }
+
   .seatRing {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
@@ -2258,6 +3062,41 @@
   .tableCenter {
     top: 58%;
     width: 86%;
+  }
+
+  .tableRankSelection .tableCenter {
+    top: 57%;
+    width: 96%;
+  }
+
+  .rankChoiceIntro > strong {
+    font-size: 39px;
+  }
+
+  .rankChoiceIntro > p {
+    font-size: 9px;
+  }
+
+  .rankCountdown {
+    width: 82px;
+    height: 82px;
+    margin-top: 17px;
+  }
+
+  .rankCountdown b {
+    font-size: 42px;
+  }
+
+  .rankChoiceHeading > strong {
+    font-size: 22px;
+  }
+
+  .rankChoiceCards {
+    margin-top: 15px;
+  }
+
+  .rankChoiceOwner strong {
+    font-size: 7px;
   }
 
   .tableCenter > strong {

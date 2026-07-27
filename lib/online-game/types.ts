@@ -1,5 +1,8 @@
 export type OnlineRoomPhase =
   | "lobby"
+  | "rank-intro"
+  | "rank-selection"
+  | "rank-reveal"
   | "reveal-intro"
   | "hand-reveal"
   | "revolution"
@@ -55,12 +58,40 @@ export type OnlineTaxExchange = {
   nobleCardIds: string[] | null;
 };
 
+export type OnlineRankCardState = {
+  slotIndex: number;
+  rank: number;
+  claimedByPlayerId: string | null;
+  claimedAt: number | null;
+};
+
+export type OnlineRankSelectionState = {
+  cards: OnlineRankCardState[];
+  introStartedAt: number;
+  countdownStartsAt: number;
+  countdownEndsAt: number;
+  revealAt: number | null;
+  revealEndsAt: number | null;
+};
+
+export type OnlineDeclaredRevolution = {
+  round: number;
+  playerId: string;
+  kind: "revolution" | "great-revolution";
+};
+
 export type OnlineEventVisibility = "public" | "private";
 
 export type OnlineEventType =
   | "ROOM_CREATED"
   | "PLAYER_JOINED"
   | "PLAYER_READY_CHANGED"
+  | "RANK_CHOICE_INTRO_STARTED"
+  | "RANK_CHOICE_STARTED"
+  | "RANK_CARD_CHOSEN"
+  | "RANK_CHOICES_LOCKED"
+  | "RANK_CARDS_REVEALED"
+  | "RANK_ORDER_ASSIGNED"
   | "DEAL_SEALED"
   | "MATCH_STARTED"
   | "HAND_REVEAL_STARTED"
@@ -78,10 +109,13 @@ export type OnlineEventType =
   | "PLAY_INTRO_STARTED"
   | "TURN_STARTED"
   | "CARDS_PLAYED"
+  | "DALMUTI_EFFECT"
   | "PLAYER_PASSED"
   | "TRICK_CLEARED"
   | "PLAYER_FINISHED"
-  | "ROUND_ENDED";
+  | "ROUND_ENDED"
+  | "PLAYER_LEFT"
+  | "ROOM_RESET";
 
 export type OnlineEvent = {
   seq: number;
@@ -106,6 +140,10 @@ export type OnlineCommand =
       type: "START_MATCH";
     })
   | (OnlineCommandBase & {
+      type: "CHOOSE_RANK_CARD";
+      slotIndex: number;
+    })
+  | (OnlineCommandBase & {
       type: "CHOOSE_REVOLUTION";
       declare: boolean;
     })
@@ -122,9 +160,18 @@ export type OnlineCommand =
     })
   | (OnlineCommandBase & {
       type: "START_NEXT_ROUND";
+    })
+  | (OnlineCommandBase & {
+      type: "RESET_ROOM";
+    })
+  | (OnlineCommandBase & {
+      type: "LEAVE_ROOM";
     });
 
 export type OnlinePhaseDurations = {
+  rankChoiceIntroMs: number;
+  rankRevealDelayMs: number;
+  rankRevealMs: number;
   revealIntroMs: number;
   handRevealMs: number;
   revolutionDecisionMs: number;
@@ -155,7 +202,9 @@ export type OnlineRoomState = {
   lastPlayedId: string | null;
   passedPlayerIds: string[];
   finishOrder: string[];
+  rankSelection: OnlineRankSelectionState | null;
   revolutionHolderId: string | null;
+  declaredRevolution: OnlineDeclaredRevolution | null;
   taxExchanges: OnlineTaxExchange[];
   actionLockUntil: number | null;
   events: OnlineEvent[];
@@ -199,6 +248,22 @@ export type OnlineSnapshot = {
   finishOrder: string[];
   events: OnlineEvent[];
   latestEventSeq: number;
+  rankSelection: {
+    stage: "intro" | "selecting" | "locked" | "revealed";
+    cards: Array<{
+      slotIndex: number;
+      claimedByPlayerId: string | null;
+      revealedRank: number | null;
+    }>;
+    introStartedAt: number;
+    countdownStartsAt: number;
+    countdownEndsAt: number;
+    revealAt: number | null;
+    revealEndsAt: number | null;
+    canChoose: boolean;
+    selectedSlotIndex: number | null;
+  } | null;
+  declaredRevolution: OnlineDeclaredRevolution | null;
   tax: {
     requiredReturnCount: number;
     selectedReturnCount: number;

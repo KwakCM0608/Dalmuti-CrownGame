@@ -339,6 +339,34 @@ export async function removeOnlineRoomMember(
   }
 }
 
+export async function deleteStoredOnlineRoom(
+  roomCodeInput: string,
+): Promise<void> {
+  await ensureOnlineRoomSchema();
+  const code = normalizeRoomCode(roomCodeInput);
+  try {
+    const db = await getD1();
+    const results = await db.batch([
+      // Delete members explicitly instead of depending on a connection-level
+      // SQLite foreign_keys setting. D1 batch statements commit atomically.
+      db
+        .prepare("DELETE FROM online_room_members WHERE room_code = ?")
+        .bind(code),
+      db
+        .prepare("DELETE FROM online_rooms WHERE code = ?")
+        .bind(code),
+    ]);
+    if (changes(results[1]) !== 1) {
+      throw roomNotFound();
+    }
+  } catch (error) {
+    if (error instanceof OnlineStoreError) {
+      throw error;
+    }
+    throw storageFailure(error);
+  }
+}
+
 export async function authenticateOnlineRoomRequest(
   request: Request,
   roomCodeInput: string,

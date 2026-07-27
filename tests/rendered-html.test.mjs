@@ -99,8 +99,19 @@ test("ships without the disposable starter preview", async () => {
   assert.match(page, /kind: "pass"/);
   assert.match(page, /previousTable: state\.table/);
   assert.match(page, /visibleTable\?\.cards \?\? \[\]/);
-  assert.match(page, /humanFinished \? "완료"/);
-  assert.match(page, /prepareRound\(players, 1, scores, true, true\)/);
+  assert.match(page, /humanFinished\s*\?\s*"완료"/);
+  assert.match(page, /createOpeningRound\(BASE_PLAYERS, scores\)/);
+  assert.match(page, /\| "rank-intro"/);
+  assert.match(page, /\| "rank-selection"/);
+  assert.match(page, /\| "rank-reveal"/);
+  assert.match(
+    page,
+    /shuffle\(\s*Array\.from\(\{ length: current\.players\.length \}, \(_.*, index\) => index \+ 1\)/,
+  );
+  assert.match(page, /RANK_ALL_SELECTED_PAUSE_MS = 1000/);
+  assert.match(page, /className="opening-rank-intro"/);
+  assert.match(page, /selectedPlayerId \? "is-selected"/);
+  assert.match(page, /revolution-announcement is-\$\{/);
   assert.match(page, /const beginHostedGame/);
   assert.match(page, /className="ready-play-button"/);
   assert.match(page, />세금 교환</);
@@ -143,6 +154,7 @@ test("ships without the disposable starter preview", async () => {
     /ROTATED_CARD_NAMES = \{"06", "07", "08", "11", "joker"\}/,
   );
   assert.match(cardAssetBuilder, /name in \{"01", "joker"\}/);
+  assert.match(cardAssetBuilder, /def add_black_outer_border/);
   assert.doesNotMatch(cardAssetBuilder, /normalize_outer_frame/);
   for (const [rank, name] of [
     [1, "달무티"],
@@ -206,6 +218,35 @@ test("ships one normalized artwork asset for every card rank", async () => {
     ),
   );
   await access(new URL("../public/cards/back.webp", import.meta.url));
+});
+
+test("online mode exposes synchronized reveal, tax, Dalmuti, and exit states", async () => {
+  const [page, styles] = await Promise.all([
+    readFile(new URL("../app/online/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/online/online.module.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(page, /selectedReturnCount/);
+  assert.match(page, /waitingTaxPlayerIds/);
+  assert.match(page, /className=\{styles\.taxDecisionField\}/);
+  assert.match(page, /이\(가\) 세금 교환 중/);
+  assert.match(page, /한 플레이어가 혁명 여부를 결정 중/);
+  assert.match(page, /type === "DALMUTI_EFFECT"/);
+  assert.match(page, /나머지 플레이어 자동 PASS/);
+  assert.match(page, /isHandRevealing \? styles\.handRevealing/);
+  assert.match(page, /isHost \? "reset" : "leave"/);
+  assert.match(page, /clearSavedSession/);
+  assert.match(page, /function RankSelectionField/);
+  assert.match(page, /sendCommand\("CHOOSE_RANK_CARD", \{ slotIndex \}\)/);
+  assert.match(page, /첫 게임은 선착순으로 카드를 선택해/);
+  assert.match(page, /계급 미정/);
+  assert.match(page, /declaredKind === "great-revolution"/);
+  assert.match(page, /대혁명을 선포하시겠습니까/);
+  assert.doesNotMatch(page, /sendCommand\("PASS", \{ automatic: true \}\)/);
+  assert.match(styles, /@keyframes onlineHandCardReveal/);
+  assert.match(styles, /\.dalmutiEffectOverlay/);
+  assert.match(styles, /\.rankChoiceSlotClaimed/);
+  assert.match(styles, /\.tableRevolution/);
 });
 
 test("deals remainder cards to the lowest-ranked players", async () => {
