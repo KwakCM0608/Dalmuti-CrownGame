@@ -22,17 +22,17 @@ const PUBLIC_ACTION_LOCK_MS = 1_500;
 const RANK_COUNTDOWN_MS = 3_000;
 
 const DEFAULT_DURATIONS: OnlinePhaseDurations = {
-  rankChoiceIntroMs: 5_000,
+  rankChoiceIntroMs: 6_000,
   rankRevealDelayMs: 1_000,
-  rankRevealMs: 1_800,
-  revealIntroMs: 1_600,
-  handRevealMs: 900,
-  revolutionDecisionMs: 15_000,
-  taxIntroMs: 1_500,
-  taxSelectionMs: 30_000,
-  taxTributeMs: 4_000,
-  taxReturnMs: 4_000,
-  playIntroMs: 1_800,
+  rankRevealMs: 2_800,
+  revealIntroMs: 2_200,
+  handRevealMs: 2_000,
+  revolutionDecisionMs: 20_000,
+  taxIntroMs: 2_200,
+  taxSelectionMs: 45_000,
+  taxTributeMs: 5_200,
+  taxReturnMs: 5_200,
+  playIntroMs: 2_500,
 };
 
 export class OnlineGameError extends Error {
@@ -611,7 +611,7 @@ function enterHandReveal(state: OnlineRoomState, at: number): void {
       state,
       "HAND_REVEALED",
       at,
-      { cards: [...state.hands[player.id]] },
+      { cards: [...state.hands[player.id]], endsAt: state.phaseEndsAt },
       [player.id],
     );
   }
@@ -758,6 +758,7 @@ function enterTaxTribute(state: OnlineRoomState, at: number): void {
         fromPlayerId: exchange.peonId,
         toPlayerId: exchange.nobleId,
         cards,
+        endsAt: state.phaseEndsAt,
       },
       [exchange.peonId, exchange.nobleId],
     );
@@ -801,6 +802,7 @@ function enterTaxReturn(state: OnlineRoomState, at: number): void {
         fromPlayerId: exchange.nobleId,
         toPlayerId: exchange.peonId,
         cards,
+        endsAt: state.phaseEndsAt,
       },
       [exchange.peonId, exchange.nobleId],
     );
@@ -857,6 +859,7 @@ function chooseRevolution(
   appendEvent(state, "REVOLUTION_DECLARED", at, {
     playerId: holderId,
     kind: isGreatRevolution ? "great" : "normal",
+    endsAt: at + state.durations.playIntroMs,
   });
   enterPlayIntro(state, at);
 }
@@ -1356,7 +1359,34 @@ export function applyOnlineCommand(
       appendEvent(next, "RANK_CARD_CHOSEN", now, {
         slotIndex: card.slotIndex,
         playerId: actorId,
+        automatic: false,
       });
+
+      const remainingCards = rankSelection.cards.filter(
+        (candidate) => candidate.claimedByPlayerId === null,
+      );
+      const assignedPlayerIds = new Set(
+        rankSelection.cards.flatMap((candidate) =>
+          candidate.claimedByPlayerId
+            ? [candidate.claimedByPlayerId]
+            : [],
+        ),
+      );
+      const remainingPlayers = next.players.filter(
+        (player) => !assignedPlayerIds.has(player.id),
+      );
+      if (remainingCards.length === 1 && remainingPlayers.length === 1) {
+        const finalCard = remainingCards[0];
+        const finalPlayer = remainingPlayers[0];
+        finalCard.claimedByPlayerId = finalPlayer.id;
+        finalCard.claimedAt = now;
+        appendEvent(next, "RANK_CARD_CHOSEN", now, {
+          slotIndex: finalCard.slotIndex,
+          playerId: finalPlayer.id,
+          automatic: true,
+        });
+      }
+
       if (allRankCardsChosen(next)) lockRankChoices(next, now);
       break;
     }

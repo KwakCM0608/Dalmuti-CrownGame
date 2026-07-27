@@ -93,7 +93,7 @@ function startAndAssignJoinOrder(
     (left, right) =>
       left.joinedAt - right.joinedAt || left.id.localeCompare(right.id),
   );
-  for (const [index, player] of joinedPlayers.entries()) {
+  for (const [index, player] of joinedPlayers.slice(0, -1).entries()) {
     const card = next.rankSelection.cards.find(
       (candidate) => candidate.rank === index + 1,
     );
@@ -110,6 +110,13 @@ function startAndAssignJoinOrder(
       deps,
     );
   }
+  const finalPlayer = joinedPlayers.at(-1);
+  assert.equal(
+    next.rankSelection.cards.some(
+      (card) => card.claimedByPlayerId === finalPlayer.id,
+    ),
+    true,
+  );
   assert.equal(next.phase, "rank-selection");
   assert.notEqual(next.phaseEndsAt, null);
 
@@ -201,7 +208,7 @@ test("the opening PLAY runs a hidden, server-authoritative rank choice before de
       error instanceof OnlineGameError && error.code === "RANK_CARD_CLAIMED",
   );
 
-  for (const [offset, playerId] of ["p2", "p3", "p4"].entries()) {
+  for (const [offset, playerId] of ["p2", "p3"].entries()) {
     const card = state.rankSelection.cards.find(
       (candidate) => candidate.claimedByPlayerId === null,
     );
@@ -214,7 +221,37 @@ test("the opening PLAY runs a hidden, server-authoritative rank choice before de
     );
   }
   assert.equal(state.phase, "rank-selection");
-  assert.equal(state.phaseEndsAt, 4_106);
+  assert.equal(state.phaseEndsAt, 4_105);
+  assert.equal(
+    state.rankSelection.cards.find(
+      (card) => card.claimedByPlayerId === "p4",
+    )?.claimedAt,
+    3_105,
+  );
+  const finalChoiceEvent = state.events.findLast(
+    (event) =>
+      event.type === "RANK_CARD_CHOSEN" &&
+      event.payload.playerId === "p4",
+  );
+  assert.equal(finalChoiceEvent?.payload.automatic, true);
+  assert.equal("rank" in finalChoiceEvent.payload, false);
+  assert.throws(
+    () =>
+      command(
+        state,
+        "p4",
+        "CHOOSE_RANK_CARD",
+        {
+          slotIndex: state.rankSelection.cards.find(
+            (card) => card.claimedByPlayerId === "p4",
+          ).slotIndex,
+        },
+        3_106,
+      ),
+    (error) =>
+      error instanceof OnlineGameError &&
+      error.code === "RANK_CHOICES_LOCKED",
+  );
 
   view = projectOnlineRoom(state, "p3");
   assert.equal(view.rankSelection.stage, "locked");
@@ -227,7 +264,7 @@ test("the opening PLAY runs a hidden, server-authoritative rank choice before de
     true,
   );
 
-  state = advanceOnlineRoom(state, 4_106, {
+  state = advanceOnlineRoom(state, 4_105, {
     randomInt: () => 0,
     durations,
   });
@@ -250,7 +287,7 @@ test("the opening PLAY runs a hidden, server-authoritative rank choice before de
     ["p1", "p2", "p3", "p4"],
   );
 
-  state = advanceOnlineRoom(state, 5_606, {
+  state = advanceOnlineRoom(state, 5_605, {
     randomInt: () => 0,
     durations,
   });
@@ -603,6 +640,75 @@ test("tax card identities are visible only to each exchange pair", () => {
   );
 });
 
+test("tax-selection timeout keeps submitted returns and automatically fills only missing choices", () => {
+  let state = readyEveryone(createFourPlayerLobby());
+  const durations = {
+    ...instantRankDurations,
+    revealIntroMs: 0,
+    handRevealMs: 0,
+    taxIntroMs: 0,
+    taxSelectionMs: 250,
+    taxTributeMs: 10,
+    taxReturnMs: 10,
+    playIntroMs: 0,
+  };
+  state = startAndAssignJoinOrder(state, 100, durations);
+  state.hands = {
+    p1: [
+      { id: "p1-manual-a", rank: 12 },
+      { id: "p1-manual-b", rank: 11 },
+    ],
+    p2: [
+      { id: "p2-auto", rank: 10 },
+      { id: "p2-keep", rank: 3 },
+    ],
+    p3: [
+      { id: "p3-tax", rank: 2 },
+      { id: "p3-other", rank: 8 },
+    ],
+    p4: [
+      { id: "p4-tax-a", rank: 1 },
+      { id: "p4-tax-b", rank: 2 },
+      { id: "p4-other", rank: 9 },
+    ],
+  };
+  state = advanceOnlineRoom(state, state.phaseEndsAt, { durations });
+  assert.equal(state.phase, "tax-selection");
+  const selectionTimeoutAt = state.phaseEndsAt;
+
+  state = applyOnlineCommand(
+    state,
+    "p1",
+    {
+      id: "manual-return-before-timeout",
+      expectedRevision: state.revision,
+      type: "SELECT_TAX_RETURN",
+      cardIds: ["p1-manual-a", "p1-manual-b"],
+    },
+    selectionTimeoutAt - 1,
+    { durations },
+  );
+  assert.equal(state.phase, "tax-selection");
+
+  state = advanceOnlineRoom(state, selectionTimeoutAt, { durations });
+  assert.equal(state.phase, "tax-tribute");
+  assert.deepEqual(state.taxExchanges[0].nobleCardIds, [
+    "p1-manual-a",
+    "p1-manual-b",
+  ]);
+  assert.deepEqual(state.taxExchanges[1].nobleCardIds, ["p2-auto"]);
+
+  const automaticSelections = state.events.filter(
+    (event) =>
+      event.type === "TAX_RETURN_SELECTED" &&
+      event.payload.automatic === true,
+  );
+  assert.equal(automaticSelections.length, 1);
+  assert.deepEqual(automaticSelections[0].playerIds, ["p2"]);
+  assert.equal(automaticSelections[0].at, selectionTimeoutAt);
+  assert.equal(state.phaseEndsAt, selectionTimeoutAt + durations.taxTributeMs);
+});
+
 test("playing rank 1 auto-passes every other active player and starts a new trick", () => {
   let state = readyEveryone(createFourPlayerLobby());
   state.phase = "playing";
@@ -756,6 +862,10 @@ test("the opening round offers revolution and declining it proceeds to tax selec
     projectOnlineRoom(declared, "p4").declaredRevolution,
     declared.declaredRevolution,
   );
+  const declaredEvent = declared.events.findLast(
+    (event) => event.type === "REVOLUTION_DECLARED",
+  );
+  assert.equal(declaredEvent.payload.endsAt, declared.phaseEndsAt);
 });
 
 test("legacy persisted room JSON hydrates new optional ranking fields safely", () => {
@@ -783,6 +893,14 @@ test("legacy persisted room JSON hydrates new optional ranking fields safely", (
   );
   assert.equal(started.phase, "rank-intro");
   assert.equal(started.durations.rankRevealDelayMs, 1_000);
+  assert.equal(started.durations.revealIntroMs, 2_200);
+  assert.equal(started.durations.handRevealMs, 2_000);
+  assert.equal(started.durations.revolutionDecisionMs, 20_000);
+  assert.equal(started.durations.taxIntroMs, 2_200);
+  assert.equal(started.durations.taxSelectionMs, 45_000);
+  assert.equal(started.durations.taxTributeMs, 5_200);
+  assert.equal(started.durations.taxReturnMs, 5_200);
+  assert.equal(started.durations.playIntroMs, 2_500);
 });
 
 test("the host can reset a room and a non-host can leave without stale match data", () => {

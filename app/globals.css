@@ -85,6 +85,24 @@ button:focus-visible {
   gap: 12px;
 }
 
+.brand-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.brand-button:hover .brand-seal,
+.brand-button:focus-visible .brand-seal {
+  border-color: #b28a35;
+  box-shadow:
+    0 0 0 4px rgba(210, 167, 72, 0.12),
+    0 3px 9px rgba(47, 34, 22, 0.23),
+    inset 0 0 0 2px rgba(255, 240, 178, 0.45);
+}
+
 .brand-seal {
   display: block;
   width: 42px;
@@ -456,7 +474,7 @@ button:focus-visible {
 
 .opponent-card-stack.is-revealing .opponent-hand-back,
 .opponent-row.is-revealing .opponent-hand-back {
-  animation: opponentHandReveal 760ms cubic-bezier(0.34, 0.02, 0.2, 1) both;
+  animation: opponentHandReveal 1.15s cubic-bezier(0.34, 0.02, 0.2, 1) both;
 }
 
 @keyframes opponentHandReveal {
@@ -891,7 +909,7 @@ button:focus-visible {
   isolation: isolate;
   text-align: center;
   text-shadow: 0 4px 22px rgba(0, 0, 0, 0.46);
-  animation: openingRankIntro 700ms ease both;
+  animation: openingRankIntro 1s ease both;
 }
 
 .opening-rank-intro::before {
@@ -957,7 +975,7 @@ button:focus-visible {
   font-family: Georgia, "Times New Roman", serif;
   font-size: 39px;
   line-height: 1;
-  animation: openingRankCountdown 820ms cubic-bezier(0.18, 0.8, 0.3, 1) both;
+  animation: openingRankCountdown 1.05s cubic-bezier(0.18, 0.8, 0.3, 1) both;
 }
 
 .opening-rank-intro em {
@@ -1119,23 +1137,23 @@ button:focus-visible {
 
 .opening-rank-board.is-revealed .opening-rank-card-inner {
   transform: rotateY(180deg);
-  transition: transform 900ms cubic-bezier(0.2, 0.78, 0.22, 1);
+  transition: transform 1.25s cubic-bezier(0.2, 0.78, 0.22, 1);
 }
 
 .opening-rank-board.is-revealed .opening-rank-card:nth-child(2) .opening-rank-card-inner {
-  transition-delay: 90ms;
+  transition-delay: 125ms;
 }
 
 .opening-rank-board.is-revealed .opening-rank-card:nth-child(3) .opening-rank-card-inner {
-  transition-delay: 180ms;
+  transition-delay: 250ms;
 }
 
 .opening-rank-board.is-revealed .opening-rank-card:nth-child(4) .opening-rank-card-inner {
-  transition-delay: 270ms;
+  transition-delay: 375ms;
 }
 
 .opening-rank-board.is-revealed .opening-rank-card:nth-child(5) .opening-rank-card-inner {
-  transition-delay: 360ms;
+  transition-delay: 500ms;
 }
 
 .opening-rank-board.is-revealed .opening-rank-card.is-selected .opening-rank-card-inner {
@@ -1199,7 +1217,7 @@ button:focus-visible {
   isolation: isolate;
   text-align: center;
   text-shadow: 0 4px 24px rgba(20, 0, 3, 0.7);
-  animation: revolutionAnnouncement 1.8s cubic-bezier(0.2, 0.78, 0.22, 1) both;
+  animation: revolutionAnnouncement 3.1s cubic-bezier(0.2, 0.78, 0.22, 1) both;
 }
 
 .revolution-announcement::before {
@@ -1306,7 +1324,7 @@ button:focus-visible {
   isolation: isolate;
   text-align: center;
   text-shadow: 0 4px 22px rgba(0, 0, 0, 0.42);
-  animation: phaseIntroReveal 1.5s cubic-bezier(0.2, 0.76, 0.22, 1) both;
+  animation: phaseIntroReveal 2.25s cubic-bezier(0.2, 0.76, 0.22, 1) both;
 }
 
 .phase-intro::before {
@@ -1390,7 +1408,7 @@ button:focus-visible {
 
 .phase-intro.is-play {
   --intro-accent: 227, 194, 103;
-  animation-duration: 1.8s;
+  animation-duration: 2.45s;
 }
 
 .phase-intro.is-ready {
@@ -1455,7 +1473,7 @@ button:focus-visible {
   isolation: isolate;
   text-align: center;
   text-shadow: 0 4px 22px rgba(0, 0, 0, 0.4);
-  animation: handRevealIntro 1.55s cubic-bezier(0.2, 0.76, 0.22, 1) both;
+  animation: handRevealIntro 2.25s cubic-bezier(0.2, 0.76, 0.22, 1) both;
 }
 
 .hand-reveal-intro::before {
@@ -1477,7 +1495,7 @@ button:focus-visible {
   transform: translateX(-50%);
   transform-origin: 50% 50%;
   backface-visibility: hidden;
-  animation: revealIntroCard 1.25s cubic-bezier(0.34, 0.02, 0.2, 1) both;
+  animation: revealIntroCard 1.8s cubic-bezier(0.34, 0.02, 0.2, 1) both;
 }
 
 .hand-reveal-intro::after {
@@ -1638,7 +1656,7 @@ button:focus-visible {
     scale(var(--endpoint-scale));
   transform-origin: center;
   will-change: top, left, opacity;
-  animation: taxSeatTransfer 3.72s cubic-bezier(0.32, 0.02, 0.18, 1) forwards;
+  animation: taxSeatTransfer 5.55s cubic-bezier(0.32, 0.02, 0.18, 1) forwards;
   animation-delay: var(--tax-delay);
 }
 
@@ -1768,7 +1786,7 @@ button:focus-visible {
   opacity: 0;
   box-shadow: 0 8px 18px rgba(20, 25, 20, 0.24);
   transform: translateX(-50%);
-  animation: taxCardIdentity 3.72s ease forwards;
+  animation: taxCardIdentity 5.55s ease forwards;
   animation-delay: var(--tax-delay);
 }
 
@@ -1791,7 +1809,7 @@ button:focus-visible {
   box-shadow: 0 12px 28px rgba(12, 23, 19, 0.3);
   transform: translate(-50%, var(--caption-offset)) scale(0.96);
   will-change: opacity, transform;
-  animation: taxRouteCaption 3.72s ease forwards;
+  animation: taxRouteCaption 5.55s ease forwards;
 }
 
 .tax-transfer-route.is-concealed .tax-route-caption {
@@ -1932,6 +1950,43 @@ button:focus-visible {
   pointer-events: none;
 }
 
+.public-turn-action-layer.is-dalmuti::before {
+  position: absolute;
+  inset: 6%;
+  border: 1px solid rgba(247, 216, 123, 0.32);
+  border-radius: 46% / 18%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(226, 184, 73, 0.2),
+    transparent 63%
+  );
+  box-shadow:
+    inset 0 0 52px rgba(240, 200, 91, 0.16),
+    0 0 36px rgba(220, 171, 53, 0.12);
+  content: "";
+  opacity: 0;
+  animation: dalmutiTableGlow 3.1s ease both;
+}
+
+.public-turn-action-layer.is-dalmuti .public-play-card,
+.public-turn-action-layer.is-dalmuti .public-play-caption {
+  animation-duration: 3.1s;
+}
+
+.public-turn-action-layer.is-dalmuti .public-play-caption {
+  border-color: rgba(255, 222, 126, 0.72);
+  background: rgba(48, 37, 16, 0.96);
+  box-shadow:
+    0 0 0 3px rgba(239, 198, 80, 0.14),
+    0 15px 34px rgba(18, 16, 8, 0.38);
+}
+
+.public-turn-action-layer.is-dalmuti .public-play-caption small {
+  color: #ffe18a;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+}
+
 .public-play-card,
 .public-play-caption,
 .public-pass-badge {
@@ -1956,7 +2011,7 @@ button:focus-visible {
     scale(0.34);
   transform-origin: center;
   will-change: transform, opacity;
-  animation: publicCardPlay 1.38s cubic-bezier(0.24, 0.68, 0.22, 1) forwards;
+  animation: publicCardPlay 2.08s cubic-bezier(0.24, 0.68, 0.22, 1) forwards;
   animation-delay: var(--action-delay);
 }
 
@@ -1997,7 +2052,7 @@ button:focus-visible {
     translateY(-6px)
     scale(0.96);
   will-change: transform, opacity;
-  animation: publicPlayCaption 1.38s ease forwards;
+  animation: publicPlayCaption 2.08s ease forwards;
 }
 
 .public-play-caption small,
@@ -2053,7 +2108,7 @@ button:focus-visible {
     scale(0.5);
   transform-origin: center;
   will-change: transform, opacity;
-  animation: publicPassToTable 1.38s cubic-bezier(0.24, 0.68, 0.22, 1) forwards;
+  animation: publicPassToTable 2.08s cubic-bezier(0.24, 0.68, 0.22, 1) forwards;
 }
 
 .public-pass-badge small {
@@ -2222,6 +2277,19 @@ button:focus-visible {
       )
       rotate(0deg)
       scale(1);
+  }
+}
+
+@keyframes dalmutiTableGlow {
+  0%,
+  100% {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  18%,
+  78% {
+    opacity: 1;
+    transform: scale(1);
   }
 }
 
@@ -2448,7 +2516,7 @@ button:focus-visible {
   box-shadow:
     0 0 0 3px rgba(255, 255, 255, 0.38),
     0 12px 27px rgba(49, 81, 60, 0.12);
-  animation: finishedHandArrive 460ms cubic-bezier(0.2, 0.76, 0.22, 1) both;
+  animation: finishedHandArrive 650ms cubic-bezier(0.2, 0.76, 0.22, 1) both;
 }
 
 .finished-hand-state::before {
@@ -2718,15 +2786,15 @@ button:focus-visible {
 }
 
 .hand.is-revealing .playing-card {
-  animation: handCardReveal 820ms cubic-bezier(0.34, 0.02, 0.2, 1) both;
+  animation: handCardReveal 1.2s cubic-bezier(0.34, 0.02, 0.2, 1) both;
 }
 
 .hand.is-revealing .playing-card::after {
-  animation: handCardBackSwap 820ms step-end both;
+  animation: handCardBackSwap 1.2s step-end both;
 }
 
 .hand.is-revealing .playing-card-back {
-  animation: looseCardBackReveal 820ms cubic-bezier(0.34, 0.02, 0.2, 1) both;
+  animation: looseCardBackReveal 1.2s cubic-bezier(0.34, 0.02, 0.2, 1) both;
 }
 
 @keyframes handCardReveal {
@@ -2822,7 +2890,7 @@ button:focus-visible {
 
 .hand .playing-card.is-tax-source-placeholder {
   pointer-events: none;
-  animation: taxSourcePlaceholder 560ms ease forwards;
+  animation: taxSourcePlaceholder 800ms ease forwards;
 }
 
 @keyframes taxSourcePlaceholder {

@@ -3,6 +3,7 @@
 import type { CSSProperties, FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { OnlineCommand, OnlineSnapshot } from "@/lib/online-game";
 import styles from "./online.module.css";
 
@@ -253,6 +254,7 @@ function eventFrom(value: unknown, index: number): EventView {
     source.endsAt,
     numberValue(payload.endsAt, startsAt + defaultEventDuration(source.type)),
   );
+  const minimumDuration = defaultEventDuration(source.type ?? source.kind);
   return {
     id: stringValue(source.id, `${seq}-${stringValue(source.type, "event")}`),
     seq,
@@ -262,7 +264,7 @@ function eventFrom(value: unknown, index: number): EventView {
     at,
     startsAt,
     durationMs: Math.max(
-      700,
+      minimumDuration,
       numberValue(
         source.durationMs,
         numberValue(
@@ -288,12 +290,22 @@ function eventFrom(value: unknown, index: number): EventView {
 
 function defaultEventDuration(type: unknown): number {
   const label = stringValue(type).toUpperCase();
-  if (label.includes("HAND_REVEAL")) return 900;
-  if (label.includes("REVOLUTION")) return 2800;
-  if (label.includes("TAX") || label.includes("TRIBUTE")) return 3400;
-  if (label.includes("PLAY")) return 2200;
-  if (label.includes("PASS")) return 1500;
-  return 1800;
+  if (label === "DALMUTI_EFFECT") return 5600;
+  if (label.includes("REVOLUTION")) return 4600;
+  if (label.includes("HAND_REVEAL") || label === "MATCH_STARTED") return 2800;
+  if (
+    label.includes("TAX_TRIBUTE") ||
+    label.includes("TAX_RETURN") ||
+    label.includes("TRIBUTE")
+  ) {
+    return 5000;
+  }
+  if (label.includes("TAX")) return 3800;
+  if (label.includes("RANK")) return 3800;
+  if (label.includes("PLAY_INTRO") || label.includes("GAME_START")) return 3600;
+  if (label.includes("PLAY")) return 3600;
+  if (label.includes("PASS")) return 2800;
+  return 2600;
 }
 
 /**
@@ -694,14 +706,38 @@ function PlayingCard({
   );
 }
 
-function Brand() {
-  return (
-    <Link className={styles.brand} href="/" aria-label="달무티 혼자 하기">
+function Brand({
+  onActivate,
+  disabled = false,
+}: {
+  onActivate?: () => void;
+  disabled?: boolean;
+}) {
+  const contents = (
+    <>
       <span className={styles.brandSeal} aria-hidden="true" />
       <span>
         <strong>DALMUTI</strong>
         <small>DCLab의 온라인 계급전</small>
       </span>
+    </>
+  );
+  if (onActivate) {
+    return (
+      <button
+        type="button"
+        className={`${styles.brand} ${styles.brandButton}`}
+        onClick={onActivate}
+        disabled={disabled}
+        aria-label="방을 나가고 홈의 모드 선택 화면으로 이동"
+      >
+        {contents}
+      </button>
+    );
+  }
+  return (
+    <Link className={styles.brand} href="/" aria-label="홈의 모드 선택 화면으로 이동">
+      {contents}
     </Link>
   );
 }
@@ -984,6 +1020,9 @@ function EventOverlay({
 }) {
   const type = event.type;
   const data = event.data;
+  const overlayStyle = {
+    "--event-duration": `${event.durationMs}ms`,
+  } as CSSProperties;
   const cards = cardsFrom(
     data.cards ??
       data.cardDetails ??
@@ -1029,6 +1068,7 @@ function EventOverlay({
         className={`${styles.eventOverlay} ${styles.introOverlay} ${
           styles.revolutionOverlay
         } ${isGreatRevolution ? styles.greatRevolutionOverlay : ""}`}
+        style={overlayStyle}
       >
         <small>{isGreatRevolution ? "GREAT REVOLUTION" : "REVOLUTION"}</small>
         <strong>{isGreatRevolution ? "대혁명" : "혁명"}</strong>
@@ -1049,7 +1089,10 @@ function EventOverlay({
     const isIntro = type.includes("INTRO");
     if (isIntro) {
       return (
-        <div className={`${styles.eventOverlay} ${styles.introOverlay}`}>
+        <div
+          className={`${styles.eventOverlay} ${styles.introOverlay}`}
+          style={overlayStyle}
+        >
           <small>TRIBUTE PHASE</small>
           <strong>세금 교환</strong>
           <span>계급에 따른 카드 교환을 시작합니다</span>
@@ -1057,7 +1100,10 @@ function EventOverlay({
       );
     }
     return (
-      <div className={`${styles.eventOverlay} ${styles.taxOverlay}`}>
+      <div
+        className={`${styles.eventOverlay} ${styles.taxOverlay}`}
+        style={overlayStyle}
+      >
         <div className={styles.transferNames}>
           <span>{playerName(players, fromId)}</span>
           <i>→</i>
@@ -1101,15 +1147,18 @@ function EventOverlay({
 
   if (type === "DALMUTI_EFFECT") {
     return (
-      <div className={`${styles.eventOverlay} ${styles.dalmutiEffectOverlay}`}>
-        <small>DALMUTI EFFECT</small>
+      <div
+        className={`${styles.eventOverlay} ${styles.dalmutiEffectOverlay}`}
+        style={overlayStyle}
+      >
+        <small>DALMUTI</small>
         <div className={styles.dalmutiEffectCard}>
           <PlayingCard
             card={{ id: `${event.id}-dalmuti`, rank: 1 }}
             displayOnly
           />
         </div>
-        <strong>달무티 효과</strong>
+        <strong>달무티</strong>
         <span>
           {playerName(players, actorId)}이(가) 달무티를 냈습니다
         </span>
@@ -1125,7 +1174,10 @@ function EventOverlay({
 
   if (type.includes("PASS")) {
     return (
-      <div className={`${styles.eventOverlay} ${styles.passOverlay}`}>
+      <div
+        className={`${styles.eventOverlay} ${styles.passOverlay}`}
+        style={overlayStyle}
+      >
         <span>{playerName(players, actorId)}</span>
         <strong>PASS</strong>
         <small>이번 묶음을 넘겼습니다</small>
@@ -1135,7 +1187,10 @@ function EventOverlay({
 
   if (type.includes("PLAY") && !type.includes("INTRO") && cards.length) {
     return (
-      <div className={`${styles.eventOverlay} ${styles.playOverlay}`}>
+      <div
+        className={`${styles.eventOverlay} ${styles.playOverlay}`}
+        style={overlayStyle}
+      >
         <span>{playerName(players, actorId)}</span>
         <div className={styles.eventCards}>
           {cards.map((card, index) => (
@@ -1158,7 +1213,10 @@ function EventOverlay({
 
   if (type.includes("REVEAL") || type === "MATCH_STARTED") {
     return (
-      <div className={`${styles.eventOverlay} ${styles.revealOverlay}`}>
+      <div
+        className={`${styles.eventOverlay} ${styles.revealOverlay}`}
+        style={overlayStyle}
+      >
         <span className={styles.revealCard} aria-hidden="true" />
         <small>HAND REVEAL</small>
         <strong>패를 공개합니다</strong>
@@ -1178,7 +1236,10 @@ function EventOverlay({
       stringValue(data.startingPlayerId),
     );
     return (
-      <div className={`${styles.eventOverlay} ${styles.introOverlay}`}>
+      <div
+        className={`${styles.eventOverlay} ${styles.introOverlay}`}
+        style={overlayStyle}
+      >
         <small>ROUND START</small>
         <strong>게임 시작</strong>
         <span>{playerName(players, starterId)}이(가) 먼저 시작합니다</span>
@@ -1187,7 +1248,10 @@ function EventOverlay({
   }
 
   return (
-    <div className={`${styles.eventOverlay} ${styles.introOverlay}`}>
+    <div
+      className={`${styles.eventOverlay} ${styles.introOverlay}`}
+      style={overlayStyle}
+    >
       <small>DALMUTI ONLINE</small>
       <strong>{stringValue(data.title, "게임 진행")}</strong>
       <span>{stringValue(data.message, "모든 플레이어의 상태를 맞추고 있습니다")}</span>
@@ -1196,6 +1260,7 @@ function EventOverlay({
 }
 
 export default function OnlinePage() {
+  const router = useRouter();
   const [screen, setScreen] = useState<"entry" | "room">("entry");
   const [entryMode, setEntryMode] = useState<"create" | "join">("create");
   const [nickname, setNickname] = useState("");
@@ -1228,7 +1293,7 @@ export default function OnlinePage() {
       next.phase === "hand-reveal" &&
       (previous?.hand === null || previous?.phase !== "hand-reveal")
     ) {
-      setHandRevealUntil(Date.now() + 920);
+      setHandRevealUntil(Date.now() + 1_900);
     }
     snapshotRef.current = next;
     setSnapshot(next);
@@ -1559,6 +1624,13 @@ export default function OnlinePage() {
     return null;
   }, [selectedCards, selectedNormalRanks.length, selectedRank, snapshot?.table]);
   const effectiveClock = clock + serverOffset;
+  const taxSecondsRemaining =
+    snapshot?.phase === "tax-selection" && snapshot.phaseEndsAt !== null
+      ? Math.max(
+          0,
+          Math.ceil((snapshot.phaseEndsAt - effectiveClock) / 1000),
+        )
+      : null;
   const actionLocked = Boolean(
     snapshot?.actionLockUntil &&
       effectiveClock < snapshot.actionLockUntil,
@@ -1719,11 +1791,12 @@ export default function OnlinePage() {
     window.history.replaceState(null, "", "/online");
   };
 
-  const exitRoom = async () => {
+  const exitRoom = async (goHome = false) => {
     const activeSession = sessionRef.current;
     const current = snapshotRef.current;
     if (!activeSession || !current || fatalError) {
       finishLocalExit();
+      if (goHome) router.push("/");
       return;
     }
     const confirmed = window.confirm(
@@ -1757,6 +1830,7 @@ export default function OnlinePage() {
       if (!response.ok) {
         if (response.status === 401 || response.status === 404) {
           finishLocalExit();
+          if (goHome) router.push("/");
           return;
         }
         throw new Error(
@@ -1769,6 +1843,7 @@ export default function OnlinePage() {
         );
       }
       finishLocalExit();
+      if (goHome) router.push("/");
     } catch (reason) {
       if (sessionRef.current?.token !== activeSession.token) return;
       setError(
@@ -1797,15 +1872,7 @@ export default function OnlinePage() {
         <section className={styles.entryHero}>
           <div className={styles.heroCopy}>
             <span className={styles.eyebrow}>REAL-TIME • 4–8 PLAYERS</span>
-            <h1>
-              한 테이블에서
-              <br />
-              <em>계급을 뒤집으세요</em>
-            </h1>
-            <p>
-              방을 만들고 초대 링크를 공유하세요. 세금 교환의 비밀은
-              당사자에게만, 카드 제출과 패스는 모두에게 실시간으로 전달됩니다.
-            </p>
+            <h1>DALMUTI</h1>
             <div className={styles.heroCards} aria-hidden="true">
               {[1, 2, 13].map((rank, index) => (
                 <span
@@ -1921,7 +1988,10 @@ export default function OnlinePage() {
       <main className={styles.lobbyShell}>
         <div className={styles.grain} />
         <header className={styles.roomHeader}>
-          <Brand />
+          <Brand
+            onActivate={() => void exitRoom(true)}
+            disabled={busy || !snapshot}
+          />
           <div className={styles.headerRoom}>
             <span>ROOM</span>
             <strong>{displayCode}</strong>
@@ -1996,7 +2066,7 @@ export default function OnlinePage() {
                   >
                     <span className={styles.avatar}>
                       {player.monogram}
-                      <i>{index + 1}</i>
+                      <i>?</i>
                     </span>
                     <p>
                       <strong>{player.name}</strong>
@@ -2103,7 +2173,10 @@ export default function OnlinePage() {
     <main className={styles.gameShell}>
       <div className={styles.grain} />
       <header className={styles.roomHeader}>
-        <Brand />
+        <Brand
+          onActivate={() => void exitRoom(true)}
+          disabled={busy}
+        />
         <div className={styles.roundInfo}>
           <span>ROUND {snapshot.round}</span>
           <i />
@@ -2225,8 +2298,15 @@ export default function OnlinePage() {
                   <strong>
                     돌려줄 카드 {snapshot.requiredReturnCount}장을 선택하세요
                   </strong>
+                  {taxSecondsRemaining !== null && (
+                    <b className={styles.taxDeadline}>
+                      <span>남은 시간</span>
+                      {taxSecondsRemaining}초
+                    </b>
+                  )}
                   <p>
-                    내 패에서 원하는 카드를 고른 뒤 반환 확정을 누르세요
+                    내 패에서 원하는 카드를 고른 뒤 반환 확정을 누르세요.
+                    시간이 끝나면 가장 낮은 가치의 카드부터 자동 반환됩니다.
                   </p>
                 </div>
               ) : taxObserverCopy ? (
@@ -2238,7 +2318,16 @@ export default function OnlinePage() {
                   <span aria-hidden="true">◇</span>
                   <small>TAX EXCHANGE</small>
                   <strong>{taxObserverCopy}</strong>
-                  <p>카드의 정체는 교환 당사자에게만 공개됩니다</p>
+                  {taxSecondsRemaining !== null && (
+                    <b className={styles.taxDeadline}>
+                      <span>남은 시간</span>
+                      {taxSecondsRemaining}초
+                    </b>
+                  )}
+                  <p>
+                    카드의 정체는 교환 당사자에게만 공개됩니다. 시간이 끝나면
+                    미선택 달무티의 가장 낮은 가치 카드가 자동 반환됩니다.
+                  </p>
                 </div>
               ) : snapshot.table?.cards.length ? (
                 <>
@@ -2418,7 +2507,7 @@ export default function OnlinePage() {
                                 : "혁명"
                             }을 일으켰습니다`
                     : event.type === "DALMUTI_EFFECT"
-                      ? `${playerName(snapshot.players, event.actorPlayerId)}의 달무티 효과로 모두 자동 패스했습니다`
+                      ? `${playerName(snapshot.players, event.actorPlayerId)}이(가) 달무티를 내 모두 자동 패스했습니다`
                       : event.type.includes("PASS")
                       ? `${playerName(snapshot.players, event.actorPlayerId)}이(가) 패스했습니다`
                       : event.type.includes("PLAY")

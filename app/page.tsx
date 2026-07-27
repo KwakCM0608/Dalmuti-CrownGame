@@ -126,16 +126,18 @@ type GameState = {
 };
 
 const HUMAN_ID = "you";
-const RANK_COUNTDOWN_STEP_MS = 850;
-const BOT_RANK_PICK_DELAY_MS = 620;
-const RANK_ALL_SELECTED_PAUSE_MS = 1000;
-const RANK_REVEAL_DURATION_MS = 2400;
-const TAX_STAGE_DURATION_MS = 4000;
-const REVEAL_INTRO_DURATION_MS = 1600;
-const HAND_REVEAL_DURATION_MS = 900;
-const TAX_INTRO_DURATION_MS = 1500;
-const PLAY_INTRO_DURATION_MS = 1800;
-const PUBLIC_ACTION_DURATION_MS = 1500;
+const RANK_COUNTDOWN_STEP_MS = 1100;
+const BOT_RANK_PICK_DELAY_MS = 750;
+const RANK_ALL_SELECTED_PAUSE_MS = 1500;
+const RANK_REVEAL_DURATION_MS = 3400;
+const TAX_STAGE_DURATION_MS = 6000;
+const REVEAL_INTRO_DURATION_MS = 2400;
+const HAND_REVEAL_DURATION_MS = 1400;
+const TAX_INTRO_DURATION_MS = 2400;
+const PLAY_INTRO_DURATION_MS = 2600;
+const REVOLUTION_INTRO_DURATION_MS = 3300;
+const PUBLIC_ACTION_DURATION_MS = 2250;
+const DALMUTI_ACTION_DURATION_MS = 3300;
 const CARD_ART_VERSION = "2026-07-24-2x";
 
 function createTaxAnimationId() {
@@ -455,6 +457,41 @@ function completeOpeningRankSelection(state: GameState): GameState {
     log: [
       "계급 선택이 끝났습니다. 확정된 서열대로 패를 나눴습니다.",
       ...rankLog,
+      ...state.log,
+    ].slice(0, 12),
+  };
+}
+
+function autoAssignFinalOpeningRankCard(state: GameState): GameState {
+  if (state.phase !== "rank-selection" || !state.openingRankSelection) {
+    return state;
+  }
+
+  const availableIndexes = state.openingRankSelection.selectedBy
+    .map((selectedPlayerId, index) => (selectedPlayerId ? -1 : index))
+    .filter((index) => index >= 0);
+  const unassignedPlayers = state.players.filter(
+    (player) => !state.openingRankSelection!.pickOrder.includes(player.id),
+  );
+  if (availableIndexes.length !== 1 || unassignedPlayers.length !== 1) {
+    return state;
+  }
+
+  const cardIndex = availableIndexes[0];
+  const player = unassignedPlayers[0];
+  const selectedBy = [...state.openingRankSelection.selectedBy];
+  selectedBy[cardIndex] = player.id;
+
+  return {
+    ...state,
+    revision: state.revision + 1,
+    openingRankSelection: {
+      ...state.openingRankSelection,
+      selectedBy,
+      pickOrder: [...state.openingRankSelection.pickOrder, player.id],
+    },
+    log: [
+      `${subjectLabel(player.name)} 남은 계급 카드를 자동으로 받았습니다.`,
       ...state.log,
     ].slice(0, 12),
   };
@@ -1072,6 +1109,7 @@ function PublicTurnActionLayer({
   if (!from || !to) return null;
 
   const playedSet = action.kind === "play" ? normalizedSet(action.cards) : null;
+  const isDalmuti = playedSet?.rank === 1;
   const cardCount = action.cards.length;
   const expandedStep =
     cardCount <= 1 ? 0 : Math.min(112, 430 / Math.max(1, cardCount - 1));
@@ -1089,7 +1127,9 @@ function PublicTurnActionLayer({
   return (
     <div
       key={action.id}
-      className={`public-turn-action-layer is-${action.kind}`}
+      className={`public-turn-action-layer is-${action.kind} ${
+        isDalmuti ? "is-dalmuti" : ""
+      }`}
       role="status"
       aria-live="polite"
       aria-label={
@@ -1125,7 +1165,7 @@ function PublicTurnActionLayer({
             );
           })}
           <div className="public-play-caption" style={routeStyle} aria-hidden="true">
-            <small>공개 플레이</small>
+            <small>{isDalmuti ? "달무티" : "공개 플레이"}</small>
             <strong>{action.player.name}</strong>
             <span>
               {RANK_NAMES[playedSet.rank]}({playedSet.rank}) x {playedSet.count}장
@@ -1337,18 +1377,25 @@ export default function Home() {
   }, [game]);
 
   useEffect(() => {
-    const actionId = game?.publicAction?.id;
-    if (!actionId) return;
+    const action = game?.publicAction;
+    if (!action) return;
+    const actionId = action.id;
+    const playedSet =
+      action.kind === "play" ? normalizedSet(action.cards) : null;
+    const duration =
+      playedSet?.rank === 1
+        ? DALMUTI_ACTION_DURATION_MS
+        : PUBLIC_ACTION_DURATION_MS;
 
     const timer = window.setTimeout(() => {
       setGame((latest) => {
         if (!latest || latest.publicAction?.id !== actionId) return latest;
         return { ...latest, publicAction: null };
       });
-    }, PUBLIC_ACTION_DURATION_MS);
+    }, duration);
 
     return () => window.clearTimeout(timer);
-  }, [game?.publicAction?.id]);
+  }, [game?.publicAction]);
 
   useEffect(() => {
     if (
@@ -1440,7 +1487,7 @@ export default function Home() {
         const selectedBy = [...latest.openingRankSelection.selectedBy];
         selectedBy[cardIndex] = bot.id;
 
-        return {
+        const nextState: GameState = {
           ...latest,
           revision: latest.revision + 1,
           openingRankSelection: {
@@ -1453,6 +1500,7 @@ export default function Home() {
             ...latest.log,
           ].slice(0, 12),
         };
+        return autoAssignFinalOpeningRankCard(nextState);
       });
     }, BOT_RANK_PICK_DELAY_MS);
 
@@ -1558,7 +1606,7 @@ export default function Home() {
           revision: latest.revision + 1,
         };
       });
-    }, PLAY_INTRO_DURATION_MS);
+    }, REVOLUTION_INTRO_DURATION_MS);
 
     return () => window.clearTimeout(timer);
   }, [game]);
@@ -1722,6 +1770,13 @@ export default function Home() {
     setGame(createOpeningRound(BASE_PLAYERS, scores));
   };
 
+  const returnToModeSelection = () => {
+    setSelectedIds([]);
+    setShowRules(false);
+    setTaxAnchors({ players: {}, midpoint: null });
+    setGame(null);
+  };
+
   const beginHostedGame = () => {
     setSelectedIds([]);
     setGame((current) => {
@@ -1775,7 +1830,7 @@ export default function Home() {
 
       const selectedBy = [...current.openingRankSelection.selectedBy];
       selectedBy[cardIndex] = HUMAN_ID;
-      return {
+      const nextState: GameState = {
         ...current,
         revision: current.revision + 1,
         openingRankSelection: {
@@ -1785,6 +1840,7 @@ export default function Home() {
         },
         log: ["내 계급 카드 한 장을 골랐습니다.", ...current.log].slice(0, 12),
       };
+      return autoAssignFinalOpeningRankCard(nextState);
     });
   };
 
@@ -2019,13 +2075,18 @@ export default function Home() {
       <div className="paper-grain" aria-hidden="true" />
 
       <header className="topbar">
-        <div className="brand">
+        <button
+          type="button"
+          className="brand brand-button"
+          onClick={returnToModeSelection}
+          aria-label="초기 모드 선택 화면으로 돌아가기"
+        >
           <span className="brand-seal" aria-hidden="true" />
           <div>
             <strong>DALMUTI</strong>
             <small>DCLab의 계급전</small>
           </div>
-        </div>
+        </button>
 
         <div className="round-chip" aria-label="게임 정보">
           <span>제 {game?.round ?? 1}막</span>
@@ -2651,10 +2712,9 @@ export default function Home() {
           <section className="welcome-card" role="dialog" aria-labelledby="welcome-title">
             <div className="welcome-crown">♛</div>
             <span className="eyebrow">PLAYABLE PROTOTYPE · 5 PLAYERS</span>
-            <h1 id="welcome-title">왕관은<br /><em>공평하지 않다</em></h1>
+            <h1 id="welcome-title">DALMUTI</h1>
             <p>
               약한 패부터 영리하게 털어내고, 계급을 뒤집으세요.
-              네 명의 AI와 바로 한 판을 시작합니다.
             </p>
             <div className="welcome-features">
               <span>80장 정식 덱</span>

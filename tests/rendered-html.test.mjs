@@ -33,7 +33,9 @@ test("server-renders the playable Dalmuti prototype", async () => {
   const html = await response.text();
   assert.match(html, /<html lang="ko">/i);
   assert.match(html, /달무티 — DCLab의 계급전/i);
-  assert.match(html, /왕관은/);
+  assert.match(html, /DALMUTI/);
+  assert.doesNotMatch(html, /왕관은/);
+  assert.doesNotMatch(html, /네 명의 AI와(?: 함께)? 바로 한 판을 시작합니다/);
   assert.match(html, /5인 빠른 대전/);
   assert.match(html, /친구들과 온라인/);
   assert.match(html, /랩실 서열/);
@@ -78,8 +80,8 @@ test("ships without the disposable starter preview", async () => {
   assert.match(page, /type TaxStage = "selection" \| "tribute" \| "return"/);
   assert.match(page, /\| "reveal-intro"/);
   assert.match(page, /\| "hand-reveal"/);
-  assert.match(page, /REVEAL_INTRO_DURATION_MS = 1600/);
-  assert.match(page, /HAND_REVEAL_DURATION_MS = 900/);
+  assert.match(page, /REVEAL_INTRO_DURATION_MS = 2400/);
+  assert.match(page, /HAND_REVEAL_DURATION_MS = 1400/);
   assert.match(page, /function advanceAfterHandReveal/);
   assert.match(page, /phase: "reveal-intro"/);
   assert.match(page, /className="hand-reveal-intro"/);
@@ -93,8 +95,13 @@ test("ships without the disposable starter preview", async () => {
   assert.match(page, /activeTaxRoutes/);
   assert.match(page, /private-tax-state/);
   assert.match(page, /taxAnimationId/);
-  assert.match(page, /TAX_STAGE_DURATION_MS = 4000/);
-  assert.match(page, /PUBLIC_ACTION_DURATION_MS = 1500/);
+  assert.match(page, /TAX_STAGE_DURATION_MS = 6000/);
+  assert.match(page, /TAX_INTRO_DURATION_MS = 2400/);
+  assert.match(page, /PUBLIC_ACTION_DURATION_MS = 2250/);
+  assert.match(page, /DALMUTI_ACTION_DURATION_MS = 3300/);
+  assert.match(page, /playedSet\?\.rank === 1/);
+  assert.match(page, /isDalmuti \? "달무티" : "공개 플레이"/);
+  assert.doesNotMatch(page, /달무티 효과/);
   assert.match(page, /kind: "play"/);
   assert.match(page, /kind: "pass"/);
   assert.match(page, /previousTable: state\.table/);
@@ -108,7 +115,19 @@ test("ships without the disposable starter preview", async () => {
     page,
     /shuffle\(\s*Array\.from\(\{ length: current\.players\.length \}, \(_.*, index\) => index \+ 1\)/,
   );
-  assert.match(page, /RANK_ALL_SELECTED_PAUSE_MS = 1000/);
+  assert.match(page, /RANK_COUNTDOWN_STEP_MS = 1100/);
+  assert.match(page, /RANK_ALL_SELECTED_PAUSE_MS = 1500/);
+  assert.match(page, /RANK_REVEAL_DURATION_MS = 3400/);
+  assert.match(page, /function autoAssignFinalOpeningRankCard/);
+  assert.match(
+    page,
+    /availableIndexes\.length !== 1 \|\| unassignedPlayers\.length !== 1/,
+  );
+  assert.match(page, /남은 계급 카드를 자동으로 받았습니다/);
+  assert.match(page, /return autoAssignFinalOpeningRankCard\(nextState\)/);
+  assert.match(page, /className="brand brand-button"/);
+  assert.match(page, /초기 모드 선택 화면으로 돌아가기/);
+  assert.doesNotMatch(page, /왕관은/);
   assert.match(page, /className="opening-rank-intro"/);
   assert.match(page, /selectedPlayerId \? "is-selected"/);
   assert.match(page, /revolution-announcement is-\$\{/);
@@ -144,6 +163,10 @@ test("ships without the disposable starter preview", async () => {
   assert.match(styles, /\.public-turn-action-layer\s*\{/);
   assert.match(styles, /@keyframes publicCardPlay/);
   assert.match(styles, /@keyframes publicPassToTable/);
+  assert.match(styles, /@keyframes dalmutiTableGlow/);
+  assert.match(styles, /animation: taxSeatTransfer 5\.55s/);
+  assert.match(styles, /animation: publicCardPlay 2\.08s/);
+  assert.match(styles, /animation: revolutionAnnouncement 3\.1s/);
   assert.doesNotMatch(
     styles,
     /\.tax-transfer-card\.is-face-up\s*\{[^}]*filter:/s,

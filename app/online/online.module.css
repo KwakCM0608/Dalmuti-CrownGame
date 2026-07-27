@@ -70,6 +70,35 @@
   text-decoration: none;
 }
 
+.brandButton {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.brand:hover .brandSeal,
+.brand:focus-visible .brandSeal {
+  border-color: #d2aa52;
+  box-shadow:
+    0 0 0 4px rgba(214, 170, 73, 0.1),
+    0 6px 18px rgba(0, 0, 0, 0.42),
+    inset 0 0 0 2px rgba(255, 240, 178, 0.42);
+}
+
+.brandButton:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.brand:focus-visible {
+  border-radius: 8px;
+  outline: 2px solid var(--gold-400);
+  outline-offset: 5px;
+}
+
 .brandSeal,
 .entryCrown {
   display: block;
@@ -1283,7 +1312,7 @@
   background: #76549b url("/cards/back.webp") center / cover no-repeat;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.34);
   transform-origin: 50% 50%;
-  animation: seatHandReveal 820ms cubic-bezier(0.34, 0.02, 0.2, 1) both;
+  animation: seatHandReveal 1700ms cubic-bezier(0.34, 0.02, 0.2, 1) both;
 }
 
 .seatRevealCards i:first-child {
@@ -1291,11 +1320,11 @@
 }
 
 .seatRevealCards i:nth-child(2) {
-  animation-delay: 45ms;
+  animation-delay: 90ms;
 }
 
 .seatRevealCards i:nth-child(3) {
-  animation-delay: 90ms;
+  animation-delay: 180ms;
 }
 
 @keyframes seatHandReveal {
@@ -1463,7 +1492,7 @@
   box-shadow:
     0 18px 38px rgba(0, 0, 0, 0.3),
     inset 0 0 0 1px rgba(255, 255, 255, 0.025);
-  animation: taxFieldArrival 430ms cubic-bezier(0.2, 0.76, 0.22, 1) both;
+  animation: taxFieldArrival 820ms cubic-bezier(0.2, 0.76, 0.22, 1) both;
 }
 
 .taxDecisionField > span,
@@ -1505,6 +1534,44 @@
   line-height: 1.5;
 }
 
+.taxDeadline {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-top: 13px;
+  padding: 8px 13px;
+  border: 1px solid rgba(238, 190, 77, 0.56);
+  border-radius: 999px;
+  background: rgba(112, 66, 12, 0.24);
+  box-shadow:
+    0 0 0 4px rgba(217, 166, 55, 0.06),
+    inset 0 0 18px rgba(222, 169, 54, 0.08);
+  color: #ffe29a;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 18px;
+  font-weight: 600;
+  animation: taxDeadlinePulse 1.8s ease-in-out infinite;
+}
+
+.taxDeadline > span {
+  color: rgba(244, 220, 167, 0.7);
+  font-family:
+    "Pretendard Variable", Pretendard, "Noto Sans KR", "Malgun Gothic",
+    system-ui, sans-serif;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+@keyframes taxDeadlinePulse {
+  50% {
+    border-color: rgba(245, 200, 92, 0.84);
+    box-shadow:
+      0 0 0 6px rgba(217, 166, 55, 0.075),
+      inset 0 0 21px rgba(222, 169, 54, 0.11);
+  }
+}
+
 .taxDecisionField {
   border-color: rgba(232, 190, 87, 0.62);
   box-shadow:
@@ -1522,7 +1589,7 @@
 .rankChoiceIntro {
   display: grid;
   justify-items: center;
-  animation: rankChoiceIntroArrival 650ms cubic-bezier(0.2, 0.78, 0.2, 1) both;
+  animation: rankChoiceIntroArrival 950ms cubic-bezier(0.2, 0.78, 0.2, 1) both;
 }
 
 .rankChoiceIntro > small,
@@ -1604,7 +1671,7 @@
   display: grid;
   width: 100%;
   justify-items: center;
-  animation: rankChoiceFieldArrival 460ms ease both;
+  animation: rankChoiceFieldArrival 760ms ease both;
 }
 
 .rankChoiceHeading {
@@ -1642,9 +1709,9 @@
   min-width: 0;
   justify-items: center;
   opacity: 0;
-  animation: rankChoiceCardDeal 520ms cubic-bezier(0.18, 0.72, 0.22, 1)
+  animation: rankChoiceCardDeal 820ms cubic-bezier(0.18, 0.72, 0.22, 1)
     forwards;
-  animation-delay: calc(var(--rank-card-index) * 55ms);
+  animation-delay: calc(var(--rank-card-index) * 80ms);
   perspective: 900px;
 }
 
@@ -1760,8 +1827,8 @@
 }
 
 .rankChoiceSlotRevealed .rankChoiceCardInner {
-  animation: rankCardReveal 820ms cubic-bezier(0.3, 0.03, 0.18, 1) both;
-  animation-delay: calc(var(--rank-card-index) * 90ms);
+  animation: rankCardReveal 1500ms cubic-bezier(0.3, 0.03, 0.18, 1) both;
+  animation-delay: calc(var(--rank-card-index) * 120ms);
 }
 
 .rankChoiceOwner {
@@ -1770,8 +1837,8 @@
   justify-items: center;
   margin-top: 9px;
   opacity: 0;
-  animation: rankOwnerArrival 380ms ease forwards;
-  animation-delay: calc(650ms + var(--rank-card-index) * 90ms);
+  animation: rankOwnerArrival 620ms ease forwards;
+  animation-delay: calc(1200ms + var(--rank-card-index) * 120ms);
 }
 
 .rankChoiceOwner strong,
@@ -1993,7 +2060,7 @@
 .handRevealing .card {
   pointer-events: none;
   transform-style: preserve-3d;
-  animation: onlineHandCardReveal 820ms cubic-bezier(0.34, 0.02, 0.2, 1) both;
+  animation: onlineHandCardReveal 1700ms cubic-bezier(0.34, 0.02, 0.2, 1) both;
 }
 
 .handRevealing .card::after {
@@ -2009,7 +2076,7 @@
   content: "";
   transform: translateZ(1px);
   backface-visibility: hidden;
-  animation: onlineHandBackSwap 820ms step-end both;
+  animation: onlineHandBackSwap 1700ms step-end both;
 }
 
 .ownDockTaxSelection {
@@ -2229,16 +2296,16 @@
   backdrop-filter: blur(8px);
   color: white;
   text-align: center;
-  pointer-events: auto;
-  animation: overlayLife 1.8s ease both;
+  pointer-events: none;
+  animation: overlayLife var(--event-duration, 2600ms) ease both;
 }
 
 @keyframes overlayLife {
   0% {
     opacity: 0;
   }
-  14%,
-  80% {
+  9%,
+  88% {
     opacity: 1;
   }
   100% {
@@ -2258,6 +2325,7 @@
   font-size: 9px;
   font-weight: 900;
   letter-spacing: 0.22em;
+  animation: overlayCopyArrival 900ms 180ms ease both;
 }
 
 .introOverlay strong,
@@ -2269,6 +2337,8 @@
   font-weight: 500;
   letter-spacing: -0.05em;
   text-shadow: 0 9px 28px rgba(0, 0, 0, 0.5);
+  animation: overlayTitleArrival 1100ms 260ms cubic-bezier(0.2, 0.76, 0.22, 1)
+    both;
 }
 
 .introOverlay > span,
@@ -2276,6 +2346,22 @@
   margin-top: 11px;
   color: rgba(255, 255, 255, 0.64);
   font-size: 11px;
+  animation: overlayCopyArrival 900ms 620ms ease both;
+}
+
+@keyframes overlayTitleArrival {
+  from {
+    filter: blur(7px);
+    opacity: 0;
+    transform: translateY(17px) scale(0.94);
+  }
+}
+
+@keyframes overlayCopyArrival {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
 }
 
 .revolutionOverlay {
@@ -2317,7 +2403,7 @@
   text-shadow:
     0 0 32px rgba(218, 71, 81, 0.38),
     0 12px 32px rgba(0, 0, 0, 0.55);
-  animation: revolutionTitleArrival 760ms cubic-bezier(0.17, 0.79, 0.22, 1)
+  animation: revolutionTitleArrival 1300ms cubic-bezier(0.17, 0.79, 0.22, 1)
     both;
 }
 
@@ -2362,7 +2448,7 @@
   transform:
     rotate(calc((var(--event-card-index) - 1) * 4deg))
     translateY(calc(abs(var(--event-card-index) - 1) * 3px));
-  animation: eventCardArrival 900ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+  animation: eventCardArrival 1500ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
 }
 
 .eventCardWrap:first-child {
@@ -2373,6 +2459,27 @@
   from {
     opacity: 0;
     transform: translateY(120px) scale(0.72) rotate(8deg);
+  }
+}
+
+.taxOverlay .eventCardWrap {
+  animation: taxCardTransfer 2200ms cubic-bezier(0.16, 0.72, 0.2, 1) both;
+  animation-delay: calc(var(--event-card-index) * 130ms);
+}
+
+@keyframes taxCardTransfer {
+  0% {
+    filter: blur(3px) brightness(0.8);
+    opacity: 0;
+    transform: translateX(-38vw) translateY(42px) scale(0.72) rotate(-7deg);
+  }
+  48% {
+    filter: none;
+    opacity: 1;
+    transform: translateX(0) translateY(-13px) scale(1.05) rotate(1deg);
+  }
+  72% {
+    transform: translateX(0) translateY(-13px) scale(1.05) rotate(1deg);
   }
 }
 
@@ -2412,6 +2519,23 @@
   font-weight: 900;
 }
 
+.taxOverlay .transferNames {
+  animation: taxNamesArrival 1100ms 220ms ease both;
+}
+
+.taxOverlay > strong,
+.taxOverlay > small {
+  animation: overlayCopyArrival 900ms 1450ms ease both;
+}
+
+@keyframes taxNamesArrival {
+  from {
+    filter: blur(4px);
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+
 .transferNames i {
   color: var(--gold-500);
   font-family: Georgia, serif;
@@ -2426,6 +2550,15 @@
   font-size: clamp(64px, 12vw, 128px);
   letter-spacing: 0.04em;
   text-shadow: 0 11px 33px rgba(0, 0, 0, 0.55);
+  animation: passTitleArrival 1000ms cubic-bezier(0.2, 0.72, 0.22, 1) both;
+}
+
+@keyframes passTitleArrival {
+  from {
+    filter: blur(6px);
+    opacity: 0;
+    transform: translateY(25px) scale(0.82);
+  }
 }
 
 .passOverlay small {
@@ -2448,7 +2581,7 @@
 
 .dalmutiEffectCard {
   margin: 14px 0 10px;
-  animation: dalmutiEffectArrival 720ms cubic-bezier(0.2, 0.76, 0.22, 1) both;
+  animation: dalmutiEffectArrival 1800ms cubic-bezier(0.2, 0.76, 0.22, 1) both;
 }
 
 .dalmutiEffectCard .card {
@@ -2467,6 +2600,8 @@
   font-size: clamp(38px, 6vw, 68px);
   font-weight: 500;
   letter-spacing: -0.05em;
+  animation: dalmutiTitleArrival 1300ms 520ms cubic-bezier(0.2, 0.76, 0.22, 1)
+    both;
 }
 
 .dalmutiEffectOverlay > span {
@@ -2509,6 +2644,14 @@
   }
 }
 
+@keyframes dalmutiTitleArrival {
+  from {
+    filter: blur(8px);
+    opacity: 0;
+    transform: scale(1.18);
+  }
+}
+
 .revealCard {
   width: 92px;
   height: 142px;
@@ -2517,7 +2660,7 @@
   border-radius: 10px;
   background: #75539a url("/cards/back.webp") center / cover no-repeat;
   box-shadow: 0 23px 48px rgba(0, 0, 0, 0.48);
-  animation: revealFlip 1.25s ease both;
+  animation: revealFlip 2.1s cubic-bezier(0.3, 0.04, 0.18, 1) both;
 }
 
 @keyframes revealFlip {
