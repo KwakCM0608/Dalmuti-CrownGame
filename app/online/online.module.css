@@ -43,6 +43,67 @@
   mix-blend-mode: soft-light;
 }
 
+.gameShellGreatRevolution {
+  background:
+    radial-gradient(circle at 16% 10%, rgba(214, 52, 72, 0.29), transparent 31%),
+    radial-gradient(circle at 85% 80%, rgba(134, 14, 38, 0.3), transparent 35%),
+    linear-gradient(135deg, #1b050a, #320811 52%, #160408);
+}
+
+.gameShellGreatRevolution::before,
+.gameShellGreatRevolution::after {
+  position: fixed;
+  inset: 76px 0 0;
+  content: "";
+  pointer-events: none;
+}
+
+.gameShellGreatRevolution::before {
+  z-index: 1;
+  background:
+    repeating-radial-gradient(
+      ellipse at 50% 46%,
+      transparent 0 46px,
+      rgba(255, 70, 84, 0.035) 47px 49px,
+      transparent 50px 83px
+    ),
+    radial-gradient(circle at 50% 45%, transparent 27%, rgba(106, 6, 23, 0.24));
+  mix-blend-mode: screen;
+  animation: greatRevolutionWorldPulse 3.2s ease-in-out infinite;
+}
+
+.gameShellGreatRevolution::after {
+  z-index: 3;
+  border: 1px solid rgba(255, 88, 102, 0.18);
+  background:
+    linear-gradient(112deg, transparent 0 44%, rgba(255, 108, 111, 0.045) 48%, transparent 52%),
+    radial-gradient(circle at 12% 84%, rgba(237, 53, 77, 0.17), transparent 22%),
+    radial-gradient(circle at 88% 16%, rgba(237, 53, 77, 0.15), transparent 24%);
+  box-shadow:
+    inset 0 0 90px rgba(165, 7, 34, 0.24),
+    inset 0 0 230px rgba(57, 2, 13, 0.26);
+  opacity: 0.72;
+  animation: greatRevolutionWorldSweep 5.6s linear infinite;
+}
+
+@keyframes greatRevolutionWorldPulse {
+  50% {
+    filter: saturate(1.4) brightness(1.15);
+    opacity: 0.62;
+    transform: scale(1.035);
+  }
+}
+
+@keyframes greatRevolutionWorldSweep {
+  50% {
+    background-position:
+      120vw 0,
+      0 0,
+      0 0;
+    opacity: 0.92;
+  }
+}
+
 .entryHeader,
 .roomHeader {
   position: relative;
@@ -1111,6 +1172,28 @@
   box-shadow: inset 0 0 52px rgba(220, 174, 66, 0.055);
 }
 
+.boardColumnTurnUrgent {
+  background:
+    radial-gradient(
+      ellipse at 50% 46%,
+      hsl(
+        var(--turn-alert-hue, 42) 90% 54% /
+          var(--turn-alert-alpha, 0.24)
+      ),
+      transparent 70%
+    );
+  box-shadow:
+    inset 0 0 72px
+      hsl(
+        var(--turn-alert-hue, 42) 88% 48% /
+          var(--turn-alert-alpha, 0.24)
+      ),
+    0 0 26px
+      hsl(var(--turn-alert-hue, 42) 90% 50% / 0.08);
+  animation: urgentBoardBreath var(--turn-pulse-duration, 900ms) ease-in-out
+    infinite;
+}
+
 .table {
   position: relative;
   min-height: 480px;
@@ -1241,10 +1324,239 @@
   animation: revolutionFieldAwakening 1.1s ease both;
 }
 
+.tableGreatRevolution {
+  border-color: #8f2437;
+  box-shadow:
+    inset 0 0 0 3px #c54b50,
+    inset 0 0 95px rgba(86, 0, 19, 0.72),
+    0 0 0 4px rgba(221, 53, 70, 0.14),
+    0 0 54px rgba(209, 30, 57, 0.32),
+    0 22px 46px rgba(60, 6, 17, 0.5);
+  animation: greatRevolutionTablePulse 2.4s ease-in-out infinite;
+}
+
+.tableGreatRevolution::before {
+  background:
+    radial-gradient(circle at 50% 44%, rgba(180, 33, 51, 0.88), transparent 43%),
+    repeating-linear-gradient(
+      122deg,
+      transparent 0 38px,
+      rgba(255, 96, 105, 0.045) 39px 40px
+    ),
+    linear-gradient(145deg, rgba(111, 16, 31, 0.97), rgba(44, 5, 15, 0.95));
+  opacity: 0.94;
+  animation:
+    revolutionFieldAwakening 1.1s ease both,
+    greatRevolutionFeltDrift 7s linear infinite;
+}
+
+.tableGreatRevolution .tableLine {
+  border-color: rgba(255, 126, 127, 0.48);
+  box-shadow:
+    inset 0 0 36px rgba(255, 53, 77, 0.16),
+    0 0 26px rgba(244, 49, 70, 0.13);
+  animation: greatRevolutionLinePulse 1.8s ease-in-out infinite;
+}
+
+.tableGreatRevolution .tableLine::before {
+  position: absolute;
+  inset: 2%;
+  border: 1px dashed rgba(255, 157, 151, 0.2);
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(255, 173, 151, 0.7) 0 1px, transparent 2px),
+    radial-gradient(circle at 82% 22%, rgba(255, 115, 126, 0.62) 0 1px, transparent 2px),
+    radial-gradient(circle at 68% 78%, rgba(255, 198, 166, 0.56) 0 1px, transparent 2px),
+    radial-gradient(circle at 26% 72%, rgba(255, 99, 115, 0.58) 0 1px, transparent 2px);
+  background-size: 64px 58px, 79px 71px, 91px 83px, 73px 67px;
+  content: "";
+  opacity: 0.65;
+  animation: greatRevolutionEmbers 4.8s linear infinite;
+}
+
+.tableGreatRevolution .tableLine::after {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  width: max-content;
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 121, 128, 0.42);
+  border-radius: 999px;
+  background: rgba(72, 6, 20, 0.7);
+  box-shadow:
+    0 0 0 4px rgba(188, 17, 46, 0.08),
+    0 0 22px rgba(232, 45, 66, 0.18);
+  color: #ffadb0;
+  content: "GREAT REVOLUTION · 대혁명";
+  font-size: 6px;
+  font-weight: 950;
+  letter-spacing: 0.14em;
+  transform: translateX(-50%);
+  animation: greatRevolutionBadge 1.8s ease-in-out infinite;
+}
+
+.table.tableMyTurnUrgent {
+  border-color: hsl(var(--turn-alert-hue, 42) 88% 51%);
+  box-shadow:
+    inset 0 0 0 3px
+      hsl(var(--turn-alert-hue, 42) 78% 57% / 0.92),
+    inset 0 0 96px
+      hsl(
+        var(--turn-alert-hue, 42) 90% 49% /
+          var(--turn-alert-alpha, 0.24)
+      ),
+    0 0 0 5px
+      hsl(var(--turn-alert-hue, 42) 90% 55% / 0.2),
+    0 0 68px
+      hsl(
+        var(--turn-alert-hue, 42) 92% 52% /
+          var(--turn-alert-alpha, 0.24)
+      ),
+    0 22px 42px rgba(0, 0, 0, 0.34);
+  animation: urgentTurnFieldPulse var(--turn-pulse-duration, 900ms) ease-in-out
+    infinite;
+}
+
+.table.tableMyTurnUrgent::after {
+  border-color: hsl(var(--turn-alert-hue, 42) 94% 70% / 0.75);
+  background:
+    radial-gradient(
+      ellipse at 50% 48%,
+      hsl(
+        var(--turn-alert-hue, 42) 96% 55% /
+          var(--turn-alert-alpha, 0.24)
+      ),
+      transparent 67%
+    );
+  box-shadow:
+    inset 0 0 38px
+      hsl(var(--turn-alert-hue, 42) 95% 52% / 0.16),
+    0 0 32px
+      hsl(var(--turn-alert-hue, 42) 92% 52% / 0.22);
+}
+
+.tableDalmutiBurst {
+  border-color: #d9ad4d;
+  box-shadow:
+    inset 0 0 0 3px #f0ca6d,
+    inset 0 0 108px rgba(241, 190, 62, 0.2),
+    0 0 0 6px rgba(235, 186, 62, 0.16),
+    0 0 76px rgba(230, 174, 43, 0.48),
+    0 22px 46px rgba(0, 0, 0, 0.4);
+  animation: dalmutiTableCoronation 1.15s ease-in-out infinite;
+}
+
+.tableDalmutiBurst::after {
+  position: absolute;
+  inset: 7%;
+  z-index: 2;
+  border: 2px solid rgba(255, 224, 138, 0.52);
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 213, 95, 0.13), transparent 52%),
+    conic-gradient(
+      from 0deg at 50% 50%,
+      transparent 0 11deg,
+      rgba(255, 222, 132, 0.08) 12deg 14deg,
+      transparent 15deg 29deg
+    );
+  box-shadow:
+    inset 0 0 44px rgba(251, 207, 89, 0.13),
+    0 0 34px rgba(242, 190, 56, 0.18);
+  content: "";
+  pointer-events: none;
+  animation: dalmutiTableRay 4.5s linear infinite;
+}
+
 @keyframes revolutionFieldAwakening {
   from {
     filter: saturate(0.65);
     opacity: 0;
+  }
+}
+
+@keyframes urgentBoardBreath {
+  50% {
+    filter: saturate(1.12);
+  }
+}
+
+@keyframes urgentTurnFieldPulse {
+  50% {
+    filter: saturate(1.3) brightness(1.055);
+    box-shadow:
+      inset 0 0 0 4px
+        hsl(var(--turn-alert-hue, 42) 86% 61% / 0.95),
+      inset 0 0 118px
+        hsl(
+          var(--turn-alert-hue, 42) 94% 51% /
+            var(--turn-alert-alpha, 0.24)
+        ),
+      0 0 0 7px
+        hsl(var(--turn-alert-hue, 42) 94% 58% / 0.22),
+      0 0 82px
+        hsl(
+          var(--turn-alert-hue, 42) 96% 53% /
+            var(--turn-alert-alpha, 0.24)
+        ),
+      0 22px 42px rgba(0, 0, 0, 0.36);
+  }
+}
+
+@keyframes greatRevolutionTablePulse {
+  50% {
+    border-color: #ca4652;
+    box-shadow:
+      inset 0 0 0 3px #e66b68,
+      inset 0 0 112px rgba(114, 0, 25, 0.78),
+      0 0 0 6px rgba(234, 66, 81, 0.19),
+      0 0 74px rgba(228, 37, 64, 0.44),
+      0 22px 48px rgba(60, 6, 17, 0.54);
+  }
+}
+
+@keyframes greatRevolutionFeltDrift {
+  to {
+    background-position: 0 0, 160px 0, 0 0;
+  }
+}
+
+@keyframes greatRevolutionLinePulse {
+  50% {
+    border-color: rgba(255, 183, 164, 0.72);
+    opacity: 0.92;
+  }
+}
+
+@keyframes greatRevolutionEmbers {
+  to {
+    background-position: 64px -58px, -79px -71px, 91px -83px, -73px -67px;
+  }
+}
+
+@keyframes greatRevolutionBadge {
+  50% {
+    border-color: rgba(255, 185, 178, 0.72);
+    color: #ffd5ce;
+    text-shadow: 0 0 12px rgba(255, 102, 109, 0.52);
+  }
+}
+
+@keyframes dalmutiTableCoronation {
+  50% {
+    filter: saturate(1.25) brightness(1.06);
+    box-shadow:
+      inset 0 0 0 4px #ffe094,
+      inset 0 0 126px rgba(244, 191, 53, 0.27),
+      0 0 0 9px rgba(241, 191, 60, 0.11),
+      0 0 92px rgba(236, 178, 40, 0.6),
+      0 22px 48px rgba(0, 0, 0, 0.42);
+  }
+}
+
+@keyframes dalmutiTableRay {
+  to {
+    transform: rotate(360deg);
   }
 }
 
@@ -1288,8 +1600,8 @@
   box-shadow: 0 9px 20px rgba(0, 0, 0, 0.25);
   transform: translate(-50%, -50%);
   transition:
-    top 1.15s cubic-bezier(0.2, 0.78, 0.2, 1),
-    left 1.15s cubic-bezier(0.2, 0.78, 0.2, 1),
+    top 2.35s cubic-bezier(0.16, 0.78, 0.18, 1),
+    left 2.35s cubic-bezier(0.16, 0.78, 0.18, 1),
     border-color 180ms ease,
     box-shadow 180ms ease,
     opacity 180ms ease,
@@ -1380,7 +1692,12 @@
 }
 
 .playerSeatFinished {
-  opacity: 0.63;
+  opacity: 0.78;
+}
+
+.playerSeatFinished .handCount b {
+  color: #f2cf78;
+  text-shadow: 0 0 12px rgba(224, 173, 55, 0.28);
 }
 
 .playerSeatRevealing {
@@ -1391,9 +1708,69 @@
 }
 
 .playerSeatRankMoving {
+  --rank-shift-color: 235 190 88;
+
   z-index: 8;
   opacity: 1;
-  animation: rankSeatChange 1.55s ease both;
+  isolation: isolate;
+  animation: rankSeatChange 2.85s cubic-bezier(0.16, 0.78, 0.18, 1) both;
+}
+
+.playerSeatRankMovingUp {
+  --rank-shift-color: 238 71 80;
+}
+
+.playerSeatRankMovingDown {
+  --rank-shift-color: 74 143 235;
+}
+
+.playerSeatRankMoving::before {
+  position: absolute;
+  inset: -12px;
+  z-index: -1;
+  border: 2px solid rgb(var(--rank-shift-color) / 0.68);
+  border-radius: 18px;
+  background:
+    radial-gradient(
+      circle at 50% 50%,
+      rgb(var(--rank-shift-color) / 0.22),
+      transparent 68%
+    );
+  box-shadow:
+    0 0 24px rgb(var(--rank-shift-color) / 0.55),
+    0 0 52px rgb(var(--rank-shift-color) / 0.26);
+  content: "";
+  pointer-events: none;
+  animation: rankSeatTrail 1s ease-in-out infinite;
+}
+
+.playerSeatRankMoving::after {
+  position: absolute;
+  top: -18px;
+  left: 50%;
+  z-index: 9;
+  width: max-content;
+  padding: 3px 8px;
+  border: 1px solid rgb(var(--rank-shift-color) / 0.72);
+  border-radius: 999px;
+  background: rgba(22, 8, 12, 0.94);
+  box-shadow: 0 0 18px rgb(var(--rank-shift-color) / 0.38);
+  color: rgb(var(--rank-shift-color));
+  font-size: 6px;
+  font-weight: 950;
+  letter-spacing: 0.06em;
+  opacity: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  animation: rankSeatDirection 2.5s 180ms ease both;
+}
+
+.playerSeatRankMovingUp::after {
+  content: "↑ 서열 상승";
+}
+
+.playerSeatRankMovingDown::after {
+  content: "↓ 서열 하락";
 }
 
 .playerSeatDalmuti {
@@ -1453,18 +1830,41 @@
 }
 
 @keyframes rankSeatChange {
-  0%,
+  0% {
+    filter: none;
+  }
+  14%,
+  78% {
+    border-color: rgb(var(--rank-shift-color) / 0.92);
+    box-shadow:
+      0 0 0 5px rgb(var(--rank-shift-color) / 0.2),
+      0 0 42px rgb(var(--rank-shift-color) / 0.52),
+      0 14px 28px rgba(0, 0, 0, 0.4);
+    filter: brightness(1.2) saturate(1.2);
+  }
   100% {
     filter: none;
   }
-  22%,
-  72% {
-    border-color: rgba(243, 204, 111, 0.88);
-    box-shadow:
-      0 0 0 4px rgba(225, 178, 70, 0.18),
-      0 0 30px rgba(225, 174, 58, 0.34),
-      0 14px 28px rgba(0, 0, 0, 0.4);
-    filter: brightness(1.16);
+}
+
+@keyframes rankSeatTrail {
+  50% {
+    inset: -18px;
+    border-color: rgb(var(--rank-shift-color) / 0.24);
+    opacity: 0.52;
+  }
+}
+
+@keyframes rankSeatDirection {
+  0%,
+  100% {
+    opacity: 0;
+    transform: translate(-50%, 5px) scale(0.92);
+  }
+  16%,
+  80% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
   }
 }
 
@@ -1590,13 +1990,19 @@
 .turnCountdown {
   --turn-angle: 360deg;
 
-  position: relative;
-  z-index: 4;
+  position: absolute;
+  top: clamp(92px, 16%, 116px);
+  left: 50%;
+  z-index: 28;
   display: flex;
+  width: max-content;
+  max-width: calc(100% - 32px);
   min-width: 154px;
+  flex: 0 0 auto;
+  align-self: center;
   align-items: center;
   gap: 9px;
-  margin-bottom: 10px;
+  margin: 0;
   padding: 6px 12px 6px 7px;
   border: 1px solid rgba(220, 190, 124, 0.4);
   border-radius: 999px;
@@ -1604,7 +2010,10 @@
   box-shadow:
     0 0 0 3px rgba(17, 55, 45, 0.48),
     0 11px 26px rgba(0, 0, 0, 0.34);
+  isolation: isolate;
+  pointer-events: none;
   text-align: left;
+  transform: translateX(-50%);
   animation: turnCountdownArrival 420ms cubic-bezier(0.2, 0.76, 0.22, 1) both;
 }
 
@@ -1702,35 +2111,163 @@
 }
 
 .turnCountdownUrgent {
-  border-color: rgba(235, 116, 102, 0.76);
-  background: rgba(65, 20, 23, 0.94);
+  border-color: hsl(var(--turn-alert-hue, 0) 88% 68% / 0.82);
+  background:
+    linear-gradient(
+      105deg,
+      hsl(
+        var(--turn-alert-hue, 0) 82% 45% /
+          var(--turn-alert-alpha, 0.24)
+      ),
+      transparent 68%
+    ),
+    rgba(55, 17, 21, 0.95);
+  box-shadow:
+    0 0 0 4px
+      hsl(var(--turn-alert-hue, 0) 88% 55% / 0.14),
+    0 0 34px
+      hsl(
+        var(--turn-alert-hue, 0) 94% 52% /
+          var(--turn-alert-alpha, 0.24)
+      ),
+    0 11px 26px rgba(0, 0, 0, 0.4);
 }
 
 .turnCountdownUrgent .turnCountdownRing {
   background: conic-gradient(
     from -90deg,
-    #f08070 0 var(--turn-angle),
-    rgba(240, 128, 112, 0.14) var(--turn-angle) 360deg
+    hsl(var(--turn-alert-hue, 0) 91% 68%) 0 var(--turn-angle),
+    hsl(var(--turn-alert-hue, 0) 85% 66% / 0.14) var(--turn-angle) 360deg
   );
   box-shadow:
-    0 0 21px rgba(230, 80, 70, 0.42),
-    inset 0 0 0 1px rgba(255, 194, 179, 0.25);
-  animation: turnCountdownUrgent 650ms ease-in-out infinite;
+    0 0 25px
+      hsl(
+        var(--turn-alert-hue, 0) 94% 55% /
+          var(--turn-alert-alpha, 0.24)
+      ),
+    inset 0 0 0 1px
+      hsl(var(--turn-alert-hue, 0) 90% 83% / 0.3);
+  animation: turnCountdownUrgent var(--turn-pulse-duration, 650ms) ease-in-out
+    infinite;
 }
 
 .turnCountdownUrgent .turnCountdownRing::before {
-  background: #421c20;
+  background:
+    radial-gradient(
+      circle at 50% 35%,
+      hsl(var(--turn-alert-hue, 0) 76% 48% / 0.2),
+      transparent 55%
+    ),
+    #42151c;
 }
 
 .turnCountdownUrgent .turnCountdownRing b {
   color: #ffd3c8;
 }
 
+.rankShiftEffect {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  background:
+    radial-gradient(circle at 50% 49%, rgba(225, 177, 64, 0.16), transparent 31%),
+    radial-gradient(circle at 50% 50%, transparent 51%, rgba(10, 3, 6, 0.18));
+  color: #f7e6b7;
+  pointer-events: none;
+  text-align: center;
+  animation: rankShiftVeil 2.95s ease both;
+}
+
+.rankShiftEffect small {
+  color: #d9ad50;
+  font-size: 7px;
+  font-weight: 950;
+  letter-spacing: 0.25em;
+}
+
+.rankShiftEffect strong {
+  margin-top: 5px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(29px, 4.5vw, 48px);
+  font-weight: 500;
+  text-shadow:
+    0 0 30px rgba(231, 181, 62, 0.34),
+    0 11px 28px rgba(0, 0, 0, 0.5);
+}
+
+.rankShiftEffect span {
+  margin-top: 5px;
+  color: rgba(255, 244, 214, 0.62);
+  font-size: 8px;
+}
+
+.rankShiftEffect i {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(510px, 70%);
+  aspect-ratio: 2.6 / 1;
+  border: 1px solid rgba(234, 190, 87, 0.26);
+  border-radius: 50%;
+  box-shadow:
+    0 0 24px rgba(223, 170, 54, 0.12),
+    inset 0 0 24px rgba(223, 170, 54, 0.08);
+  transform: translate(-50%, -50%);
+  animation: rankShiftOrbit 2.5s ease-in-out infinite;
+}
+
+.rankShiftEffect i:last-child {
+  width: min(390px, 58%);
+  border-color: rgba(100, 159, 239, 0.22);
+  animation-direction: reverse;
+  animation-delay: -700ms;
+}
+
 @keyframes turnCountdownArrival {
   from {
     filter: blur(4px);
     opacity: 0;
+    transform: translate(-50%, -9px) scale(0.93);
+  }
+  to {
+    filter: none;
+    opacity: 1;
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes turnCountdownArrivalMobile {
+  from {
+    filter: blur(4px);
+    opacity: 0;
     transform: translateY(-9px) scale(0.93);
+  }
+  to {
+    filter: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes rankShiftVeil {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  13%,
+  82% {
+    opacity: 1;
+  }
+}
+
+@keyframes rankShiftOrbit {
+  50% {
+    border-color: rgba(237, 98, 102, 0.44);
+    filter: hue-rotate(-18deg);
+    transform: translate(-50%, -50%) rotate(4deg) scale(1.07);
   }
 }
 
@@ -2014,6 +2551,15 @@
   animation: rankChoiceFieldArrival 760ms ease both;
 }
 
+.rankChoiceFieldRevealed {
+  isolation: isolate;
+}
+
+.rankChoiceFieldRevealed .rankChoiceHeading,
+.rankChoiceFieldRevealed .rankChoiceCards {
+  animation: rankChoiceDeckRecede 720ms 1.48s ease forwards;
+}
+
 .rankChoiceHeading {
   display: grid;
   justify-items: center;
@@ -2234,7 +2780,7 @@
 .rankConfirmation {
   position: absolute;
   inset: -14px;
-  z-index: 30;
+  z-index: 100;
   display: grid;
   place-content: center;
   justify-items: center;
@@ -2246,7 +2792,7 @@
       rgba(166, 115, 30, 0.35),
       transparent 38%
     ),
-    rgba(13, 6, 9, 0.82);
+    rgba(13, 6, 9, 0.94);
   box-shadow:
     inset 0 0 75px rgba(215, 166, 55, 0.09),
     0 24px 55px rgba(0, 0, 0, 0.36);
@@ -2265,7 +2811,16 @@
 }
 
 .rankConfirmation strong {
+  position: relative;
+  z-index: 2;
   margin-top: 8px;
+  padding: 7px 28px 10px;
+  border: 1px solid rgba(239, 199, 103, 0.24);
+  border-radius: 999px;
+  background: rgba(24, 10, 13, 0.92);
+  box-shadow:
+    0 0 0 5px rgba(219, 170, 61, 0.06),
+    0 15px 34px rgba(0, 0, 0, 0.4);
   color: #fff0c6;
   font-family: Georgia, "Times New Roman", serif;
   font-size: clamp(38px, 6vw, 65px);
@@ -2298,6 +2853,14 @@
     filter: none;
     opacity: 1;
     transform: none;
+  }
+}
+
+@keyframes rankChoiceDeckRecede {
+  to {
+    filter: blur(4px) saturate(0.7);
+    opacity: 0.12;
+    transform: translateY(-22px) scale(0.92);
   }
 }
 
@@ -2976,8 +3539,60 @@
   overscroll-behavior: contain;
   pointer-events: auto;
   background:
-    radial-gradient(circle at 50% 44%, rgba(197, 151, 52, 0.28), transparent 36%),
-    rgba(10, 4, 7, 0.78);
+    radial-gradient(circle at 50% 44%, rgba(231, 180, 58, 0.34), transparent 34%),
+    radial-gradient(circle at 50% 50%, rgba(102, 65, 9, 0.18), transparent 58%),
+    rgba(10, 4, 7, 0.84);
+  isolation: isolate;
+}
+
+.dalmutiEffectOverlay::before,
+.dalmutiEffectOverlay::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 0;
+  content: "";
+  pointer-events: none;
+}
+
+.dalmutiEffectOverlay::before {
+  width: min(920px, 94vw);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 18% 21%, #ffe6a2 0 1.5px, transparent 2.5px),
+    radial-gradient(circle at 77% 18%, #e9ba50 0 1px, transparent 2px),
+    radial-gradient(circle at 84% 72%, #fff0b5 0 1.5px, transparent 2.5px),
+    radial-gradient(circle at 23% 79%, #dca435 0 1px, transparent 2px),
+    conic-gradient(
+      from 0deg,
+      transparent 0 7deg,
+      rgba(255, 221, 126, 0.11) 8deg 10deg,
+      transparent 11deg 22deg
+    );
+  background-size: 83px 79px, 97px 91px, 109px 101px, 71px 67px, auto;
+  mix-blend-mode: screen;
+  transform: translate(-50%, -50%);
+  animation: dalmutiRoyalRays 13s linear infinite;
+}
+
+.dalmutiEffectOverlay::after {
+  width: min(510px, 76vw);
+  aspect-ratio: 1;
+  border: 2px solid rgba(255, 218, 116, 0.26);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 18px rgba(225, 174, 52, 0.035),
+    0 0 0 42px rgba(225, 174, 52, 0.028),
+    inset 0 0 72px rgba(246, 197, 66, 0.1),
+    0 0 94px rgba(227, 168, 35, 0.16);
+  transform: translate(-50%, -50%);
+  animation: dalmutiRoyalHalo 2.1s ease-in-out infinite;
+}
+
+.dalmutiEffectOverlay > * {
+  position: relative;
+  z-index: 2;
 }
 
 .dalmutiEffectOverlay > small {
@@ -2988,8 +3603,7 @@
 }
 
 .dalmutiEffectActorSeat {
-  position: relative;
-  z-index: 2;
+  z-index: 4;
   width: min(210px, 76vw);
   margin-bottom: 19px;
   animation: dalmutiActorSeatArrival 900ms 180ms
@@ -3003,11 +3617,52 @@
   display: grid;
   width: 100%;
   transform: none;
+  animation: dalmutiActorThrone 1.35s ease-in-out infinite;
 }
 
 .dalmutiEffectCard {
+  position: relative;
   margin: 14px 0 10px;
-  animation: dalmutiEffectArrival 1800ms cubic-bezier(0.2, 0.76, 0.22, 1) both;
+  filter: drop-shadow(0 0 24px rgba(242, 193, 69, 0.5));
+  animation:
+    dalmutiEffectArrival 1800ms cubic-bezier(0.2, 0.76, 0.22, 1) both,
+    dalmutiCardFloat 1.7s 1.8s ease-in-out infinite;
+}
+
+.dalmutiEffectCard::before,
+.dalmutiEffectCard::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: -1;
+  border-radius: 50%;
+  content: "";
+  pointer-events: none;
+}
+
+.dalmutiEffectCard::before {
+  width: 190px;
+  height: 190px;
+  border: 2px solid rgba(255, 223, 131, 0.52);
+  box-shadow:
+    0 0 28px rgba(240, 185, 52, 0.4),
+    inset 0 0 34px rgba(240, 185, 52, 0.16);
+  transform: translate(-50%, -50%);
+  animation: dalmutiCardOrbit 3.8s linear infinite;
+}
+
+.dalmutiEffectCard::after {
+  width: 225px;
+  height: 225px;
+  background:
+    conic-gradient(
+      from 0deg,
+      transparent 0 13deg,
+      rgba(255, 224, 139, 0.2) 14deg 15deg,
+      transparent 16deg 31deg
+    );
+  transform: translate(-50%, -50%);
+  animation: dalmutiCardOrbit 8s linear infinite reverse;
 }
 
 .dalmutiEffectCard .card {
@@ -3016,7 +3671,8 @@
   border: 2px solid #060606;
   border-radius: 12px;
   box-shadow:
-    0 0 0 5px rgba(225, 181, 79, 0.13),
+    0 0 0 5px rgba(225, 181, 79, 0.22),
+    0 0 38px rgba(244, 195, 72, 0.62),
     0 25px 52px rgba(0, 0, 0, 0.55);
 }
 
@@ -3026,6 +3682,10 @@
   font-size: clamp(38px, 6vw, 68px);
   font-weight: 500;
   letter-spacing: -0.05em;
+  text-shadow:
+    0 0 18px rgba(255, 218, 113, 0.55),
+    0 0 48px rgba(227, 169, 36, 0.34),
+    0 12px 35px rgba(0, 0, 0, 0.56);
   animation: dalmutiTitleArrival 1300ms 520ms cubic-bezier(0.2, 0.76, 0.22, 1)
     both;
 }
@@ -3086,7 +3746,55 @@
   }
 }
 
+@keyframes dalmutiRoyalRays {
+  to {
+    background-position:
+      83px -79px,
+      -97px 91px,
+      109px -101px,
+      -71px -67px,
+      0 0;
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+@keyframes dalmutiRoyalHalo {
+  50% {
+    border-color: rgba(255, 238, 177, 0.64);
+    box-shadow:
+      0 0 0 25px rgba(225, 174, 52, 0.06),
+      0 0 0 56px rgba(225, 174, 52, 0.038),
+      inset 0 0 92px rgba(246, 197, 66, 0.17),
+      0 0 126px rgba(227, 168, 35, 0.3);
+    transform: translate(-50%, -50%) scale(1.07);
+  }
+}
+
+@keyframes dalmutiActorThrone {
+  50% {
+    filter: brightness(1.15) saturate(1.24);
+    transform: translateY(-3px) scale(1.025);
+  }
+}
+
+@keyframes dalmutiCardFloat {
+  50% {
+    filter: drop-shadow(0 0 38px rgba(255, 210, 90, 0.72));
+    transform: translateY(-8px) rotate(-1.5deg) scale(1.035);
+  }
+}
+
+@keyframes dalmutiCardOrbit {
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
 @media (max-height: 700px) {
+  .turnCountdown {
+    top: 80px;
+  }
+
   .dalmutiEffectOverlay {
     justify-content: flex-start;
     padding-block: 16px;
@@ -3242,6 +3950,49 @@
   margin-top: 2px;
   color: #847769;
   font-size: 7px;
+}
+
+.resultCard li .resultRoleChange {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  padding: 2px 6px;
+  border: 1px solid currentcolor;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.14);
+  font-size: 7px;
+  font-weight: 850;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.resultRoleChange i {
+  color: currentcolor;
+  font-size: 8px;
+  font-style: normal;
+  opacity: 0.7;
+}
+
+.resultCard li .resultRoleUp {
+  border-color: rgba(240, 83, 91, 0.38);
+  background: rgba(168, 33, 47, 0.17);
+  color: #ff8790;
+  box-shadow: 0 0 13px rgba(218, 48, 64, 0.12);
+}
+
+.resultCard li .resultRoleDown {
+  border-color: rgba(82, 151, 238, 0.38);
+  background: rgba(30, 81, 154, 0.16);
+  color: #83b8ff;
+  box-shadow: 0 0 13px rgba(60, 126, 221, 0.11);
+}
+
+.resultCard li .resultRoleSame {
+  border-color: rgba(188, 173, 145, 0.18);
+  color: #9f927f;
 }
 
 .resultCard li em {
@@ -3432,6 +4183,11 @@
 }
 
 @media (max-width: 820px) {
+  .gameShellGreatRevolution::before,
+  .gameShellGreatRevolution::after {
+    inset: 66px 0 0;
+  }
+
   .entryHeader,
   .roomHeader {
     grid-template-columns: 1fr auto;
@@ -3597,6 +4353,16 @@
     width: 74%;
   }
 
+  .turnCountdown {
+    position: relative;
+    top: auto;
+    left: auto;
+    align-self: center;
+    margin: 0 auto 8px;
+    transform: none;
+    animation-name: turnCountdownArrivalMobile;
+  }
+
   .tableRankSelection .tableCenter {
     top: 57%;
     width: 94%;
@@ -3661,6 +4427,10 @@
 
   .eventCardWrap {
     margin-left: -49px;
+  }
+
+  .rankShiftEffect i {
+    width: min(430px, 80%);
   }
 }
 
@@ -3740,7 +4510,6 @@
   .turnCountdown {
     min-width: 139px;
     gap: 7px;
-    margin-bottom: 7px;
     padding: 5px 9px 5px 6px;
   }
 
@@ -3796,6 +4565,17 @@
 
   .rankChoiceOwner strong {
     font-size: 7px;
+  }
+
+  .rankConfirmation strong {
+    max-width: calc(100vw - 58px);
+    padding-inline: 20px;
+    font-size: clamp(32px, 12vw, 48px);
+  }
+
+  .resultCard li .resultRoleChange {
+    flex-wrap: wrap;
+    white-space: normal;
   }
 
   .tableCenter > strong {
@@ -3885,6 +4665,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .gameShellGreatRevolution::before,
+  .gameShellGreatRevolution::after {
+    animation: none !important;
+  }
+
   .entryShell *,
   .entryShell *::before,
   .entryShell *::after,

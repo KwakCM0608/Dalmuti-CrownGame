@@ -108,7 +108,10 @@ test("ships without the disposable starter preview", async () => {
   assert.match(page, /kind: "pass"/);
   assert.match(page, /previousTable: state\.table/);
   assert.match(page, /visibleTable\?\.cards \?\? \[\]/);
-  assert.match(page, /humanFinished\s*\?\s*"완료"/);
+  assert.match(
+    page,
+    /humanFinished[\s\S]{0,80}\$\{humanFinishRank \+ 1\}위/,
+  );
   assert.match(page, /createOpeningRound\(BASE_PLAYERS, scores\)/);
   assert.match(page, /\| "rank-intro"/);
   assert.match(page, /\| "rank-selection"/);
@@ -384,5 +387,52 @@ test("double-clicking a selected rank clears that whole rank", async () => {
   assert.deepEqual(
     toggleWholeRankSelection(["joker-1", ...rankIds], rankIds),
     ["joker-1"],
+  );
+});
+
+test("quick and online tables expose the enhanced timed and rank feedback", async () => {
+  const [quickPage, quickStyles, onlinePage, onlineStyles] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/online/page.tsx", import.meta.url), "utf8"),
+    readFile(
+      new URL("../app/online/online.module.css", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(quickPage, /RANK_TRANSITION_DURATION_MS = 2300/);
+  assert.match(quickPage, /turnSecondsRemaining <= 10/);
+  assert.match(quickPage, /className="dalmuti-action-effects"/);
+  assert.match(quickPage, /finishRank=\{finishIndex >= 0 \? finishIndex \+ 1/);
+  assert.match(quickPage, /className="opening-rank-confirmation-body"/);
+  assert.match(quickPage, /className="great-revolution-field-effect"/);
+  assert.match(quickPage, /className=\{`result-rank-shift is-\$\{rankMovement\}`\}/);
+  assert.match(quickStyles, /\.table-column > \.turn-countdown/);
+  assert.match(quickStyles, /\.result-rank-shift\.is-up/);
+  assert.match(quickStyles, /\.result-rank-shift\.is-down/);
+  assert.match(quickStyles, /\.felt-table\.is-great-revolution/);
+  assert.match(
+    quickStyles,
+    /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.opening-rank-confirmation-card\s*\{[^}]*transform: rotate\(-7deg\) !important;/,
+  );
+
+  assert.match(onlinePage, /turnRemainingMs <= 10_000/);
+  assert.match(onlinePage, /styles\.boardColumnTurnUrgent/);
+  assert.match(onlinePage, /styles\.tableDalmutiBurst/);
+  assert.match(onlinePage, /styles\.rankShiftEffect/);
+  assert.match(onlinePage, /styles\.resultRoleChange/);
+  assert.match(onlinePage, /greatRevolutionActive/);
+  assert.match(onlineStyles, /\.turnCountdown\s*\{[^}]*z-index:\s*28/s);
+  assert.match(onlineStyles, /\.tableGreatRevolution/);
+  assert.match(onlineStyles, /\.resultRoleUp/);
+  assert.match(onlineStyles, /\.resultRoleDown/);
+  assert.match(
+    onlineStyles,
+    /@media \(max-width: 820px\)[\s\S]*\.turnCountdown\s*\{[^}]*position: relative;[^}]*top: auto;[^}]*animation-name: turnCountdownArrivalMobile;/,
+  );
+  assert.doesNotMatch(
+    onlineStyles,
+    /@media \(max-width: 820px\)[\s\S]{0,300}\.turnCountdown\s*\{[^}]*top: (?:80|136|158)px;/,
   );
 });

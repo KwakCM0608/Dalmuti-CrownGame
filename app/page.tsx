@@ -143,6 +143,8 @@ const PUBLIC_ACTION_DURATION_MS = 2250;
 const PASS_ACTION_DURATION_MS = 1500;
 const DALMUTI_ACTION_DURATION_MS = 3300;
 const TURN_LIMIT_MS = 30_000;
+const RANK_TRANSITION_DURATION_MS = 2300;
+const RANK_RESULT_REVEAL_DELAY_MS = 280;
 const CARD_ART_VERSION = "2026-07-24-2x";
 
 function createTaxAnimationId() {
@@ -865,6 +867,7 @@ function PlayerSeat({
   score,
   isCurrent,
   isFinished,
+  finishRank,
   taxDirection,
   isFocusedTaxParty,
   showHandBacks,
@@ -880,6 +883,7 @@ function PlayerSeat({
   score: number;
   isCurrent: boolean;
   isFinished: boolean;
+  finishRank: number | null;
   taxDirection: TaxDirection | null;
   isFocusedTaxParty: boolean;
   showHandBacks: boolean;
@@ -903,7 +907,11 @@ function PlayerSeat({
       }`}
       style={seatPosition(rankSeat - 1, 5)}
       data-rank-seat={rankSeat}
-      aria-label={`${player.name}, ${visibleRoleLabel}, 카드 ${handCount}장`}
+      aria-label={`${player.name}, ${visibleRoleLabel}, ${
+        isFinished && finishRank
+          ? `${finishRank}위로 마침`
+          : `카드 ${handCount}장`
+      }`}
     >
       <div className="player-avatar">
         <span>{player.monogram}</span>
@@ -914,7 +922,7 @@ function PlayerSeat({
         <span>{visibleRoleLabel}</span>
       </div>
       <div className="player-count">
-        <b>{isFinished ? "완료" : handCount}</b>
+        <b>{isFinished && finishRank ? `${finishRank}위` : handCount}</b>
         <span>{isFinished ? `${score}점` : "장"}</span>
       </div>
       {showHandBacks && !isFinished && (
@@ -1195,6 +1203,7 @@ function PublicTurnActionLayer({
       className={`public-turn-action-layer is-${action.kind} ${
         isDalmuti ? "is-dalmuti" : ""
       }`}
+      style={routeStyle}
       role="status"
       aria-live="polite"
       aria-label={
@@ -1205,6 +1214,24 @@ function PublicTurnActionLayer({
             : `${subjectLabel(action.player.name)} 패스했습니다`
       }
     >
+      {isDalmuti && (
+        <div className="dalmuti-action-effects" aria-hidden="true">
+          <i />
+          <i />
+          {Array.from({ length: 12 }, (_, index) => (
+            <span
+              key={`dalmuti-spark-${index}`}
+              style={
+                {
+                  "--spark-index": index,
+                  "--spark-angle": `${index * 30}deg`,
+                  "--spark-delay": `${(index % 4) * 90}ms`,
+                } as React.CSSProperties
+              }
+            />
+          ))}
+        </div>
+      )}
       {action.kind === "play" && playedSet ? (
         <>
           {action.cards.map((card, cardIndex) => {
@@ -1263,6 +1290,9 @@ export default function Home() {
     deadline: number;
   } | null>(null);
   const [turnClock, setTurnClock] = useState(() => Date.now());
+  const [revealedRoundResultKey, setRevealedRoundResultKey] = useState<
+    string | null
+  >(null);
   const [taxAnchors, setTaxAnchors] = useState<TaxAnchorMap>({
     players: {},
     midpoint: null,
@@ -1336,6 +1366,24 @@ export default function Home() {
     turnRemainingMs === null ? null : Math.ceil(turnRemainingMs / 1000);
   const turnProgress =
     turnRemainingMs === null ? 0 : Math.min(1, turnRemainingMs / TURN_LIMIT_MS);
+  const turnUrgency =
+    turnRemainingMs !== null
+      ? Math.max(0, Math.min(1, (10_000 - turnRemainingMs) / 10_000))
+      : 0;
+  const turnAccentHue = 43 - turnUrgency * 39;
+  const isGreatRevolutionActive =
+    game?.revolutionAnnouncement?.kind === "great-revolution" &&
+    game.phase !== "round-end";
+  const roundResultKey =
+    game?.phase === "round-end" && !game.publicAction
+      ? `${game.round}-${game.revision}-${game.finishOrder.join("|")}`
+      : null;
+  const roundResultReady =
+    roundResultKey !== null && revealedRoundResultKey === roundResultKey;
+  const isRankTransitioning =
+    game?.phase === "round-end" &&
+    !game.publicAction &&
+    !roundResultReady;
   const selectedCards = humanHand.filter((card) => selectedIds.includes(card.id));
   const selectedSet = normalizedSet(selectedCards);
   const selectedError = isHumanTaxSelecting
@@ -1361,6 +1409,7 @@ export default function Home() {
     if (!game) return assignRoles(BASE_PLAYERS);
     if (
       game.phase === "round-end" &&
+      !game.publicAction &&
       game.finishOrder.length === game.players.length
     ) {
       return assignRoles(
@@ -1424,6 +1473,23 @@ export default function Home() {
       : [],
   );
 
+  useEffect(() => {
+    if (!roundResultKey) return;
+
+    const pendingResultKey = roundResultKey;
+    const reduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    const timer = window.setTimeout(
+      () => setRevealedRoundResultKey(pendingResultKey),
+      reduceMotion
+        ? 80
+        : RANK_TRANSITION_DURATION_MS + RANK_RESULT_REVEAL_DELAY_MS,
+    );
+
+    return () => window.clearTimeout(timer);
+  }, [roundResultKey]);
+
   useLayoutEffect(() => {
     const previousRects = previousSeatRectsRef.current;
     const previousOrder = previousRankSeatOrderRef.current;
@@ -1453,26 +1519,52 @@ export default function Home() {
       const deltaY = previousRect.top - nextRect.top;
       if (Math.abs(deltaX) < 2 && Math.abs(deltaY) < 2) continue;
 
+      const distance = Math.max(1, Math.hypot(deltaX, deltaY));
+      const direction =
+        orderedOpponents.findIndex((candidate) => candidate.id === player.id) %
+          2 ===
+        0
+          ? 1
+          : -1;
+      const arc = Math.min(78, Math.max(30, distance * 0.2)) * direction;
+      const arcX = (-deltaY / distance) * arc;
+      const arcY = (deltaX / distance) * arc;
+
       seat.classList.add("is-changing-rank");
       const animation = seat.animate(
         [
           {
-            transform: `translate(${deltaX}px, ${deltaY}px) scale(0.96)`,
-            opacity: 0.72,
+            transform: `translate(${deltaX}px, ${deltaY}px) scale(0.92) rotate(${
+              direction * -2.4
+            }deg)`,
+            opacity: 0.46,
+            filter: "brightness(0.88) saturate(0.82)",
           },
           {
-            transform: "translate(0, 0) scale(1.035)",
+            transform: `translate(${deltaX * 0.55 + arcX}px, ${
+              deltaY * 0.55 + arcY
+            }px) scale(1.075) rotate(${direction * 1.8}deg)`,
             opacity: 1,
-            offset: 0.72,
+            filter: "brightness(1.48) saturate(1.32)",
+            offset: 0.46,
+          },
+          {
+            transform: `translate(${deltaX * 0.1 - arcX * 0.28}px, ${
+              deltaY * 0.1 - arcY * 0.28
+            }px) scale(1.035) rotate(${direction * -0.7}deg)`,
+            opacity: 1,
+            filter: "brightness(1.22) saturate(1.18)",
+            offset: 0.78,
           },
           {
             transform: "translate(0, 0) scale(1)",
             opacity: 1,
+            filter: "brightness(1) saturate(1)",
           },
         ],
         {
-          duration: 1050,
-          easing: "cubic-bezier(0.2, 0.78, 0.24, 1)",
+          duration: RANK_TRANSITION_DURATION_MS,
+          easing: "cubic-bezier(0.16, 0.74, 0.2, 1)",
         },
       );
       void animation.finished
@@ -2020,12 +2112,14 @@ export default function Home() {
     const players = assignRoles(BASE_PLAYERS);
     const scores = Object.fromEntries(players.map((player) => [player.id, 0]));
     setSelectedIds([]);
+    setRevealedRoundResultKey(null);
     setGame(createOpeningRound(BASE_PLAYERS, scores));
   };
 
   const returnToModeSelection = () => {
     setSelectedIds([]);
     setShowRules(false);
+    setRevealedRoundResultKey(null);
     setTaxAnchors({ players: {}, midpoint: null });
     setGame(null);
   };
@@ -2260,6 +2354,7 @@ export default function Home() {
       (id) => game.players.find((player) => player.id === id)!,
     );
     setSelectedIds([]);
+    setRevealedRoundResultKey(null);
     setGame(prepareRound(ordered, game.round + 1, game.scores, false, true));
   };
 
@@ -2405,7 +2500,17 @@ export default function Home() {
         </aside>
 
         <div
-          className={`table-column ${isHumanTurn ? "is-human-turn" : ""}`}
+          className={`table-column ${isHumanTurn ? "is-human-turn" : ""} ${
+            isHumanTurn && turnUrgency > 0 ? "is-turn-urgent" : ""
+          } ${isRankTransitioning ? "is-rank-transitioning" : ""} ${
+            isGreatRevolutionActive ? "has-great-revolution" : ""
+          }`}
+          style={
+            {
+              "--turn-urgency": turnUrgency,
+              "--turn-accent-hue": turnAccentHue,
+            } as React.CSSProperties
+          }
           ref={tableColumnRef}
         >
           {game?.phase === "taxation" &&
@@ -2427,10 +2532,63 @@ export default function Home() {
             />
           )}
 
+          {turnSecondsRemaining !== null && currentPlayer && (
+            <div
+              className={`turn-countdown ${
+                currentPlayer.id === HUMAN_ID ? "is-mine" : ""
+              } ${turnSecondsRemaining <= 10 ? "is-urgent" : ""}`}
+              style={
+                {
+                  "--turn-angle": `${turnProgress * 360}deg`,
+                  "--turn-urgency": turnUrgency,
+                  "--turn-accent-hue": turnAccentHue,
+                } as React.CSSProperties
+              }
+              role="timer"
+              aria-live={turnSecondsRemaining <= 10 ? "polite" : "off"}
+              aria-label={`${currentPlayer.name}의 남은 시간 ${turnSecondsRemaining}초`}
+            >
+              <div>
+                <span>
+                  <b>{turnSecondsRemaining}</b>
+                  <small>SEC</small>
+                </span>
+              </div>
+              <p>
+                {currentPlayer.id === HUMAN_ID
+                  ? "내 차례"
+                  : `${currentPlayer.name}의 차례`}
+              </p>
+            </div>
+          )}
+
+          {isRankTransitioning && (
+            <div className="rank-transition-effect" aria-hidden="true">
+              <i />
+              <i />
+              {Array.from({ length: 10 }, (_, index) => (
+                <span
+                  key={`rank-transition-spark-${index}`}
+                  style={
+                    {
+                      "--transition-spark-index": index,
+                      "--transition-spark-y": `${16 + index * 7}%`,
+                      "--transition-spark-delay": `${index * 90}ms`,
+                    } as React.CSSProperties
+                  }
+                />
+              ))}
+            </div>
+          )}
+
           <div
             className={`felt-table ${
-              game?.revolutionAnnouncement ? "is-revolution" : ""
-            }`}
+              game?.revolutionAnnouncement &&
+              (game.phase === "revolution-intro" ||
+                isGreatRevolutionActive)
+                ? "is-revolution"
+                : ""
+            } ${isGreatRevolutionActive ? "is-great-revolution" : ""}`}
             ref={feltCenterRef}
           >
             <div className="table-ring" aria-hidden="true">
@@ -2440,6 +2598,28 @@ export default function Home() {
               <i />
               <span>♝</span>
             </div>
+
+            {isGreatRevolutionActive && (
+              <div className="great-revolution-field-effect" aria-hidden="true">
+                <i />
+                <i />
+                {Array.from({ length: 14 }, (_, index) => (
+                  <span
+                    key={`great-revolution-ember-${index}`}
+                    style={
+                      {
+                        "--ember-index": index,
+                        "--ember-x": `${4 + ((index * 37) % 92)}%`,
+                        "--ember-y": `${12 + ((index * 29) % 74)}%`,
+                        "--ember-size": `${3 + (index % 3)}px`,
+                        "--ember-delay": `${(index % 7) * -0.52}s`,
+                        "--ember-duration": `${3.2 + (index % 5) * 0.42}s`,
+                      } as React.CSSProperties
+                    }
+                  />
+                ))}
+              </div>
+            )}
 
             <div
               className={`opponent-row ${
@@ -2470,6 +2650,8 @@ export default function Home() {
                 const rankSelectionMark = openingRankRolesHidden
                   ? "·"
                   : undefined;
+                const finishIndex =
+                  game?.finishOrder.indexOf(player.id) ?? -1;
 
                 return (
                   <PlayerSeat
@@ -2483,6 +2665,7 @@ export default function Home() {
                       currentPlayer?.id === player.id
                     }
                     isFinished={Boolean(game?.finishOrder.includes(player.id))}
+                    finishRank={finishIndex >= 0 ? finishIndex + 1 : null}
                     taxDirection={taxDirection}
                     isFocusedTaxParty={Boolean(route?.reveal)}
                     showHandBacks={hasDealtHands}
@@ -2500,30 +2683,6 @@ export default function Home() {
                 );
               })}
             </div>
-
-            {turnSecondsRemaining !== null && currentPlayer && (
-              <div
-                className={`turn-countdown ${
-                  currentPlayer.id === HUMAN_ID ? "is-mine" : ""
-                } ${turnSecondsRemaining <= 10 ? "is-urgent" : ""}`}
-                style={
-                  {
-                    "--turn-angle": `${turnProgress * 360}deg`,
-                  } as React.CSSProperties
-                }
-                role="timer"
-                aria-live={turnSecondsRemaining <= 10 ? "polite" : "off"}
-                aria-label={`${currentPlayer.name}의 남은 시간 ${turnSecondsRemaining}초`}
-              >
-                <div>
-                  <span>
-                    <b>{turnSecondsRemaining}</b>
-                    <small>SEC</small>
-                  </span>
-                </div>
-                <p>{currentPlayer.id === HUMAN_ID ? "내 차례" : `${currentPlayer.name}의 차례`}</p>
-              </div>
-            )}
 
             <section
               className={`play-area ${
@@ -2658,18 +2817,25 @@ export default function Home() {
                   aria-live="assertive"
                 >
                   <small>YOUR RANK · ACT I</small>
-                  <div className="opening-rank-confirmation-card" aria-hidden="true">
-                    <img
-                      src={`/cards/${String(humanOpeningRank).padStart(2, "0")}.webp?v=${CARD_ART_VERSION}`}
-                      alt=""
-                    />
+                  <div className="opening-rank-confirmation-body">
+                    <div
+                      className="opening-rank-confirmation-card"
+                      aria-hidden="true"
+                    >
+                      <img
+                        src={`/cards/${String(humanOpeningRank).padStart(2, "0")}.webp?v=${CARD_ART_VERSION}`}
+                        alt=""
+                      />
+                    </div>
+                    <div className="opening-rank-confirmation-copy">
+                      <span>나의 서열</span>
+                      <strong>{ROLE_LABELS[humanOpeningRole]}</strong>
+                      <em>
+                        {RANK_NAMES[humanOpeningRank]}({humanOpeningRank}) 카드를
+                        선택했습니다
+                      </em>
+                    </div>
                   </div>
-                  <span>나의 서열</span>
-                  <strong>{ROLE_LABELS[humanOpeningRole]}</strong>
-                  <em>
-                    {RANK_NAMES[humanOpeningRank]}({humanOpeningRank}) 카드를
-                    선택했습니다
-                  </em>
                 </div>
               ) : game?.phase === "reveal-intro" ? (
                 <div
@@ -2872,7 +3038,7 @@ export default function Home() {
               </div>
               <em>
                 {humanFinished
-                  ? "완료"
+                  ? `${humanFinishRank + 1}위`
                   : isOpeningRankEvent
                     ? "선택"
                     : `${game ? humanHand.length : 16}장`}
@@ -3110,7 +3276,9 @@ export default function Home() {
         </div>
       )}
 
-      {game?.phase === "round-end" && !game.publicAction && (
+      {game?.phase === "round-end" &&
+        !game.publicAction &&
+        roundResultReady && (
         <div className="modal-layer">
           <section className="result-card" role="dialog" aria-labelledby="result-title">
             <span className="eyebrow">THE COURT HAS SPOKEN</span>
@@ -3119,6 +3287,15 @@ export default function Home() {
               {game.finishOrder.map((id, index) => {
                 const player = game.players.find((candidate) => candidate.id === id)!;
                 const nextRole = roleForIndex(index, game.players.length);
+                const previousIndex = game.players.findIndex(
+                  (candidate) => candidate.id === id,
+                );
+                const rankMovement =
+                  index < previousIndex
+                    ? "up"
+                    : index > previousIndex
+                      ? "down"
+                      : "same";
                 return (
                   <li
                     key={id}
@@ -3131,9 +3308,22 @@ export default function Home() {
                     }`}
                   >
                     <span>{index + 1}</span>
-                    <div>
-                      <b>{player.name}</b>
-                      <small>{ROLE_LABELS[nextRole]}</small>
+                    <div className="result-player-copy">
+                      <div className="result-player-name">
+                        <b>{player.name}</b>
+                        <span
+                          className={`result-rank-shift is-${rankMovement}`}
+                        >
+                          {ROLE_LABELS[player.role]} → {ROLE_LABELS[nextRole]}
+                        </span>
+                      </div>
+                      <small>
+                        {rankMovement === "up"
+                          ? "서열 상승"
+                          : rankMovement === "down"
+                            ? "서열 하락"
+                            : "서열 유지"}
+                      </small>
                     </div>
                     <em>{game.scores[id]}점</em>
                   </li>

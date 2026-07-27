@@ -837,6 +837,7 @@ function PlayerSeat({
   passed,
   rankNumber,
   isRankMoving = false,
+  rankMovement = null,
   isHandRevealing = false,
   isDalmutiHighlighted = false,
   roleHidden = false,
@@ -850,6 +851,7 @@ function PlayerSeat({
   passed: boolean;
   rankNumber?: number;
   isRankMoving?: boolean;
+  rankMovement?: "up" | "down" | null;
   isHandRevealing?: boolean;
   isDalmutiHighlighted?: boolean;
   roleHidden?: boolean;
@@ -868,6 +870,14 @@ function PlayerSeat({
       } ${player.finishedPlace ? styles.playerSeatFinished : ""} ${
         isHandRevealing ? styles.playerSeatRevealing : ""
       } ${isRankMoving ? styles.playerSeatRankMoving : ""
+      } ${
+        isRankMoving && rankMovement === "up"
+          ? styles.playerSeatRankMovingUp
+          : ""
+      } ${
+        isRankMoving && rankMovement === "down"
+          ? styles.playerSeatRankMovingDown
+          : ""
       } ${isDalmutiHighlighted ? styles.playerSeatDalmuti : ""}`}
       style={style}
       data-rank-number={rankNumber}
@@ -1108,7 +1118,7 @@ function RankSelectionField({
         >
           <small>MY RANK</small>
           <strong>
-            {RANK_NAMES[viewerRank] ?? `${viewerRank}인`}
+            {roleLabelForRank(viewerRank - 1, players.length)}
             <span>({viewerRank})</span>
           </strong>
           <p>당신의 첫 서열은 {viewerRank}위입니다</p>
@@ -1837,6 +1847,11 @@ export default function OnlinePage() {
     turnRemainingMs === null
       ? 0
       : Math.max(0, Math.min(1, turnRemainingMs / TURN_DURATION_MS));
+  const turnUrgency =
+    turnRemainingMs === null
+      ? 0
+      : Math.max(0, Math.min(1, (10_000 - turnRemainingMs) / 10_000));
+  const turnAlertHue = 42 * (1 - turnUrgency);
   const currentTurnPlayer =
     snapshot?.players.find(
       (player) => player.id === snapshot.currentPlayerId,
@@ -1935,6 +1950,10 @@ export default function OnlinePage() {
     !activeEvent &&
     !busy &&
     connection === "online";
+  const showUrgentTurnHighlight =
+    showMyTurnHighlight &&
+    turnRemainingMs !== null &&
+    turnRemainingMs <= 10_000;
   const canPlay =
     isMyTurn &&
     !playError &&
@@ -1948,6 +1967,11 @@ export default function OnlinePage() {
       : observedRevolution?.round === snapshot?.round
         ? observedRevolution
         : null;
+  const greatRevolutionActive = ["great", "great-revolution"].includes(
+    declaredRevolution?.kind ?? "",
+  );
+  const revolutionAnnouncementActive =
+    activeEvent?.type === "REVOLUTION_DECLARED";
   const sortedFinishers = useMemo(() => {
     if (!snapshot) return [];
     const ids = snapshot.finishOrder.length
@@ -2003,11 +2027,14 @@ export default function OnlinePage() {
       if (rankMoveTimerRef.current !== null) {
         window.clearTimeout(rankMoveTimerRef.current);
       }
+      const reduceMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
       rankMoveTimerRef.current = window.setTimeout(() => {
         setRankMovingPlayerIds([]);
         setRoundEndResultReady(true);
         rankMoveTimerRef.current = null;
-      }, 1_700);
+      }, reduceMotion ? 320 : 3_150);
     }, 0);
     return () => window.clearTimeout(startTimer);
   }, [
@@ -2041,8 +2068,8 @@ export default function OnlinePage() {
             { translate: "0 0" },
           ],
           {
-            duration: 1_150,
-            easing: "cubic-bezier(0.2, 0.78, 0.2, 1)",
+            duration: 2_350,
+            easing: "cubic-bezier(0.16, 0.78, 0.18, 1)",
           },
         );
       }
@@ -2495,7 +2522,11 @@ export default function OnlinePage() {
   }
 
   return (
-    <main className={styles.gameShell}>
+    <main
+      className={`${styles.gameShell} ${
+        greatRevolutionActive ? styles.gameShellGreatRevolution : ""
+      }`}
+    >
       <div className={styles.grain} />
       <header className={styles.roomHeader}>
         <Brand
@@ -2567,15 +2598,67 @@ export default function OnlinePage() {
           className={`${styles.boardColumn} ${
             isRankSelectionPhase ? styles.boardColumnRankSelection : ""
           } ${showMyTurnHighlight ? styles.boardColumnMyTurn : ""
+          } ${showUrgentTurnHighlight ? styles.boardColumnTurnUrgent : ""
           }`}
+          style={
+            {
+              "--turn-alert-hue": turnAlertHue,
+              "--turn-alert-strength": turnUrgency,
+              "--turn-alert-alpha": 0.24 + turnUrgency * 0.5,
+              "--turn-pulse-duration": `${Math.round(
+                920 - turnUrgency * 390,
+              )}ms`,
+            } as CSSProperties
+          }
         >
+          {turnSecondsRemaining !== null && currentTurnPlayer && (
+            <div
+              className={`${styles.turnCountdown} ${
+                isMyTurn ? styles.turnCountdownSelf : ""
+              } ${
+                turnSecondsRemaining <= 10
+                  ? styles.turnCountdownUrgent
+                  : ""
+              }`}
+              style={
+                {
+                  "--turn-angle": `${turnProgress * 360}deg`,
+                } as CSSProperties
+              }
+              role="timer"
+              aria-label={`${currentTurnPlayer.name}의 차례, ${turnSecondsRemaining}초 남음`}
+            >
+              <span className={styles.turnCountdownRing} aria-hidden="true">
+                <b>{turnSecondsRemaining}</b>
+                <small>SEC</small>
+              </span>
+              <span className={styles.turnCountdownCopy}>
+                <small>{isMyTurn ? "YOUR TURN" : "CURRENT TURN"}</small>
+                <strong>
+                  {isMyTurn ? "내 차례" : `${currentTurnPlayer.name} 차례`}
+                </strong>
+              </span>
+            </div>
+          )}
           <div
             className={`${styles.table} ${
-              declaredRevolution ? styles.tableRevolution : ""
+              revolutionAnnouncementActive ? styles.tableRevolution : ""
+            } ${
+              greatRevolutionActive ? styles.tableGreatRevolution : ""
             } ${isRankSelectionPhase ? styles.tableRankSelection : ""} ${
               showMyTurnHighlight ? styles.tableMyTurn : ""
+            } ${showUrgentTurnHighlight ? styles.tableMyTurnUrgent : ""} ${
+              dalmutiHighlightPlayerId ? styles.tableDalmutiBurst : ""
             }`}
-            aria-label={showMyTurnHighlight ? "내 차례입니다" : undefined}
+            aria-label={
+              greatRevolutionActive
+                ? showMyTurnHighlight
+                  ? "대혁명 진행 중, 내 차례입니다"
+                  : "대혁명 진행 중"
+                : showMyTurnHighlight
+                  ? "내 차례입니다"
+                  : undefined
+            }
           >
             <div className={styles.tableLine} />
             {showMyTurnHighlight && (
@@ -2591,6 +2674,15 @@ export default function OnlinePage() {
               {rankedOpponents.map(({ player, rankIndex }) => {
                 const displayedRankIndex =
                   seatRankOverrides?.[player.id] ?? rankIndex;
+                const priorRankIndex = snapshot.players.findIndex(
+                  (candidate) => candidate.id === player.id,
+                );
+                const movementDirection =
+                  priorRankIndex > rankIndex
+                    ? "up"
+                    : priorRankIndex < rankIndex
+                      ? "down"
+                      : null;
                 return (
                   <PlayerSeat
                     key={player.id}
@@ -2604,6 +2696,7 @@ export default function OnlinePage() {
                     passed={snapshot.passedPlayerIds.includes(player.id)}
                     rankNumber={rankIndex + 1}
                     isRankMoving={rankMovingPlayerIds.includes(player.id)}
+                    rankMovement={movementDirection}
                     isHandRevealing={isHandRevealing}
                     isDalmutiHighlighted={
                       player.id === dalmutiHighlightPlayerId
@@ -2620,36 +2713,20 @@ export default function OnlinePage() {
                 );
               })}
             </div>
+            {rankMovingPlayerIds.length > 0 && (
+              <div
+                className={styles.rankShiftEffect}
+                role="status"
+                aria-live="polite"
+              >
+                <i />
+                <small>RANK SHIFT</small>
+                <strong>서열 이동</strong>
+                <span>새로운 자리를 정하는 중입니다</span>
+                <i />
+              </div>
+            )}
             <div className={styles.tableCenter}>
-              {turnSecondsRemaining !== null && currentTurnPlayer && (
-                <div
-                  className={`${styles.turnCountdown} ${
-                    isMyTurn ? styles.turnCountdownSelf : ""
-                  } ${
-                    turnSecondsRemaining <= 5
-                      ? styles.turnCountdownUrgent
-                      : ""
-                  }`}
-                  style={
-                    {
-                      "--turn-angle": `${turnProgress * 360}deg`,
-                    } as CSSProperties
-                  }
-                  role="timer"
-                  aria-label={`${currentTurnPlayer.name}의 차례, ${turnSecondsRemaining}초 남음`}
-                >
-                  <span className={styles.turnCountdownRing} aria-hidden="true">
-                    <b>{turnSecondsRemaining}</b>
-                    <small>SEC</small>
-                  </span>
-                  <span className={styles.turnCountdownCopy}>
-                    <small>{isMyTurn ? "YOUR TURN" : "CURRENT TURN"}</small>
-                    <strong>
-                      {isMyTurn ? "내 차례" : `${currentTurnPlayer.name} 차례`}
-                    </strong>
-                  </span>
-                </div>
-              )}
               {isRankSelectionPhase && snapshot.rankSelection ? (
                 <RankSelectionField
                   rankSelection={snapshot.rankSelection}
@@ -2797,6 +2874,19 @@ export default function OnlinePage() {
                   1
                 }
                 isRankMoving={rankMovingPlayerIds.includes(me.id)}
+                rankMovement={(() => {
+                  const priorRankIndex = snapshot.players.findIndex(
+                    (player) => player.id === me.id,
+                  );
+                  const nextRankIndex = tableRankedPlayers.findIndex(
+                    (player) => player.id === me.id,
+                  );
+                  return priorRankIndex > nextRankIndex
+                    ? "up"
+                    : priorRankIndex < nextRankIndex
+                      ? "down"
+                      : null;
+                })()}
                 isHandRevealing={isHandRevealing}
                 isDalmutiHighlighted={me.id === dalmutiHighlightPlayerId}
               />
@@ -3019,28 +3109,54 @@ export default function OnlinePage() {
             <span className={styles.eyebrow}>THE LAB HAS SPOKEN</span>
             <h2>제{snapshot.round}막 랩실 서열</h2>
             <ol>
-              {sortedFinishers.map((player, index) => (
-                <li
-                  key={player.id}
-                  className={`${player.id === me?.id ? styles.resultSelf : ""} ${
-                    index === 0
-                      ? styles.resultFirst
-                      : index === 1
-                        ? styles.resultSecond
-                        : ""
-                  }`}
-                  aria-label={`${index + 1}위 ${player.name}, ${player.score}점`}
-                >
-                  <span>{index + 1}</span>
-                  <p>
-                    <strong>{player.name}</strong>
-                    <small>
-                      다음 막 · {roleLabelForRank(index, sortedFinishers.length)}
-                    </small>
-                  </p>
-                  <em>{player.score}점</em>
-                </li>
-              ))}
+              {sortedFinishers.map((player, index) => {
+                const priorRankIndex = snapshot.players.findIndex(
+                  (candidate) => candidate.id === player.id,
+                );
+                const previousRole = roleLabel(player.role);
+                const nextRole = roleLabelForRank(
+                  index,
+                  sortedFinishers.length,
+                );
+                const rankDirection =
+                  priorRankIndex > index
+                    ? "up"
+                    : priorRankIndex < index
+                      ? "down"
+                      : "same";
+                return (
+                  <li
+                    key={player.id}
+                    className={`${player.id === me?.id ? styles.resultSelf : ""} ${
+                      index === 0
+                        ? styles.resultFirst
+                        : index === 1
+                          ? styles.resultSecond
+                          : ""
+                    }`}
+                    aria-label={`${index + 1}위 ${player.name}, ${previousRole}에서 ${nextRole}, ${player.score}점`}
+                  >
+                    <span>{index + 1}</span>
+                    <p>
+                      <strong>{player.name}</strong>
+                      <small
+                        className={`${styles.resultRoleChange} ${
+                          rankDirection === "up"
+                            ? styles.resultRoleUp
+                            : rankDirection === "down"
+                              ? styles.resultRoleDown
+                              : styles.resultRoleSame
+                        }`}
+                      >
+                        {previousRole}
+                        <i>→</i>
+                        {nextRole}
+                      </small>
+                    </p>
+                    <em>{player.score}점</em>
+                  </li>
+                );
+              })}
             </ol>
             {isHost ? (
               <button
