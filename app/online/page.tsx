@@ -1974,8 +1974,11 @@ export default function OnlinePage() {
   const greatRevolutionActive = ["great", "great-revolution"].includes(
     declaredRevolution?.kind ?? "",
   );
-  const revolutionAnnouncementActive =
-    activeEvent?.type === "REVOLUTION_DECLARED";
+  // The announcement event is intentionally short-lived, but the revolution
+  // changes the visual state of the whole round. Drive the field from the
+  // canonical round declaration (or its observed reconnect fallback), not the
+  // currently playing event overlay.
+  const revolutionFieldActive = Boolean(declaredRevolution);
   const sortedFinishers = useMemo(() => {
     if (!snapshot) return [];
     const ids = snapshot.finishOrder.length
@@ -2646,7 +2649,7 @@ export default function OnlinePage() {
           )}
           <div
             className={`${styles.table} ${
-              revolutionAnnouncementActive ? styles.tableRevolution : ""
+              revolutionFieldActive ? styles.tableRevolution : ""
             } ${
               greatRevolutionActive ? styles.tableGreatRevolution : ""
             } ${isRankSelectionPhase ? styles.tableRankSelection : ""} ${

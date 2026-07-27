@@ -486,3 +486,37 @@ test("quick and online modes use the official player rank labels", async () => {
     /\.revolutionJokers > span\s*\{[^}]*width: clamp\(88px, 9vw, 124px\);[^}]*aspect-ratio: 466 \/ 717;[^}]*url\("\/cards\/joker\.webp"\) center \/ cover no-repeat;/s,
   );
 });
+
+test("declared revolutions keep the field red for the whole round", async () => {
+  const [quickPage, onlinePage] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/online/page.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(
+    quickPage,
+    /const isRevolutionActive = Boolean\(game\?\.revolutionAnnouncement\)/,
+  );
+  assert.match(
+    quickPage,
+    /isRevolutionActive \? "is-revolution" : ""/,
+  );
+  assert.match(
+    quickPage,
+    /isRevolutionActive[\s\S]{0,100}kind === "great-revolution"/,
+  );
+  assert.doesNotMatch(
+    quickPage,
+    /phase === "revolution-intro" \|\|\s*isGreatRevolutionActive/,
+  );
+
+  assert.match(
+    onlinePage,
+    /const revolutionFieldActive = Boolean\(declaredRevolution\)/,
+  );
+  assert.match(
+    onlinePage,
+    /revolutionFieldActive \? styles\.tableRevolution : ""/,
+  );
+  assert.doesNotMatch(onlinePage, /const revolutionAnnouncementActive/);
+});

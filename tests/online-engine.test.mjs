@@ -1061,6 +1061,33 @@ test("the opening round offers revolution and declining it proceeds to tax selec
     (event) => event.type === "REVOLUTION_DECLARED",
   );
   assert.equal(declaredEvent.payload.endsAt, declared.phaseEndsAt);
+
+  const playingWithRevolution = advanceOnlineRoom(
+    declared,
+    declared.phaseEndsAt,
+    { durations },
+  );
+  assert.equal(playingWithRevolution.phase, "playing");
+  assert.deepEqual(
+    playingWithRevolution.declaredRevolution,
+    declared.declaredRevolution,
+  );
+
+  const endedRound = structuredClone(playingWithRevolution);
+  endedRound.phase = "round-end";
+  endedRound.phaseEndsAt = null;
+  endedRound.turnDeadline = null;
+  endedRound.actionLockUntil = null;
+  endedRound.finishOrder = endedRound.players.map((player) => player.id);
+  const nextRound = command(
+    endedRound,
+    endedRound.hostId,
+    "START_NEXT_ROUND",
+    {},
+    endedRound.updatedAt + 1,
+  );
+  assert.equal(nextRound.round, 2);
+  assert.equal(nextRound.declaredRevolution, null);
 });
 
 test("legacy persisted room JSON hydrates new optional ranking fields safely", () => {

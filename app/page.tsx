@@ -1380,9 +1380,13 @@ export default function Home() {
       ? Math.max(0, Math.min(1, (10_000 - turnRemainingMs) / 10_000))
       : 0;
   const turnAccentHue = 43 - turnUrgency * 39;
+  // The announcement itself is transient, but the revolution changes the
+  // atmosphere of the whole act. Keep the base red field active until the
+  // next round replaces this announcement state.
+  const isRevolutionActive = Boolean(game?.revolutionAnnouncement);
   const isGreatRevolutionActive =
-    game?.revolutionAnnouncement?.kind === "great-revolution" &&
-    game.phase !== "round-end";
+    isRevolutionActive &&
+    game?.revolutionAnnouncement?.kind === "great-revolution";
   const roundResultKey =
     game?.phase === "round-end" && !game.publicAction
       ? `${game.round}-${game.revision}-${game.finishOrder.join("|")}`
@@ -2592,11 +2596,7 @@ export default function Home() {
 
           <div
             className={`felt-table ${
-              game?.revolutionAnnouncement &&
-              (game.phase === "revolution-intro" ||
-                isGreatRevolutionActive)
-                ? "is-revolution"
-                : ""
+              isRevolutionActive ? "is-revolution" : ""
             } ${isGreatRevolutionActive ? "is-great-revolution" : ""}`}
             ref={feltCenterRef}
           >
