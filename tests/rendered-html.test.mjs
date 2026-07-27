@@ -36,7 +36,13 @@ test("server-renders the playable Dalmuti prototype", async () => {
   assert.match(html, /DALMUTI/);
   assert.doesNotMatch(html, /왕관은/);
   assert.doesNotMatch(html, /네 명의 AI와(?: 함께)? 바로 한 판을 시작합니다/);
-  assert.match(html, /빠른 대전\(5인\)/);
+  assert.match(html, /빠른 대전\(/);
+  assert.match(html, /QUICK MATCH · 4–10 PLAYERS/);
+  assert.match(html, /플레이 인원/);
+  assert.match(html, /봇 난이도/);
+  assert.match(html, /쉬움/);
+  assert.match(html, /보통/);
+  assert.match(html, /어려움/);
   assert.match(html, /<link rel="icon" href="\/brand-dalmuti-crown\.png"\/>/);
   assert.match(html, /친구들과 온라인/);
   assert.match(html, /누적 점수/);
@@ -74,7 +80,7 @@ test("ships without the disposable starter preview", async () => {
   assert.match(page, /selectPeonTaxCards\(sourceHands\[peon\.id\], count\)/);
   assert.match(
     page,
-    /selectDalmutiReturnCards\(sourceHands\[noble\.id\], count\)/,
+    /chooseBotTaxReturn\([\s\S]{0,240}sourceHands\[noble\.id\]/,
   );
   assert.match(page, /세금 계산에 한해 광대를 가장 강한/);
   assert.match(page, /function chooseBotCards/);
@@ -118,7 +124,10 @@ test("ships without the disposable starter preview", async () => {
     page,
     /humanFinished[\s\S]{0,80}\$\{humanFinishRank \+ 1\}위/,
   );
-  assert.match(page, /createOpeningRound\(BASE_PLAYERS, scores\)/);
+  assert.match(
+    page,
+    /createOpeningRound\([\s\S]{0,120}quickPlayers,[\s\S]{0,80}scores,[\s\S]{0,80}quickBotDifficulty/,
+  );
   assert.match(page, /\| "rank-intro"/);
   assert.match(page, /\| "rank-selection"/);
   assert.match(page, /\| "rank-reveal"/);
@@ -203,15 +212,18 @@ test("ships without the disposable starter preview", async () => {
   assert.match(page, /className=\{`turn-countdown/);
   assert.match(page, /"--turn-angle": `\$\{turnProgress \* 360\}deg`/);
   assert.match(page, /function seatPosition/);
-  assert.match(page, /style=\{seatPosition\(rankSeat - 1, 5\)\}/);
-  assert.match(page, /"--seat-grid-column": rankIndex \+ 1/);
+  assert.match(
+    page,
+    /style=\{seatPosition\(rankSeat - 1, totalPlayers\)\}/,
+  );
+  assert.match(page, /"--seat-grid-column": \(rankIndex % compactColumns\) \+ 1/);
   assert.match(page, /className="human-status" ref=\{humanAnchorRef\}/);
   assert.doesNotMatch(page, /className="hand-wrap" ref=\{humanAnchorRef\}/);
   assert.match(page, /isDalmutiHighlighted/);
   assert.match(page, /className="welcome-crown"/);
   assert.match(
     styles,
-    /Shared online visual system for the five-player quick match/,
+    /Shared online visual system for the configurable 4–10-player quick match/,
   );
   assert.match(
     styles,
@@ -390,9 +402,13 @@ test("deals remainder cards to the lowest-ranked players", async () => {
     new URL("../lib/dealing.ts", import.meta.url)
   );
 
+  assert.deepEqual(rankedDealCounts(80, 4), [20, 20, 20, 20]);
   assert.deepEqual(rankedDealCounts(80, 5), [16, 16, 16, 16, 16]);
   assert.deepEqual(rankedDealCounts(80, 6), [13, 13, 13, 13, 14, 14]);
   assert.deepEqual(rankedDealCounts(80, 7), [11, 11, 11, 11, 12, 12, 12]);
+  assert.deepEqual(rankedDealCounts(80, 10), [
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+  ]);
 });
 
 test("double-clicking a selected rank clears that whole rank", async () => {
@@ -449,6 +465,148 @@ test("quick and online tables expose the enhanced timed and rank feedback", asyn
   assert.match(
     onlineStyles,
     /@media \(max-width: 820px\)[\s\S]*\.turnCountdown\s*\{[^}]*position: absolute;[^}]*top: 104px;[^}]*right: 13px;[^}]*left: auto;/,
+  );
+});
+
+test("quick match delays its great-revolution seat reversal until the dedicated swap announcement", async () => {
+  const quickPage = await readFile(
+    new URL("../app/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  const decisionStart = quickPage.indexOf(
+    "const resolveRevolution = (declare: boolean) =>",
+  );
+  const decisionEnd = quickPage.indexOf(
+    "const toggleCard =",
+    decisionStart,
+  );
+  assert.ok(decisionStart >= 0 && decisionEnd > decisionStart);
+  const decisionBlock = quickPage.slice(decisionStart, decisionEnd);
+  assert.match(
+    decisionBlock,
+    /phase = "revolution-intro";[\s\S]*"great-revolution"/,
+  );
+  assert.doesNotMatch(
+    decisionBlock,
+    /\.reverse\(\)/,
+    "declaring a great revolution must not reverse seats before its first announcement ends",
+  );
+
+  const introEffectStart = quickPage.indexOf(
+    'if (!game || game.phase !== "revolution-intro") return;',
+  );
+  const swapEffectStart = quickPage.indexOf(
+    'if (!game || game.phase !== "great-revolution-swap") return;',
+    introEffectStart,
+  );
+  assert.ok(introEffectStart >= 0 && swapEffectStart > introEffectStart);
+  const introEffect = quickPage.slice(introEffectStart, swapEffectStart);
+  assert.match(
+    introEffect,
+    /kind === "great-revolution"[\s\S]*phase: "great-revolution-swap"[\s\S]*players: assignRoles\(\[\.\.\.latest\.players\]\.reverse\(\)\)/,
+  );
+  assert.match(
+    introEffect,
+    /대혁명으로 인해 모두의 계급이 뒤바뀝니다/,
+  );
+
+  const swapEffectEnd = quickPage.indexOf(
+    'if (!game || game.phase !== "hand-reveal") return;',
+    swapEffectStart,
+  );
+  assert.ok(swapEffectEnd > swapEffectStart);
+  const swapEffect = quickPage.slice(swapEffectStart, swapEffectEnd);
+  assert.match(swapEffect, /phase: "play-intro"/);
+  assert.match(
+    swapEffect,
+    /GREAT_REVOLUTION_SWAP_DURATION_MS/,
+  );
+});
+
+test("online mode renders the dedicated great-revolution rank-swap announcement", async () => {
+  const onlinePage = await readFile(
+    new URL("../app/online/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    onlinePage,
+    /GREAT_REVOLUTION_RANK_SWAP_STARTED|snapshot\.phase === "great-revolution-swap"/,
+    "the online client must render the server's separate rank-swap phase or event",
+  );
+  assert.match(
+    onlinePage,
+    /대혁명으로 인해 모두의 계급이 뒤바뀝니다/,
+  );
+  assert.match(
+    onlinePage,
+    /const eventRound = numberValue\(event\.data\.round, Number\.NaN\);[\s\S]{0,80}eventRound !== round/,
+  );
+});
+
+test("quick and online modes wire configurable bot difficulty into the shared policy", async () => {
+  const [quickPage, quickStyles, onlinePage, engine, strategy] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/online/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/online-game/engine.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/bot-strategy.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(
+    quickPage,
+    /Array\.from\(\{ length: 7 \}, \(_, index\) => index \+ 4\)/,
+  );
+  assert.match(quickPage, /BASE_PLAYERS\.slice\(0, quickPlayerCount\)/);
+  assert.match(quickPage, /chooseBotCardIds\(/);
+  assert.match(
+    quickPage,
+    /publicPlayedCards: \[\.\.\.state\.publicPlayedCards, \.\.\.selected\]/,
+  );
+  assert.match(
+    quickPage,
+    /publicPlayedCards: state\.publicPlayedCards\.map\(\(card\) =>/,
+  );
+  assert.match(quickPage, /"--opening-rank-columns": Math\.min\(/);
+  assert.match(quickPage, /"--rank-reveal-delay": `\$\{cardIndex \* 125\}ms`/);
+  assert.match(
+    quickStyles,
+    /grid-template-columns: repeat\([\s\S]{0,100}var\(--opening-rank-columns, 5\)/,
+  );
+  assert.match(onlinePage, /BOT_DIFFICULTIES\.map\(\(difficulty\) =>/);
+  assert.match(
+    onlinePage,
+    /sendCommand\("ADD_BOT",\s*\{\s*difficulty\s*\}\)/,
+  );
+  assert.match(engine, /command\.difficulty \?\? "normal"/);
+  assert.match(engine, /INVALID_BOT_DIFFICULTY/);
+  assert.match(strategy, /export const BOT_DIFFICULTIES = \["easy", "normal", "hard"\]/);
+});
+
+test("online play keeps the previous table visible during the submit animation", async () => {
+  const [onlinePage, engine, onlineStyles] = await Promise.all([
+    readFile(new URL("../app/online/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/online-game/engine.ts", import.meta.url), "utf8"),
+    readFile(
+      new URL("../app/online/online.module.css", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(engine, /const previousTable = state\.table/);
+  assert.match(
+    engine,
+    /appendEvent\(state, "CARDS_PLAYED"[\s\S]{0,160}previousTable/,
+  );
+  assert.match(
+    onlinePage,
+    /const visibleTable = useMemo(?:<TableView>)?\([\s\S]{0,900}activeEvent\.data\.previousTable/,
+  );
+  assert.match(onlinePage, /visibleTable\?\.cards/);
+  assert.match(
+    onlineStyles,
+    /\.revealOverlay \.eventCenterCopy > strong\s*\{[^}]*white-space:\s*nowrap;[^}]*word-break:\s*keep-all;/s,
   );
 });
 
@@ -729,13 +887,16 @@ test("online bot seats and quick finished-player acceleration stay wired to the 
     ),
   ]);
 
-  assert.match(onlinePage, /sendCommand\("ADD_BOT"\)/);
+  assert.match(
+    onlinePage,
+    /sendCommand\("ADD_BOT",\s*\{\s*difficulty\s*\}\)/,
+  );
   assert.match(
     onlinePage,
     /sendCommand\("REMOVE_BOT",\s*\{\s*botId: player\.id,/,
   );
   assert.match(onlinePage, /player\.isBot \? styles\.lobbyPlayerBot/);
-  assert.match(onlinePage, /player\.isBot[\s\S]{0,120}player\.ready/);
+  assert.match(onlinePage, /player\.isBot[\s\S]{0,900}player\.ready/);
   assert.match(onlineStyles, /\.emptySlotInteractive/);
   assert.match(onlineStyles, /\.lobbyPlayerBot/);
   assert.match(onlineStyles, /\.botRemoveHint/);

@@ -1,3 +1,5 @@
+import type { BotDifficulty } from "../bot-strategy.ts";
+
 export type OnlineRoomPhase =
   | "lobby"
   | "rank-intro"
@@ -8,6 +10,7 @@ export type OnlineRoomPhase =
   | "hand-reveal"
   | "revolution"
   | "revolution-intro"
+  | "great-revolution-swap"
   | "tax-intro"
   | "tax-selection"
   | "tax-tribute"
@@ -39,6 +42,7 @@ export type OnlinePlayerState = {
   name: string;
   monogram: string;
   isBot: boolean;
+  botDifficulty: BotDifficulty | null;
   role: OnlineRole;
   ready: boolean;
   connected: boolean;
@@ -106,6 +110,7 @@ export type OnlineEventType =
   | "REVOLUTION_DECLARED"
   | "REVOLUTION_DECLINED"
   | "REVOLUTION_INTRO_STARTED"
+  | "GREAT_REVOLUTION_RANK_SWAP_STARTED"
   | "TAX_INTRO_STARTED"
   | "TAX_SELECTION_STARTED"
   | "TAX_RETURN_SELECTED"
@@ -145,6 +150,7 @@ export type OnlineCommand =
     })
   | (OnlineCommandBase & {
       type: "ADD_BOT";
+      difficulty?: BotDifficulty;
     })
   | (OnlineCommandBase & {
       type: "REMOVE_BOT";
@@ -191,6 +197,7 @@ export type OnlinePhaseDurations = {
   handRevealMs: number;
   revolutionDecisionMs: number;
   revolutionIntroMs: number;
+  greatRevolutionSwapMs: number;
   taxIntroMs: number;
   taxSelectionMs: number;
   taxTributeMs: number;
@@ -238,6 +245,7 @@ export type OnlineSnapshotPlayer = {
   name: string;
   monogram: string;
   isBot: boolean;
+  botDifficulty: BotDifficulty | null;
   role: OnlineRole;
   ready: boolean;
   connected: boolean;

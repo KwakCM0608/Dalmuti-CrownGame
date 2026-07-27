@@ -1,14 +1,19 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import {
-  selectDalmutiReturnCards,
-  selectPeonTaxCards,
-} from "@/lib/taxation";
+import { selectPeonTaxCards } from "@/lib/taxation";
 import { rankedDealCounts } from "@/lib/dealing";
 import { resolveQuickDalmutiAutoPass } from "@/lib/quick-dalmuti";
 import { scoreChipCount } from "@/lib/score-chips";
 import { toggleWholeRankSelection } from "@/lib/selection";
+import {
+  BOT_DIFFICULTIES,
+  chooseBotCardIds,
+  chooseBotRevolution,
+  chooseBotTaxReturn,
+  chooseFacedownRankSlot,
+  type BotDifficulty,
+} from "@/lib/bot-strategy";
 
 type Role =
   | "great-dalmuti"
@@ -30,6 +35,7 @@ type Phase =
   | "play-intro"
   | "revolution"
   | "revolution-intro"
+  | "great-revolution-swap"
   | "taxation"
   | "round-end";
 
@@ -129,6 +135,8 @@ type GameState = {
   publicAction: PublicTurnAction | null;
   openingRankSelection: OpeningRankSelection | null;
   revolutionAnnouncement: RevolutionAnnouncement | null;
+  publicPlayedCards: Card[];
+  botDifficulty: BotDifficulty;
 };
 
 const HUMAN_ID = "you";
@@ -143,6 +151,7 @@ const HAND_REVEAL_DURATION_MS = 1400;
 const TAX_INTRO_DURATION_MS = 2400;
 const PLAY_INTRO_DURATION_MS = 2600;
 const REVOLUTION_INTRO_DURATION_MS = 3300;
+const GREAT_REVOLUTION_SWAP_DURATION_MS = 2600;
 const PUBLIC_ACTION_DURATION_MS = 2250;
 const PASS_ACTION_DURATION_MS = 1500;
 const DALMUTI_ACTION_DURATION_MS = 3300;
@@ -154,6 +163,18 @@ const TURN_LIMIT_MS = 30_000;
 const RANK_TRANSITION_DURATION_MS = 2300;
 const RANK_RESULT_REVEAL_DELAY_MS = 280;
 const CARD_ART_VERSION = "2026-07-24-2x";
+
+const BOT_DIFFICULTY_LABELS: Record<BotDifficulty, string> = {
+  easy: "쉬움",
+  normal: "보통",
+  hard: "어려움",
+};
+
+const BOT_DIFFICULTY_DESCRIPTIONS: Record<BotDifficulty, string> = {
+  easy: "기본적인 카드 제출",
+  normal: "조커와 묶음을 관리",
+  hard: "상대 위협까지 적극 대응",
+};
 
 function createTaxAnimationId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -181,6 +202,11 @@ const BASE_PLAYERS: Omit<Player, "role">[] = [
   { id: "luna", name: "루나", monogram: "루", isHuman: false },
   { id: "tobias", name: "토비아스", monogram: "토", isHuman: false },
   { id: "seraphine", name: "세라핀", monogram: "세", isHuman: false },
+  { id: "elio", name: "엘리오", monogram: "엘", isHuman: false },
+  { id: "mira", name: "미라", monogram: "미", isHuman: false },
+  { id: "rowan", name: "로완", monogram: "로", isHuman: false },
+  { id: "celeste", name: "셀레스트", monogram: "셀", isHuman: false },
+  { id: "bastian", name: "바스티안", monogram: "바", isHuman: false },
 ];
 
 const ROLE_LABELS: Record<Role, string> = {
@@ -239,11 +265,12 @@ function seatPosition(rankIndex: number, total: number): React.CSSProperties {
   const angle =
     total <= 1 ? 270 : 150 + (240 * rankIndex) / Math.max(1, total - 1);
   const radians = (angle * Math.PI) / 180;
+  const compactColumns = Math.min(5, total);
   return {
     "--seat-x": `${50 + Math.cos(radians) * 42}%`,
     "--seat-y": `${46 + Math.sin(radians) * 34}%`,
-    "--seat-grid-column": rankIndex + 1,
-    "--seat-grid-row": 1,
+    "--seat-grid-column": (rankIndex % compactColumns) + 1,
+    "--seat-grid-row": Math.floor(rankIndex / compactColumns) + 1,
   } as React.CSSProperties;
 }
 
@@ -343,6 +370,7 @@ function settleTaxHands(
 function applyTax(
   players: Player[],
   sourceHands: Record<string, Card[]>,
+  botDifficulty: BotDifficulty,
 ): {
   hands: Record<string, Card[]> | null;
   tributeHands: Record<string, Card[]>;
@@ -358,7 +386,14 @@ function applyTax(
     const peonGift = selectPeonTaxCards(sourceHands[peon.id], count);
     const nobleGift = noble.isHuman
       ? []
-      : selectDalmutiReturnCards(sourceHands[noble.id], count);
+      : chooseBotTaxReturn(
+          sourceHands[noble.id],
+          count,
+          botDifficulty,
+        ).cardIds.map(
+          (cardId) =>
+            sourceHands[noble.id].find((card) => card.id === cardId)!,
+        );
 
     exchanges.push({
       nobleId: noble.id,
@@ -404,6 +439,7 @@ function applyTax(
 function createOpeningRound(
   basePlayers: Omit<Player, "role">[],
   scores: Record<string, number>,
+  botDifficulty: BotDifficulty,
 ): GameState {
   const players = assignRoles(basePlayers);
   return {
@@ -431,6 +467,8 @@ function createOpeningRound(
     publicAction: null,
     openingRankSelection: null,
     revolutionAnnouncement: null,
+    publicPlayedCards: [],
+    botDifficulty,
   };
 }
 
@@ -529,10 +567,11 @@ function prepareRound(
   orderedPlayers: Player[],
   round: number,
   scores: Record<string, number>,
+  botDifficulty: BotDifficulty,
   forceTaxPreview = false,
   waitForHost = false,
 ): GameState {
-  let players = assignRoles(orderedPlayers);
+  const players = assignRoles(orderedPlayers);
   const hands = deal(players);
   const holder = forceTaxPreview
     ? undefined
@@ -555,24 +594,50 @@ function prepareRound(
     phase = "revolution";
     log = ["두 광대가 당신의 손에 모였습니다. 혁명을 선택하세요.", ...log];
   } else if (holder) {
-    if (holder.role === "great-peon") {
-      players = assignRoles([...players].reverse());
-      log = [`${holder.name}의 대혁명! 모든 계급이 뒤집혔습니다.`, ...log];
-      revolutionAnnouncement = createRevolutionAnnouncement(
-        holder,
-        "great-revolution",
-      );
+    const revolutionDecision = chooseBotRevolution(
+      {
+        hand: hands[holder.id],
+        role: holder.role,
+        playerCount: players.length,
+      },
+      botDifficulty,
+    );
+    if (revolutionDecision.declare) {
+      if (holder.role === "great-peon") {
+        log = [`${subjectLabel(holder.name)} 대혁명을 일으켰습니다.`, ...log];
+        revolutionAnnouncement = createRevolutionAnnouncement(
+          holder,
+          "great-revolution",
+        );
+      } else {
+        log = [
+          `${subjectLabel(holder.name)} 혁명을 선포해 세금이 취소되었습니다.`,
+          ...log,
+        ];
+        revolutionAnnouncement = createRevolutionAnnouncement(
+          holder,
+          "revolution",
+        );
+      }
+      phase = "revolution-intro";
+      revolutionHolder = null;
     } else {
+      const taxed = applyTax(players, hands, botDifficulty);
+      phase = "tax-intro";
+      taxExchanges = taxed.exchanges;
+      taxStage = taxed.hands ? "tribute" : "selection";
+      taxAnimationId = createTaxAnimationId();
+      tributeHands = taxed.tributeHands;
+      taxedHands = taxed.hands;
+      revolutionHolder = null;
       log = [
-        `${subjectLabel(holder.name)} 혁명을 선포해 세금이 취소되었습니다.`,
+        `${subjectLabel(holder.name)} 혁명을 일으키지 않았습니다.`,
+        ...taxed.notes,
         ...log,
       ];
-      revolutionAnnouncement = createRevolutionAnnouncement(holder, "revolution");
     }
-    phase = "revolution-intro";
-    revolutionHolder = null;
   } else {
-    const taxed = applyTax(players, hands);
+    const taxed = applyTax(players, hands, botDifficulty);
     phase = "tax-intro";
     taxExchanges = taxed.exchanges;
     taxStage = taxed.hands ? "tribute" : "selection";
@@ -604,6 +669,8 @@ function prepareRound(
     publicAction: null,
     openingRankSelection: null,
     revolutionAnnouncement,
+    publicPlayedCards: [],
+    botDifficulty,
   };
 }
 
@@ -627,17 +694,24 @@ function advanceAfterHandReveal(state: GameState): GameState {
     };
   }
 
-  if (holder) {
+  const botRevolutionDecision = holder
+    ? chooseBotRevolution(
+        {
+          hand: state.hands[holder.id],
+          role: holder.role,
+          playerCount: state.players.length,
+        },
+        state.botDifficulty,
+      )
+    : null;
+
+  if (holder && botRevolutionDecision?.declare) {
     const isGreatRevolution = holder.role === "great-peon";
-    const players = isGreatRevolution
-      ? assignRoles([...state.players].reverse())
-      : state.players;
 
     return {
       ...state,
       phase: "revolution-intro",
       revision: state.revision + 1,
-      players,
       currentIndex: 0,
       revolutionHolder: null,
       revolutionAnnouncement: createRevolutionAnnouncement(
@@ -647,14 +721,18 @@ function advanceAfterHandReveal(state: GameState): GameState {
       log: [
         "패 공개가 끝났습니다.",
         isGreatRevolution
-          ? `${subjectLabel(holder.name)} 대혁명을 선포해 모든 계급이 뒤집혔습니다.`
+          ? `${subjectLabel(holder.name)} 대혁명을 일으켰습니다.`
           : `${subjectLabel(holder.name)} 혁명을 선포해 이번 막의 세금이 취소되었습니다.`,
         ...state.log,
       ].slice(0, 12),
     };
   }
 
-  const taxed = applyTax(state.players, state.hands);
+  const taxed = applyTax(
+    state.players,
+    state.hands,
+    state.botDifficulty,
+  );
   return {
     ...state,
     phase: "tax-intro",
@@ -666,6 +744,9 @@ function advanceAfterHandReveal(state: GameState): GameState {
     taxedHands: taxed.hands,
     log: [
       "패 공개가 끝났습니다.",
+      ...(holder
+        ? [`${subjectLabel(holder.name)} 혁명을 일으키지 않았습니다.`]
+        : []),
       ...taxed.notes,
       ...state.log,
     ].slice(0, 12),
@@ -747,6 +828,7 @@ function playCards(state: GameState, playerId: string, cardIds: string[]): GameS
       finishOrder,
       log: ["이번 막의 새로운 계급이 결정되었습니다.", ...log],
       publicAction,
+      publicPlayedCards: [...state.publicPlayedCards, ...selected],
     };
   }
 
@@ -761,6 +843,7 @@ function playCards(state: GameState, playerId: string, cardIds: string[]): GameS
     finishOrder,
     log,
     publicAction,
+    publicPlayedCards: [...state.publicPlayedCards, ...selected],
   };
 
   if (dalmutiResolution) {
@@ -915,35 +998,30 @@ function insufficientCardsPassTurn(
 }
 
 function chooseBotCards(state: GameState, playerId: string): string[] | null {
-  const hand = state.hands[playerId];
-  const jokers = hand.filter((card) => card.rank === 13);
-  const groups = new Map<number, Card[]>();
-  for (const card of hand) {
-    if (card.rank === 13) continue;
-    groups.set(card.rank, [...(groups.get(card.rank) ?? []), card]);
-  }
-
-  if (!state.table) {
-    if (jokers.length > 0) return [jokers[0].id];
-    const ranks = [...groups.keys()].sort((a, b) => b - a);
-    const rank = ranks[0];
-    return rank ? groups.get(rank)!.map((card) => card.id) : null;
-  }
-
-  const targetCount = state.table.count;
-  const ranks = [...groups.keys()]
-    .filter((rank) => rank < state.table!.rank)
-    .sort((a, b) => b - a);
-
-  for (const rank of ranks) {
-    const cards = groups.get(rank)!;
-    if (cards.length + jokers.length < targetCount) continue;
-    return [
-      ...cards.slice(0, targetCount),
-      ...jokers.slice(0, Math.max(0, targetCount - cards.length)),
-    ].map((card) => card.id);
-  }
-  return null;
+  return chooseBotCardIds(
+    {
+      actorId: playerId,
+      hand: state.hands[playerId] ?? [],
+      table: state.table
+        ? {
+            rank: state.table.rank,
+            count: state.table.count,
+            playerId: state.table.playerId,
+          }
+        : null,
+      players: state.players.map((player) => ({
+        id: player.id,
+        handCount: state.hands[player.id]?.length ?? 0,
+        finished: state.finishOrder.includes(player.id),
+      })),
+      passedPlayerIds: state.passed,
+      publicPlayedCards: state.publicPlayedCards.map((card) => ({
+        rank: card.rank,
+        count: 1,
+      })),
+    },
+    state.botDifficulty,
+  );
 }
 
 function skipRemainingBotTurns(state: GameState): GameState {
@@ -998,6 +1076,7 @@ function PlayerSeat({
   rankSelectionLabel,
   rankSelectionMark,
   rankSeat,
+  totalPlayers,
   isDalmutiHighlighted,
   seatRef,
 }: {
@@ -1014,6 +1093,7 @@ function PlayerSeat({
   rankSelectionLabel?: string;
   rankSelectionMark?: string;
   rankSeat: number;
+  totalPlayers: number;
   isDalmutiHighlighted: boolean;
   seatRef?: (node: HTMLElement | null) => void;
 }) {
@@ -1028,7 +1108,7 @@ function PlayerSeat({
         isFocusedTaxParty ? "is-focused-tax-party" : ""
       } ${isDalmutiHighlighted ? "is-dalmuti-highlighted" : ""
       }`}
-      style={seatPosition(rankSeat - 1, 5)}
+      style={seatPosition(rankSeat - 1, totalPlayers)}
       data-rank-seat={rankSeat}
       aria-label={`${player.name}, ${visibleRoleLabel}, ${
         isFinished && finishRank
@@ -1470,6 +1550,9 @@ function PublicTurnActionLayer({
 
 export default function Home() {
   const [game, setGame] = useState<GameState | null>(null);
+  const [quickPlayerCount, setQuickPlayerCount] = useState(5);
+  const [quickBotDifficulty, setQuickBotDifficulty] =
+    useState<BotDifficulty>("normal");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showRules, setShowRules] = useState(false);
   const [turnTimer, setTurnTimer] = useState<{
@@ -1491,6 +1574,16 @@ export default function Home() {
   const previousSeatRectsRef = useRef<Record<string, DOMRect>>({});
   const previousRankSeatOrderRef = useRef("");
 
+  const previewPlayers = useMemo(
+    () => assignRoles(BASE_PLAYERS.slice(0, quickPlayerCount)),
+    [quickPlayerCount],
+  );
+  const previewHandCounts = useMemo(() => {
+    const counts = rankedDealCounts(createDeck().length, previewPlayers.length);
+    return Object.fromEntries(
+      previewPlayers.map((player, index) => [player.id, counts[index]]),
+    );
+  }, [previewPlayers]);
   const currentPlayer = game?.players[game.currentIndex] ?? null;
   const humanHand = game?.hands[HUMAN_ID] ?? [];
   const humanFinished = Boolean(game?.finishOrder.includes(HUMAN_ID));
@@ -1582,7 +1675,7 @@ export default function Home() {
       ? Math.max(0, Math.min(1, (10_000 - turnRemainingMs) / 10_000))
       : 0;
   const turnAccentHue = 43 - turnUrgency * 39;
-  const scoreRailPlayers = game?.players ?? assignRoles(BASE_PLAYERS);
+  const scoreRailPlayers = game?.players ?? previewPlayers;
   const highestScore = Math.max(
     1,
     ...scoreRailPlayers.map((player) => game?.scores[player.id] ?? 0),
@@ -1626,7 +1719,7 @@ export default function Home() {
     selectedCards.length === humanTaxSelectionCount;
 
   const visibleRankPlayers = useMemo(() => {
-    if (!game) return assignRoles(BASE_PLAYERS);
+    if (!game) return previewPlayers;
     if (
       game.phase === "round-end" &&
       !game.publicAction &&
@@ -1640,7 +1733,7 @@ export default function Home() {
       );
     }
     return game.players;
-  }, [game]);
+  }, [game, previewPlayers]);
   const orderedOpponents = useMemo(
     () => visibleRankPlayers.filter((player) => !player.isHuman),
     [visibleRankPlayers],
@@ -2022,8 +2115,11 @@ export default function Home() {
           .map((selectedPlayerId, index) => (selectedPlayerId ? -1 : index))
           .filter((index) => index >= 0);
         if (!availableIndexes.length) return latest;
-        const cardIndex =
-          availableIndexes[Math.floor(Math.random() * availableIndexes.length)];
+        const cardIndex = chooseFacedownRankSlot(
+          availableIndexes,
+          (maxExclusive) => Math.floor(Math.random() * maxExclusive),
+        );
+        if (cardIndex === null) return latest;
         const selectedBy = [...latest.openingRankSelection.selectedBy];
         selectedBy[cardIndex] = bot.id;
 
@@ -2172,6 +2268,21 @@ export default function Home() {
         ) {
           return latest;
         }
+        if (
+          latest.revolutionAnnouncement?.kind === "great-revolution"
+        ) {
+          return {
+            ...latest,
+            phase: "great-revolution-swap",
+            revision: latest.revision + 1,
+            players: assignRoles([...latest.players].reverse()),
+            currentIndex: 0,
+            log: [
+              "대혁명으로 인해 모두의 계급이 뒤바뀝니다.",
+              ...latest.log,
+            ].slice(0, 12),
+          };
+        }
         return {
           ...latest,
           phase: "play-intro",
@@ -2179,6 +2290,29 @@ export default function Home() {
         };
       });
     }, REVOLUTION_INTRO_DURATION_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [game]);
+
+  useEffect(() => {
+    if (!game || game.phase !== "great-revolution-swap") return;
+    const swapRevision = game.revision;
+    const timer = window.setTimeout(() => {
+      setGame((latest) => {
+        if (
+          !latest ||
+          latest.phase !== "great-revolution-swap" ||
+          latest.revision !== swapRevision
+        ) {
+          return latest;
+        }
+        return {
+          ...latest,
+          phase: "play-intro",
+          revision: latest.revision + 1,
+        };
+      });
+    }, GREAT_REVOLUTION_SWAP_DURATION_MS);
 
     return () => window.clearTimeout(timer);
   }, [game]);
@@ -2378,11 +2512,18 @@ export default function Home() {
   }, [game]);
 
   const startGame = () => {
-    const players = assignRoles(BASE_PLAYERS);
+    const quickPlayers = BASE_PLAYERS.slice(0, quickPlayerCount);
+    const players = assignRoles(quickPlayers);
     const scores = Object.fromEntries(players.map((player) => [player.id, 0]));
     setSelectedIds([]);
     setRevealedRoundResultKey(null);
-    setGame(createOpeningRound(BASE_PLAYERS, scores));
+    setGame(
+      createOpeningRound(
+        quickPlayers,
+        scores,
+        quickBotDifficulty,
+      ),
+    );
   };
 
   const returnToModeSelection = () => {
@@ -2464,7 +2605,7 @@ export default function Home() {
     setSelectedIds([]);
     setGame((current) => {
       if (!current || current.phase !== "revolution") return current;
-      let players = current.players;
+      const players = current.players;
       const hands = current.hands;
       let log = current.log;
       let phase: Phase = "play-intro";
@@ -2479,13 +2620,12 @@ export default function Home() {
       );
 
       if (declare && holder?.role === "great-peon") {
-        players = assignRoles([...current.players].reverse());
         phase = "revolution-intro";
         revolutionAnnouncement = createRevolutionAnnouncement(
           holder,
           "great-revolution",
         );
-        log = ["당신의 대혁명으로 모든 계급이 뒤집혔습니다.", ...log];
+        log = ["당신이 대혁명을 일으켰습니다.", ...log];
       } else if (declare && holder) {
         phase = "revolution-intro";
         revolutionAnnouncement = createRevolutionAnnouncement(
@@ -2494,7 +2634,11 @@ export default function Home() {
         );
         log = ["당신이 혁명을 선포했습니다. 이번 막의 세금은 없습니다.", ...log];
       } else {
-        const taxed = applyTax(players, hands);
+        const taxed = applyTax(
+          players,
+          hands,
+          current.botDifficulty,
+        );
         phase = "tax-intro";
         taxExchanges = taxed.exchanges;
         taxStage = taxed.hands ? "tribute" : "selection";
@@ -2637,7 +2781,16 @@ export default function Home() {
     );
     setSelectedIds([]);
     setRevealedRoundResultKey(null);
-    setGame(prepareRound(ordered, game.round + 1, game.scores, false, true));
+    setGame(
+      prepareRound(
+        ordered,
+        game.round + 1,
+        game.scores,
+        game.botDifficulty,
+        false,
+        true,
+      ),
+    );
   };
 
   const publicPlayedSet =
@@ -2694,6 +2847,8 @@ export default function Home() {
                                   ? "대혁명을 일으켰습니다"
                                   : "혁명을 일으켰습니다"
                               }`
+                            : game.phase === "great-revolution-swap"
+                              ? "대혁명으로 인해 모두의 계급이 뒤바뀝니다"
                             : game.phase === "taxation"
                               ? game.taxStage === "selection"
                                 ? `${humanTaxRecipientLabel}에게 돌려줄 카드 ${humanTaxSelectionCount}장을 선택하세요`
@@ -2737,7 +2892,7 @@ export default function Home() {
         <div className="round-chip" aria-label="게임 정보">
           <span>제 {game?.round ?? 1}막</span>
           <i />
-          <span>5인</span>
+          <span>{game?.players.length ?? quickPlayerCount}인</span>
         </div>
 
         <nav className="top-actions" aria-label="게임 메뉴">
@@ -2964,7 +3119,11 @@ export default function Home() {
                   <PlayerSeat
                     key={player.id}
                     player={player}
-                    handCount={game?.hands[player.id]?.length ?? 16}
+                    handCount={
+                      game?.hands[player.id]?.length ??
+                      previewHandCounts[player.id] ??
+                      0
+                    }
                     score={game?.scores[player.id] ?? 0}
                     isCurrent={
                       game?.phase === "playing" &&
@@ -2980,6 +3139,7 @@ export default function Home() {
                     rankSelectionLabel={rankSelectionLabel}
                     rankSelectionMark={rankSelectionMark}
                     rankSeat={rankSeat}
+                    totalPlayers={game?.players.length ?? quickPlayerCount}
                     isDalmutiHighlighted={
                       dalmutiHighlightPlayerId === player.id
                     }
@@ -3061,6 +3221,14 @@ export default function Home() {
                   <div
                     className="opening-rank-cards"
                     aria-label="계급 선택 카드"
+                    style={
+                      {
+                        "--opening-rank-columns": Math.min(
+                          5,
+                          game.players.length,
+                        ),
+                      } as React.CSSProperties
+                    }
                   >
                     {game.openingRankSelection.cards.map((rank, cardIndex) => {
                       const selectedPlayerId =
@@ -3081,6 +3249,11 @@ export default function Home() {
                           className={`opening-rank-card ${
                             selectedPlayerId ? "is-selected" : ""
                           } ${selectedPlayerId === HUMAN_ID ? "is-yours" : ""}`}
+                          style={
+                            {
+                              "--rank-reveal-delay": `${cardIndex * 125}ms`,
+                            } as React.CSSProperties
+                          }
                           disabled={!canChoose}
                           onClick={() => chooseOpeningRankCard(cardIndex)}
                           aria-label={
@@ -3201,9 +3374,21 @@ export default function Home() {
                   </span>
                   <em>
                     {game.revolutionAnnouncement.kind === "great-revolution"
-                      ? "모든 계급이 뒤집히고 이번 막의 세금이 사라집니다"
+                      ? "이번 막의 세금이 사라지고 계급 전복이 이어집니다"
                       : "이번 막의 세금이 사라집니다"}
                   </em>
+                </div>
+              ) : game?.phase === "great-revolution-swap" ? (
+                <div
+                  key={`great-revolution-swap-${game.revision}`}
+                  className="phase-intro is-great-revolution-swap"
+                  role="status"
+                  aria-live="assertive"
+                >
+                  <small>RANKS OVERTURNED</small>
+                  <strong>모두의 계급이 뒤바뀝니다</strong>
+                  <span>대혁명으로 인해 모두의 계급이 뒤바뀝니다</span>
+                  <em>새로운 서열에 맞춰 자리를 이동합니다</em>
                 </div>
               ) : game?.phase === "tax-intro" ? (
                 <div
@@ -3366,7 +3551,11 @@ export default function Home() {
                   ? `${humanFinishRank + 1}위`
                   : isOpeningRankEvent
                     ? "선택"
-                    : `${game ? humanHand.length : 16}장`}
+                    : `${
+                        game
+                          ? humanHand.length
+                          : (previewHandCounts[HUMAN_ID] ?? 0)
+                      }장`}
               </em>
               {humanTaxDirection && (
                 <i className={`human-tax-flag is-${humanTaxDirection}`}>
@@ -3567,7 +3756,7 @@ export default function Home() {
         <div className="welcome-layer">
           <section className="welcome-card" role="dialog" aria-labelledby="welcome-title">
             <span className="welcome-crown" aria-hidden="true" />
-            <span className="eyebrow">PLAYABLE PROTOTYPE · 5 PLAYERS</span>
+            <span className="eyebrow">QUICK MATCH · 4–10 PLAYERS</span>
             <h1 id="welcome-title">DALMUTI</h1>
             <p>
               약한 패부터 영리하게 털어내고, 계급을 뒤집으세요.
@@ -3577,9 +3766,60 @@ export default function Home() {
               <span>세금과 혁명</span>
               <span>연속 라운드</span>
             </div>
+            <div className="quick-match-config">
+              <fieldset>
+                <legend>
+                  <span>플레이 인원</span>
+                  <strong>{quickPlayerCount}인</strong>
+                </legend>
+                <div className="quick-player-count-options">
+                  {Array.from({ length: 7 }, (_, index) => index + 4).map(
+                    (playerCount) => (
+                      <button
+                        key={playerCount}
+                        type="button"
+                        className={
+                          quickPlayerCount === playerCount ? "is-selected" : ""
+                        }
+                        aria-pressed={quickPlayerCount === playerCount}
+                        onClick={() => setQuickPlayerCount(playerCount)}
+                      >
+                        {playerCount}
+                      </button>
+                    ),
+                  )}
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend>
+                  <span>봇 난이도</span>
+                  <strong>
+                    {BOT_DIFFICULTY_LABELS[quickBotDifficulty]}
+                  </strong>
+                </legend>
+                <div className="quick-difficulty-options">
+                  {BOT_DIFFICULTIES.map((difficulty) => (
+                    <button
+                      key={difficulty}
+                      type="button"
+                      className={
+                        quickBotDifficulty === difficulty ? "is-selected" : ""
+                      }
+                      aria-pressed={quickBotDifficulty === difficulty}
+                      onClick={() => setQuickBotDifficulty(difficulty)}
+                    >
+                      <span>{BOT_DIFFICULTY_LABELS[difficulty]}</span>
+                      <small>{BOT_DIFFICULTY_DESCRIPTIONS[difficulty]}</small>
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+            </div>
             <button type="button" className="start-button" onClick={startGame}>
-              <span>빠른 대전(5인)</span>
-              <i>게임 시작</i>
+              <span>빠른 대전({quickPlayerCount}인)</span>
+              <i>
+                {BOT_DIFFICULTY_LABELS[quickBotDifficulty]} 난이도로 게임 시작
+              </i>
               <b>→</b>
             </button>
             <a className="online-start-link" href="/online">

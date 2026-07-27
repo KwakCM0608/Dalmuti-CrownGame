@@ -13,6 +13,14 @@ import type {
   OnlineTable,
   OnlineTaxExchange,
 } from "./types.ts";
+import {
+  BOT_DIFFICULTIES,
+  chooseBotCardIds,
+  chooseBotRevolution,
+  chooseBotTaxReturn,
+  chooseFacedownRankSlot,
+  type BotDifficulty,
+} from "../bot-strategy.ts";
 
 const MIN_PLAYERS = 4;
 const MAX_PLAYERS = 8;
@@ -35,6 +43,7 @@ const DEFAULT_DURATIONS: OnlinePhaseDurations = {
   handRevealMs: 1_400,
   revolutionDecisionMs: 20_000,
   revolutionIntroMs: 3_300,
+  greatRevolutionSwapMs: 2_600,
   taxIntroMs: 2_400,
   taxSelectionMs: 45_000,
   taxTributeMs: 6_000,
@@ -99,6 +108,7 @@ function normalizePlayer(
     name,
     monogram,
     isBot: false,
+    botDifficulty: null,
     role,
     ready: false,
     connected: true,
@@ -110,6 +120,7 @@ function normalizePlayer(
 function createBotPlayer(
   state: OnlineRoomState,
   joinedAt: number,
+  botDifficulty: BotDifficulty,
 ): OnlinePlayerState {
   let botNumber = 1;
   while (
@@ -127,6 +138,7 @@ function createBotPlayer(
     name: `봇 ${botNumber}`,
     monogram: "AI",
     isBot: true,
+    botDifficulty,
     role: "merchant",
     ready: true,
     connected: true,
@@ -146,6 +158,15 @@ function cloneRoom(state: OnlineRoomState): OnlineRoomState {
     players: state.players.map((player) => ({
       ...player,
       isBot: player.isBot === true,
+      botDifficulty:
+        player.isBot === true &&
+        BOT_DIFFICULTIES.includes(
+          player.botDifficulty as BotDifficulty,
+        )
+          ? (player.botDifficulty as BotDifficulty)
+          : player.isBot === true
+            ? "normal"
+            : null,
       ready: player.isBot === true ? true : player.ready,
       connected: player.isBot === true ? true : player.connected,
     })),
@@ -194,7 +215,8 @@ function resolveDurations(
   // quick match instead of mixing old and new animation lengths.
   const isLegacyProfile =
     !Number.isFinite(base.rankConfirmMs) ||
-    !Number.isFinite(base.revolutionIntroMs);
+    !Number.isFinite(base.revolutionIntroMs) ||
+    !Number.isFinite(base.greatRevolutionSwapMs);
   const persistedDurations = isLegacyProfile
     ? { ...DEFAULT_DURATIONS }
     : { ...DEFAULT_DURATIONS, ...base };
@@ -1058,13 +1080,39 @@ function enterRevolutionIntro(
   state.botActionAt = null;
   state.revolutionHolderId = null;
   appendEvent(state, "REVOLUTION_DECLARED", at, {
+    round: state.round,
     playerId: holderId,
     kind,
     endsAt: state.phaseEndsAt,
   });
   appendEvent(state, "REVOLUTION_INTRO_STARTED", at, {
+    round: state.round,
     playerId: holderId,
     kind,
+    endsAt: state.phaseEndsAt,
+  });
+}
+
+function enterGreatRevolutionSwap(
+  state: OnlineRoomState,
+  at: number,
+): void {
+  const declaration = state.declaredRevolution;
+  if (!declaration || declaration.kind !== "great-revolution") {
+    fail("ROOM_INVARIANT", "great revolution rank swap has no declaration");
+  }
+  const previousPlayerIds = state.players.map((player) => player.id);
+  state.players = withAssignedRoles([...state.players].reverse());
+  state.currentIndex = 0;
+  state.phase = "great-revolution-swap";
+  state.phaseEndsAt = at + state.durations.greatRevolutionSwapMs;
+  state.turnDeadline = null;
+  state.botActionAt = null;
+  appendEvent(state, "GREAT_REVOLUTION_RANK_SWAP_STARTED", at, {
+    round: state.round,
+    playerId: declaration.playerId,
+    previousPlayerIds,
+    playerIds: state.players.map((player) => player.id),
     endsAt: state.phaseEndsAt,
   });
 }
@@ -1099,9 +1147,6 @@ function chooseRevolution(
   }
 
   const isGreatRevolution = holder.role === "great-peon";
-  if (isGreatRevolution) {
-    state.players = withAssignedRoles([...state.players].reverse());
-  }
   state.declaredRevolution = {
     round: state.round,
     playerId: holderId,
@@ -1134,10 +1179,20 @@ function autoSelectTaxReturns(
     ) {
       return exchange;
     }
-    const cards = selectAutomaticNobleReturns(
-      state.hands[exchange.nobleId],
-      exchange.count,
+    const noble = state.players.find(
+      (player) => player.id === exchange.nobleId,
     );
+    const cardIds = noble?.isBot
+      ? chooseBotTaxReturn(
+          state.hands[exchange.nobleId],
+          exchange.count,
+          noble.botDifficulty ?? "normal",
+        ).cardIds
+      : selectAutomaticNobleReturns(
+          state.hands[exchange.nobleId],
+          exchange.count,
+        ).map((card) => card.id);
+    const cards = cardsByIds(state.hands[exchange.nobleId], cardIds);
     appendEvent(
       state,
       "TAX_RETURN_SELECTED",
@@ -1184,7 +1239,15 @@ function advanceOneTimedPhase(
         enterTaxIntro(state, at);
       } else if (holder.isBot) {
         state.revolutionHolderId = holder.id;
-        chooseRevolution(state, true, at);
+        const decision = chooseBotRevolution(
+          {
+            hand: state.hands[holder.id] ?? [],
+            role: holder.role,
+            playerCount: state.players.length,
+          },
+          holder.botDifficulty ?? "normal",
+        );
+        chooseRevolution(state, decision.declare, at);
       } else {
         enterRevolutionDecision(state, holder.id, at);
       }
@@ -1194,6 +1257,13 @@ function advanceOneTimedPhase(
       chooseRevolution(state, false, at);
       return;
     case "revolution-intro":
+      if (state.declaredRevolution?.kind === "great-revolution") {
+        enterGreatRevolutionSwap(state, at);
+      } else {
+        enterPlayIntro(state, at);
+      }
+      return;
+    case "great-revolution-swap":
       enterPlayIntro(state, at);
       return;
     case "tax-intro":
@@ -1297,6 +1367,9 @@ function handlePlayCards(
     }
   }
 
+  const previousTable = state.table
+    ? { ...state.table, cards: [...state.table.cards] }
+    : null;
   state.hands[actorId] = sortHand(removeCardIds(hand, cardIds));
   const table: OnlineTable = {
     rank: normalized.rank,
@@ -1307,7 +1380,10 @@ function handlePlayCards(
   state.table = table;
   state.lastPlayedId = actorId;
   state.passedPlayerIds = [];
-  appendEvent(state, "CARDS_PLAYED", at, { ...table });
+  appendEvent(state, "CARDS_PLAYED", at, {
+    ...table,
+    previousTable,
+  });
   const isDalmutiEffect = normalized.rank === 1;
   state.actionLockUntil =
     at + (isDalmutiEffect ? DALMUTI_ACTION_LOCK_MS : PLAY_ACTION_LOCK_MS);
@@ -1327,6 +1403,7 @@ function handlePlayCards(
       rank: normalized.rank,
       count: normalized.count,
       autoPassedPlayerIds: automaticallyPassedPlayerIds,
+      previousTable,
     });
     for (const playerId of automaticallyPassedPlayerIds) {
       appendEvent(state, "PLAYER_PASSED", at, {
@@ -1534,35 +1611,50 @@ function chooseOnlineBotCards(
   state: OnlineRoomState,
   playerId: string,
 ): string[] | null {
-  const hand = state.hands[playerId] ?? [];
-  const jokers = hand.filter((card) => card.rank === 13);
-  const groups = new Map<number, OnlineCard[]>();
-  for (const card of hand) {
-    if (card.rank === 13) continue;
-    groups.set(card.rank, [...(groups.get(card.rank) ?? []), card]);
+  const bot = state.players.find((player) => player.id === playerId);
+  const roundStartedAt = [...state.events]
+    .reverse()
+    .find((event) => event.type === "MATCH_STARTED")?.at;
+  const publicCounts = new Map<number, number>();
+  for (const event of state.events) {
+    if (
+      event.type !== "CARDS_PLAYED" ||
+      (roundStartedAt !== undefined && event.at < roundStartedAt)
+    ) {
+      continue;
+    }
+    const cards = Array.isArray(event.payload.cards)
+      ? (event.payload.cards as OnlineCard[])
+      : [];
+    for (const card of cards) {
+      publicCounts.set(card.rank, (publicCounts.get(card.rank) ?? 0) + 1);
+    }
   }
 
-  if (!state.table) {
-    if (jokers.length > 0) return [jokers[0].id];
-    const weakestRank = [...groups.keys()].sort((left, right) => right - left)[0];
-    return weakestRank
-      ? groups.get(weakestRank)!.map((card) => card.id)
-      : null;
-  }
-
-  const targetCount = state.table.count;
-  const playableRanks = [...groups.keys()]
-    .filter((rank) => rank < state.table!.rank)
-    .sort((left, right) => right - left);
-  for (const rank of playableRanks) {
-    const cards = groups.get(rank)!;
-    if (cards.length + jokers.length < targetCount) continue;
-    return [
-      ...cards.slice(0, targetCount),
-      ...jokers.slice(0, Math.max(0, targetCount - cards.length)),
-    ].map((card) => card.id);
-  }
-  return null;
+  return chooseBotCardIds(
+    {
+      actorId: playerId,
+      hand: state.hands[playerId] ?? [],
+      table: state.table
+        ? {
+            rank: state.table.rank,
+            count: state.table.count,
+            playerId: state.table.playerId,
+          }
+        : null,
+      players: state.players.map((player) => ({
+        id: player.id,
+        handCount: state.hands[player.id]?.length ?? 0,
+        finished: state.finishOrder.includes(player.id),
+      })),
+      passedPlayerIds: state.passedPlayerIds,
+      publicPlayedCards: [...publicCounts].map(([rank, count]) => ({
+        rank,
+        count,
+      })),
+    },
+    bot?.botDifficulty ?? "normal",
+  );
 }
 
 function performBotAction(
@@ -1581,24 +1673,28 @@ function performBotAction(
       ) ?? [];
     if (!openSlots.length) return;
     const randomInt = deps?.randomInt ?? secureRandomInt;
-    const selectedIndex = randomInt(openSlots.length);
-    if (
-      !Number.isInteger(selectedIndex) ||
-      selectedIndex < 0 ||
-      selectedIndex >= openSlots.length
-    ) {
-      fail(
-        "INVALID_RANDOM_RESULT",
-        `randomInt(${openSlots.length}) returned an out-of-range value`,
-      );
-    }
-    const selectedCard = openSlots[selectedIndex];
+    const selectedSlot = chooseFacedownRankSlot(
+      openSlots.map((card) => card.slotIndex),
+      randomInt,
+    );
+    const selectedCard = openSlots.find(
+      (card) => card.slotIndex === selectedSlot,
+    );
+    if (!selectedCard) return;
     claimRankCard(state, bot.id, selectedCard.slotIndex, at, true);
     return;
   }
 
   if (state.phase === "revolution") {
-    chooseRevolution(state, true, at);
+    const decision = chooseBotRevolution(
+      {
+        hand: state.hands[bot.id] ?? [],
+        role: bot.role,
+        playerCount: state.players.length,
+      },
+      bot.botDifficulty ?? "normal",
+    );
+    chooseRevolution(state, decision.declare, at);
     return;
   }
 
@@ -1608,10 +1704,11 @@ function performBotAction(
         candidate.nobleId === bot.id && !candidate.nobleCardIds,
     );
     if (!exchange) return;
-    const cardIds = selectAutomaticNobleReturns(
+    const cardIds = chooseBotTaxReturn(
       state.hands[bot.id],
       exchange.count,
-    ).map((card) => card.id);
+      bot.botDifficulty ?? "normal",
+    ).cardIds;
     selectTaxReturn(state, bot.id, cardIds, at, true);
     return;
   }
@@ -1979,12 +2076,20 @@ export function applyOnlineCommand(
       if (next.players.length >= MAX_PLAYERS) {
         fail("ROOM_FULL", `a room can contain at most ${MAX_PLAYERS} players`);
       }
-      const bot = createBotPlayer(next, now);
+      const difficulty = command.difficulty ?? "normal";
+      if (!BOT_DIFFICULTIES.includes(difficulty)) {
+        fail(
+          "INVALID_BOT_DIFFICULTY",
+          "bot difficulty must be easy, normal, or hard",
+        );
+      }
+      const bot = createBotPlayer(next, now, difficulty);
       next.players = withAssignedRoles([...next.players, bot]);
       clearSealedDeal(next);
       appendEvent(next, "BOT_ADDED", now, {
         playerId: bot.id,
         name: bot.name,
+        difficulty,
         byPlayerId: actorId,
       });
       break;
@@ -2218,6 +2323,9 @@ export function projectOnlineRoom(
       name: player.name,
       monogram: player.monogram,
       isBot: player.isBot === true,
+      botDifficulty: player.isBot
+        ? player.botDifficulty ?? "normal"
+        : null,
       role: player.role,
       ready: player.ready,
       connected: player.connected,

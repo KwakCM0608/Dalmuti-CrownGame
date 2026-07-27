@@ -1006,6 +1006,115 @@
   cursor: wait;
 }
 
+.botDifficultyLayer {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(10, 3, 7, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.botDifficultyDialog {
+  width: min(510px, 100%);
+  padding: 30px;
+  border: 1px solid rgba(226, 190, 105, 0.34);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 50% 0, rgba(119, 45, 63, 0.28), transparent 44%),
+    linear-gradient(145deg, #35121c, #1b0910);
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.58),
+    inset 0 0 0 4px rgba(255, 229, 166, 0.025);
+  color: var(--ivory);
+  text-align: center;
+}
+
+.botDifficultyDialog > small {
+  color: var(--gold-500);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+}
+
+.botDifficultyDialog h2 {
+  margin: 8px 0 9px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 27px;
+  font-weight: 500;
+}
+
+.botDifficultyDialog > p {
+  max-width: 370px;
+  margin: 0 auto 20px;
+  color: #a99b88;
+  font-size: 9px;
+  line-height: 1.65;
+}
+
+.botDifficultyDialog > div {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.botDifficultyDialog > div button {
+  display: grid;
+  min-height: 82px;
+  align-content: center;
+  gap: 5px;
+  padding: 12px 8px;
+  border: 1px solid rgba(222, 188, 110, 0.2);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.035);
+  color: #eadcc4;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.botDifficultyDialog > div button:hover,
+.botDifficultyDialog > div button:focus-visible {
+  border-color: rgba(235, 200, 113, 0.72);
+  background:
+    linear-gradient(145deg, rgba(212, 167, 66, 0.16), transparent),
+    rgba(255, 255, 255, 0.045);
+  transform: translateY(-2px);
+}
+
+.botDifficultyDialog > div button strong,
+.botDifficultyDialog > div button span {
+  display: block;
+}
+
+.botDifficultyDialog > div button strong {
+  color: #f0d585;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 16px;
+}
+
+.botDifficultyDialog > div button span {
+  color: #9e907d;
+  font-size: 7px;
+  line-height: 1.4;
+}
+
+.botDifficultyCancel {
+  margin-top: 16px;
+  padding: 7px 16px;
+  border: 1px solid rgba(222, 188, 110, 0.18);
+  border-radius: 999px;
+  background: transparent;
+  color: #a89a85;
+  cursor: pointer;
+  font-size: 8px;
+  font-weight: 800;
+}
+
 .lobbyControls {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -6492,6 +6601,13 @@
   animation-delay: calc(var(--event-elapsed, 0ms) * -1);
 }
 
+.revealOverlay .eventCenterCopy > strong {
+  font-size: clamp(34px, 5.4vw, 58px);
+  line-height: 1.05;
+  white-space: nowrap;
+  word-break: keep-all;
+}
+
 .revealOverlay .eventCenterCopy::before {
   height: 180px;
 }
@@ -6522,6 +6638,67 @@
 
 .revolutionOverlay .eventCenterCopy > * {
   animation: none;
+}
+
+.greatRevolutionRankSwapOverlay .eventCenterCopy {
+  min-width: min(680px, 92vw);
+}
+
+.greatRevolutionRankSwapOverlay .eventCenterCopy::before {
+  width: min(570px, 84vw);
+  height: 184px;
+  border-color: rgba(255, 178, 111, 0.42);
+  background:
+    radial-gradient(
+      ellipse,
+      rgba(112, 14, 25, 0.74),
+      rgba(73, 13, 20, 0.28) 60%,
+      transparent 74%
+    );
+  box-shadow:
+    0 0 42px rgba(224, 63, 58, 0.24),
+    inset 0 0 36px rgba(255, 170, 94, 0.07);
+}
+
+.greatRevolutionRankSwapOverlay .eventCenterCopy > small {
+  color: #ffb176;
+}
+
+.greatRevolutionRankSwapOverlay .eventCenterCopy > strong {
+  color: #fff0d2;
+  font-size: clamp(34px, 5.1vw, 60px);
+  line-height: 1.05;
+  text-shadow:
+    0 0 30px rgba(240, 78, 64, 0.38),
+    0 8px 26px rgba(12, 0, 3, 0.62);
+  white-space: nowrap;
+  word-break: keep-all;
+}
+
+.greatRevolutionRankSwapOverlay .eventCenterCopy > b {
+  margin-top: 10px;
+  color: #ffd8be;
+  font-size: 13px;
+}
+
+.greatRevolutionRankSwapOverlay .eventCenterCopy > span {
+  margin-top: 5px;
+  color: rgba(255, 224, 199, 0.68);
+  font-size: 10px;
+}
+
+@media (max-width: 520px) {
+  .greatRevolutionRankSwapOverlay .eventCenterCopy {
+    min-width: 94vw;
+    padding-inline: 18px;
+  }
+
+  .greatRevolutionRankSwapOverlay .eventCenterCopy > strong {
+    max-width: 11em;
+    font-size: clamp(25px, 8vw, 32px);
+    line-height: 1.18;
+    white-space: normal;
+  }
 }
 
 .revolutionJokers > span {

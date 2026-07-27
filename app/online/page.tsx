@@ -18,6 +18,10 @@ import {
   ONLINE_CHAT_MAX_LENGTH,
 } from "@/lib/online-chat";
 import { scoreChipCount } from "@/lib/score-chips";
+import {
+  BOT_DIFFICULTIES,
+  type BotDifficulty,
+} from "@/lib/bot-strategy";
 import styles from "./online.module.css";
 
 type LooseRecord = Record<string, unknown>;
@@ -32,6 +36,7 @@ type PlayerView = {
   name: string;
   monogram: string;
   isBot: boolean;
+  botDifficulty: BotDifficulty | null;
   role: string;
   ready: boolean;
   connected: boolean;
@@ -196,6 +201,16 @@ const LAST_SESSION_KEY = "dalmuti.online.last-session";
 const POLL_INTERVAL_MS = 250;
 const MAX_EVENT_CATCHUP_MS = 120;
 const TURN_DURATION_MS = 30_000;
+const BOT_DIFFICULTY_LABELS: Record<BotDifficulty, string> = {
+  easy: "쉬움",
+  normal: "보통",
+  hard: "어려움",
+};
+const BOT_DIFFICULTY_DESCRIPTIONS: Record<BotDifficulty, string> = {
+  easy: "기본적인 카드 제출",
+  normal: "조커와 묶음을 관리",
+  hard: "상대의 완주 위협까지 대응",
+};
 const ROLE_LABELS: Record<string, string> = {
   "great-dalmuti": "달무티",
   great_dalmuti: "달무티",
@@ -306,6 +321,14 @@ function playerFrom(value: unknown, index: number): PlayerView {
     name,
     monogram: stringValue(source.monogram, name.trim().slice(0, 1) || "?"),
     isBot: booleanValue(source.isBot),
+    botDifficulty:
+      source.botDifficulty === "easy" ||
+      source.botDifficulty === "hard" ||
+      source.botDifficulty === "normal"
+        ? source.botDifficulty
+        : booleanValue(source.isBot)
+          ? "normal"
+          : null,
     role: stringValue(source.role, "merchant"),
     ready: booleanValue(source.ready),
     connected: booleanValue(source.connected, true),
@@ -807,6 +830,8 @@ function declaredRevolutionFromEvent(
   round: number,
 ): DeclaredRevolutionView | null {
   if (!event || event.type !== "REVOLUTION_DECLARED") return null;
+  const eventRound = numberValue(event.data.round, Number.NaN);
+  if (eventRound !== round) return null;
   const playerId =
     event.actorPlayerId ??
     stringValue(
@@ -815,7 +840,7 @@ function declaredRevolutionFromEvent(
     );
   if (!playerId) return null;
   return {
-    round: numberValue(event.data.round, round),
+    round: eventRound,
     playerId,
     kind:
       ["great", "great-revolution"].includes(
@@ -1013,7 +1038,12 @@ function PlayerSeat({
         <strong>
           {player.name}
           {isSelf && <small>나</small>}
-          {player.isBot && <small>BOT</small>}
+          {player.isBot && (
+            <small>
+              BOT ·{" "}
+              {BOT_DIFFICULTY_LABELS[player.botDifficulty ?? "normal"]}
+            </small>
+          )}
         </strong>
         <em>{visibleRoleLabel}</em>
       </span>
@@ -1391,9 +1421,25 @@ function EventOverlayView({
           </b>
           <span>
             {isGreatRevolution
-              ? "모든 계급이 뒤집혔습니다 · 세금 없이 게임을 시작합니다"
+              ? "세금이 사라지고 곧 계급 전복이 시작됩니다"
               : "이번 막의 세금 교환이 취소되었습니다 · 게임을 시작합니다"}
           </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (type === "GREAT_REVOLUTION_RANK_SWAP_STARTED") {
+    return (
+      <div
+        className={`${styles.eventOverlay} ${styles.introOverlay} ${styles.phaseIntroOverlay} ${styles.greatRevolutionRankSwapOverlay}`}
+        style={overlayStyle}
+      >
+        <div className={styles.eventCenterCopy}>
+          <small>RANKS OVERTURNED</small>
+          <strong>모두의 계급이 뒤바뀝니다</strong>
+          <b>대혁명으로 인해 모두의 계급이 뒤바뀝니다</b>
+          <span>새로운 서열에 맞춰 자리를 이동합니다</span>
         </div>
       </div>
     );
@@ -1943,6 +1989,9 @@ export default function OnlinePage() {
   const [fatalError, setFatalError] = useState(false);
   const [copied, setCopied] = useState(false);
   const [entryBusy, setEntryBusy] = useState(false);
+  const [botDifficultyPickerSlot, setBotDifficultyPickerSlot] = useState<
+    number | null
+  >(null);
   const [rankMovingPlayerIds, setRankMovingPlayerIds] = useState<string[]>([]);
   const [seatRankOverrides, setSeatRankOverrides] = useState<
     Record<string, number> | null
@@ -1950,6 +1999,10 @@ export default function OnlinePage() {
   const [pendingRoundEndMoveIds, setPendingRoundEndMoveIds] = useState<
     string[] | null
   >(null);
+  const [
+    pendingGreatRevolutionMoveIds,
+    setPendingGreatRevolutionMoveIds,
+  ] = useState<string[] | null>(null);
   const [roundEndResultReady, setRoundEndResultReady] = useState(true);
   const [handRevealElapsedMs, setHandRevealElapsedMs] = useState(0);
   const [motionAnchors, setMotionAnchors] = useState<MotionAnchors>({
@@ -2024,6 +2077,35 @@ export default function OnlinePage() {
       next.phase !== "tax-return"
     ) {
       setTaxVisualOverride(null);
+    }
+    const enteringGreatRevolutionSwap =
+      previous &&
+      previous.phase !== "great-revolution-swap" &&
+      next.phase === "great-revolution-swap";
+    if (enteringGreatRevolutionSwap) {
+      const previousRankById = new Map(
+        previous.players.map((player, index) => [player.id, index]),
+      );
+      const nextRankById = new Map(
+        next.players.map((player, index) => [player.id, index]),
+      );
+      const movingPlayerIds = next.players
+        .filter(
+          (player) =>
+            previousRankById.get(player.id) !== nextRankById.get(player.id),
+        )
+        .map((player) => player.id);
+      setSeatRankOverrides(
+        Object.fromEntries(
+          previous.players.map((player, index) => [player.id, index]),
+        ),
+      );
+      setRankMovingPlayerIds([]);
+      setPendingGreatRevolutionMoveIds(movingPlayerIds);
+      if (rankMoveTimerRef.current !== null) {
+        window.clearTimeout(rankMoveTimerRef.current);
+        rankMoveTimerRef.current = null;
+      }
     }
     const enteringRoundEnd =
       previous &&
@@ -2601,6 +2683,7 @@ export default function OnlinePage() {
             "DALMUTI_EFFECT",
             "REVOLUTION_INTRO_STARTED",
             "REVOLUTION_DECLARED",
+            "GREAT_REVOLUTION_RANK_SWAP_STARTED",
             "PLAYER_PASSED",
           ].includes(event.type) &&
             !(
@@ -2615,6 +2698,10 @@ export default function OnlinePage() {
             effectiveClock <= event.startsAt + event.durationMs,
       );
     return (
+      [...candidates].reverse().find(
+        (event) =>
+          event.type === "GREAT_REVOLUTION_RANK_SWAP_STARTED",
+      ) ??
       [...candidates].reverse().find(
         (event) => event.type === "DALMUTI_EFFECT",
       ) ??
@@ -2634,6 +2721,26 @@ export default function OnlinePage() {
     isRankSelectionPhase,
     snapshot?.phase,
   ]);
+  const visibleTable = useMemo<TableView>(() => {
+    if (
+      !activeEvent ||
+      !["CARDS_PLAYED", "DALMUTI_EFFECT"].includes(activeEvent.type)
+    ) {
+      return snapshot?.table ?? null;
+    }
+    const previousTable = record(activeEvent.data.previousTable);
+    if (!Object.keys(previousTable).length) return null;
+    const previousCards = cardsFrom(previousTable.cards);
+    const rank = numberValue(previousTable.rank);
+    const count = numberValue(previousTable.count, previousCards.length);
+    if (rank < 1 || count < 1) return null;
+    return {
+      rank,
+      count,
+      playerId: stringValue(previousTable.playerId),
+      cards: previousCards,
+    };
+  }, [activeEvent, snapshot?.table]);
   const motionLayoutKey = snapshot
     ? `${snapshot.phase}:${snapshot.players.map((player) => player.id).join("|")}`
     : "";
@@ -2768,6 +2875,49 @@ export default function OnlinePage() {
 
   useEffect(() => {
     if (
+      snapshot?.phase !== "great-revolution-swap" ||
+      pendingGreatRevolutionMoveIds === null
+    ) {
+      return;
+    }
+
+    const movingPlayerIds = pendingGreatRevolutionMoveIds;
+    const startTimer = window.setTimeout(() => {
+      setSeatRankOverrides(null);
+      setPendingGreatRevolutionMoveIds(null);
+      setRankMovingPlayerIds(movingPlayerIds);
+      if (rankMoveTimerRef.current !== null) {
+        window.clearTimeout(rankMoveTimerRef.current);
+      }
+      const reduceMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+      const remainingMs =
+        snapshot.phaseEndsAt === null
+          ? 2_300
+          : Math.max(
+              120,
+              Math.min(
+                2_300,
+                snapshot.phaseEndsAt - (Date.now() + serverOffset),
+              ),
+            );
+      rankMoveTimerRef.current = window.setTimeout(() => {
+        setRankMovingPlayerIds([]);
+        rankMoveTimerRef.current = null;
+      }, reduceMotion ? 80 : remainingMs);
+    }, 40);
+
+    return () => window.clearTimeout(startTimer);
+  }, [
+    pendingGreatRevolutionMoveIds,
+    serverOffset,
+    snapshot?.phase,
+    snapshot?.phaseEndsAt,
+  ]);
+
+  useEffect(() => {
+    if (
       snapshot?.phase !== "round-end" ||
       pendingRoundEndMoveIds === null ||
       activeEvent ||
@@ -2891,7 +3041,9 @@ export default function OnlinePage() {
     setRankMovingPlayerIds([]);
     setSeatRankOverrides(null);
     setPendingRoundEndMoveIds(null);
+    setPendingGreatRevolutionMoveIds(null);
     setRoundEndResultReady(true);
+    setBotDifficultyPickerSlot(null);
     if (rankMoveTimerRef.current !== null) {
       window.clearTimeout(rankMoveTimerRef.current);
       rankMoveTimerRef.current = null;
@@ -3193,7 +3345,7 @@ export default function OnlinePage() {
                           type="button"
                           className={styles.slotOverlayButton}
                           disabled={busy || connection !== "online"}
-                          onClick={() => void sendCommand("ADD_BOT")}
+                          onClick={() => setBotDifficultyPickerSlot(index)}
                           aria-label={`${index + 1}번 빈 자리에 봇 추가`}
                         />
                       )}
@@ -3215,7 +3367,11 @@ export default function OnlinePage() {
                       <strong>{player.name}</strong>
                       <small>
                         {player.isBot
-                          ? "봇 · 자동 준비"
+                          ? `봇 · ${
+                              BOT_DIFFICULTY_LABELS[
+                                player.botDifficulty ?? "normal"
+                              ]
+                            } · 자동 준비`
                           : player.id === snapshot?.hostId
                           ? "방장"
                           : player.id === me?.id
@@ -3240,7 +3396,11 @@ export default function OnlinePage() {
                         }
                       >
                         {player.isBot
-                          ? "BOT · 준비 완료"
+                          ? `BOT · ${
+                              BOT_DIFFICULTY_LABELS[
+                                player.botDifficulty ?? "normal"
+                              ]
+                            } · 준비 완료`
                           : player.ready
                             ? "준비 완료"
                             : "준비 중"}
@@ -3304,6 +3464,55 @@ export default function OnlinePage() {
             {error && <p className={styles.roomError}>{error}</p>}
           </section>
         </section>
+
+        {botDifficultyPickerSlot !== null && isHost && (
+          <div
+            className={styles.botDifficultyLayer}
+            role="presentation"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) {
+                setBotDifficultyPickerSlot(null);
+              }
+            }}
+          >
+            <section
+              className={styles.botDifficultyDialog}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="bot-difficulty-title"
+            >
+              <small>EMPTY SLOT {botDifficultyPickerSlot + 1}</small>
+              <h2 id="bot-difficulty-title">봇 난이도를 선택하세요</h2>
+              <p>
+                추가된 봇은 즉시 준비 완료 상태가 되며, 선택한 수준으로
+                게임을 판단합니다.
+              </p>
+              <div>
+                {BOT_DIFFICULTIES.map((difficulty) => (
+                  <button
+                    key={difficulty}
+                    type="button"
+                    disabled={busy || connection !== "online"}
+                    onClick={async () => {
+                      setBotDifficultyPickerSlot(null);
+                      await sendCommand("ADD_BOT", { difficulty });
+                    }}
+                  >
+                    <strong>{BOT_DIFFICULTY_LABELS[difficulty]}</strong>
+                    <span>{BOT_DIFFICULTY_DESCRIPTIONS[difficulty]}</span>
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className={styles.botDifficultyCancel}
+                onClick={() => setBotDifficultyPickerSlot(null)}
+              >
+                취소
+              </button>
+            </section>
+          </div>
+        )}
 
         {connection !== "online" && (
           <div className={styles.reconnectOverlay}>
@@ -3540,10 +3749,12 @@ export default function OnlinePage() {
                 const priorRankIndex = snapshot.players.findIndex(
                   (candidate) => candidate.id === player.id,
                 );
+                const movementOriginRankIndex =
+                  seatRankOverrides?.[player.id] ?? priorRankIndex;
                 const movementDirection =
-                  priorRankIndex > rankIndex
+                  movementOriginRankIndex > rankIndex
                     ? "up"
-                    : priorRankIndex < rankIndex
+                    : movementOriginRankIndex < rankIndex
                       ? "down"
                       : null;
                 return (
@@ -3680,7 +3891,7 @@ export default function OnlinePage() {
                   <strong>패를 확인하는 중</strong>
                   <p>패 공개가 끝나면 세금 교환을 시작합니다</p>
                 </div>
-              ) : snapshot.table?.cards.length ? (
+              ) : visibleTable?.cards.length ? (
                 <>
                   <small>마지막으로 놓인 카드</small>
                   <div
@@ -3690,24 +3901,24 @@ export default function OnlinePage() {
                         "--table-card-step-wide": `${Math.min(
                           66,
                           420 /
-                            Math.max(1, snapshot.table.cards.length - 1),
+                            Math.max(1, visibleTable.cards.length - 1),
                         )}px`,
                         "--table-card-step-medium": `${Math.min(
                           58,
                           330 /
-                            Math.max(1, snapshot.table.cards.length - 1),
+                            Math.max(1, visibleTable.cards.length - 1),
                         )}px`,
                         "--table-card-step-small": `${Math.min(
                           51,
                           170 /
-                            Math.max(1, snapshot.table.cards.length - 1),
+                            Math.max(1, visibleTable.cards.length - 1),
                         )}px`,
                       } as CSSProperties
                     }
                   >
-                    {snapshot.table.cards.map((card, index) => {
+                    {visibleTable.cards.map((card, index) => {
                       const offset =
-                        index - (snapshot.table!.cards.length - 1) / 2;
+                        index - (visibleTable.cards.length - 1) / 2;
                       return (
                         <span
                           key={card.id}
@@ -3724,11 +3935,11 @@ export default function OnlinePage() {
                     })}
                   </div>
                   <strong>
-                    {formatRank(snapshot.table.rank)} × {snapshot.table.count}장
+                    {formatRank(visibleTable.rank)} × {visibleTable.count}장
                   </strong>
                   <p>
-                    {snapshot.table.rank}보다 낮은 숫자의 카드{" "}
-                    {snapshot.table.count}장을 내세요
+                    {visibleTable.rank}보다 낮은 숫자의 카드{" "}
+                    {visibleTable.count}장을 내세요
                   </p>
                 </>
               ) : (
@@ -3765,9 +3976,11 @@ export default function OnlinePage() {
                 }
                 isRankMoving={rankMovingPlayerIds.includes(me.id)}
                 rankMovement={(() => {
-                  const priorRankIndex = snapshot.players.findIndex(
-                    (player) => player.id === me.id,
-                  );
+                  const priorRankIndex =
+                    seatRankOverrides?.[me.id] ??
+                    snapshot.players.findIndex(
+                      (player) => player.id === me.id,
+                    );
                   const nextRankIndex = tableRankedPlayers.findIndex(
                     (player) => player.id === me.id,
                   );

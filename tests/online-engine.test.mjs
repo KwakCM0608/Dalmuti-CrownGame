@@ -122,11 +122,12 @@ test("a host can fill a three-human room with a ready connected bot and start PL
       error instanceof OnlineGameError && error.code === "HOST_ONLY",
   );
 
-  state = command(state, "p1", "ADD_BOT", {}, 5);
+  state = command(state, "p1", "ADD_BOT", { difficulty: "hard" }, 5);
   const bot = state.players.find((player) => player.isBot);
   assert.ok(bot);
   assert.equal(bot.ready, true);
   assert.equal(bot.connected, true);
+  assert.equal(bot.botDifficulty, "hard");
   assert.equal(bot.role, "great-peon");
   assert.equal(
     state.events.findLast((event) => event.type === "BOT_ADDED")?.payload
@@ -142,8 +143,28 @@ test("a host can fill a three-human room with a ready connected bot and start PL
       isBot: botView?.isBot,
       ready: botView?.ready,
       connected: botView?.connected,
+      botDifficulty: botView?.botDifficulty,
     },
-    { isBot: true, ready: true, connected: true },
+    {
+      isBot: true,
+      ready: true,
+      connected: true,
+      botDifficulty: "hard",
+    },
+  );
+
+  assert.throws(
+    () =>
+      command(
+        state,
+        "p1",
+        "ADD_BOT",
+        { difficulty: "impossible" },
+        6,
+      ),
+    (error) =>
+      error instanceof OnlineGameError &&
+      error.code === "INVALID_BOT_DIFFICULTY",
   );
 
   assert.throws(
@@ -917,6 +938,11 @@ test("the server validates actions, locks animation time, and deduplicates comma
   assert.equal(played.events.at(-1).type, "TURN_STARTED");
   assert.equal(played.events.at(-1).at, played.actionLockUntil);
   assert.equal(played.events.at(-1).payload.endsAt, played.turnDeadline);
+  assert.equal(
+    played.events.findLast((event) => event.type === "CARDS_PLAYED")?.payload
+      .previousTable,
+    null,
+  );
 
   assert.throws(
     () =>
@@ -953,6 +979,16 @@ test("the server validates actions, locks animation time, and deduplicates comma
   assert.equal(continued.table.rank, 11);
   assert.equal(continued.actionLockUntil, 5_950);
   assert.equal(continued.turnDeadline, 35_950);
+  assert.deepEqual(
+    continued.events.findLast((event) => event.type === "CARDS_PLAYED")
+      ?.payload.previousTable,
+    {
+      rank: 12,
+      count: 1,
+      playerId: "p1",
+      cards: [{ id: "p1-12", rank: 12 }],
+    },
+  );
 });
 
 test("playing turns use a server-authoritative 30 second deadline and timeout PASS even on an empty table", () => {
@@ -1407,6 +1443,15 @@ test("playing rank 1 auto-passes every other active player and starts a new tric
   ]);
   assert.equal(effect.payload.rank, 1);
   assert.equal(effect.payload.count, 2);
+  assert.deepEqual(effect.payload.previousTable, {
+    rank: 2,
+    count: 2,
+    playerId: "p4",
+    cards: [
+      { id: "old-2-a", rank: 2 },
+      { id: "old-2-b", rank: 2 },
+    ],
+  });
   assert.deepEqual(effect.payload.autoPassedPlayerIds, ["p2", "p3", "p4"]);
   const automaticPasses = state.events.filter(
     (event) =>
@@ -1563,6 +1608,114 @@ test("the opening round offers revolution and declining it proceeds to tax selec
   assert.equal(nextRound.declaredRevolution, null);
 });
 
+test("a great revolution announces first, reverses ranks in its own phase, then enters play intro", () => {
+  let state = createFourPlayerLobby();
+  const originalOrder = state.players.map((player) => player.id);
+  const originalRoles = state.players.map((player) => player.role);
+  const greatPeon = state.players.find(
+    (player) => player.role === "great-peon",
+  );
+  assert.ok(greatPeon);
+
+  const durations = {
+    revolutionIntroMs: 300,
+    greatRevolutionSwapMs: 200,
+    playIntroMs: 100,
+  };
+  state.phase = "revolution";
+  state.phaseEndsAt = 10_000;
+  state.round = 1;
+  state.revolutionHolderId = greatPeon.id;
+  state.durations = { ...state.durations, ...durations };
+
+  const declaredAt = 100;
+  state = applyOnlineCommand(
+    state,
+    greatPeon.id,
+    {
+      id: "declare-staged-great-revolution",
+      expectedRevision: state.revision,
+      type: "CHOOSE_REVOLUTION",
+      declare: true,
+    },
+    declaredAt,
+    { durations },
+  );
+
+  assert.equal(state.phase, "revolution-intro");
+  assert.equal(state.phaseEndsAt, declaredAt + durations.revolutionIntroMs);
+  assert.deepEqual(
+    state.players.map((player) => player.id),
+    originalOrder,
+    "the declaration animation must not move seats yet",
+  );
+  assert.deepEqual(
+    state.players.map((player) => player.role),
+    originalRoles,
+    "the declaration animation must preserve every rank",
+  );
+  assert.deepEqual(state.declaredRevolution, {
+    round: 1,
+    playerId: greatPeon.id,
+    kind: "great-revolution",
+  });
+
+  const declarationEvent = state.events.findLast(
+    (event) => event.type === "REVOLUTION_INTRO_STARTED",
+  );
+  assert.equal(declarationEvent?.payload.playerId, greatPeon.id);
+  assert.equal(declarationEvent?.payload.kind, "great");
+  assert.equal(declarationEvent?.payload.round, 1);
+
+  state = advanceOnlineRoom(state, state.phaseEndsAt - 1, { durations });
+  assert.equal(state.phase, "revolution-intro");
+  assert.deepEqual(
+    state.players.map((player) => player.id),
+    originalOrder,
+  );
+
+  state = advanceOnlineRoom(state, state.phaseEndsAt, { durations });
+  assert.equal(state.phase, "great-revolution-swap");
+  assert.equal(
+    state.phaseEndsAt,
+    declaredAt +
+      durations.revolutionIntroMs +
+      durations.greatRevolutionSwapMs,
+  );
+  assert.deepEqual(
+    state.players.map((player) => player.id),
+    [...originalOrder].reverse(),
+    "players move only when the rank-swap announcement starts",
+  );
+  assert.deepEqual(
+    state.players.map((player) => player.role),
+    originalRoles,
+    "roles are reassigned in rank order after reversing the players",
+  );
+
+  const swapEvent = state.events.findLast(
+    (event) => event.type === "GREAT_REVOLUTION_RANK_SWAP_STARTED",
+  );
+  assert.equal(swapEvent?.payload.playerId, greatPeon.id);
+  assert.equal(swapEvent?.payload.round, 1);
+  assert.equal(swapEvent?.payload.endsAt, state.phaseEndsAt);
+  assert.ok(swapEvent.seq > declarationEvent.seq);
+
+  state = advanceOnlineRoom(state, state.phaseEndsAt - 1, { durations });
+  assert.equal(state.phase, "great-revolution-swap");
+
+  state = advanceOnlineRoom(state, state.phaseEndsAt, { durations });
+  assert.equal(state.phase, "play-intro");
+  assert.deepEqual(
+    state.players.map((player) => player.id),
+    [...originalOrder].reverse(),
+  );
+  assert.ok(
+    state.events.findLast((event) => event.type === "PLAY_INTRO_STARTED").seq >
+      swapEvent.seq,
+  );
+});
+
 test("legacy persisted room JSON hydrates new optional ranking fields safely", () => {
   const state = readyEveryone(createFourPlayerLobby());
   delete state.rankSelection;
@@ -1571,6 +1724,7 @@ test("legacy persisted room JSON hydrates new optional ranking fields safely", (
   delete state.durations.rankRevealDelayMs;
   delete state.durations.rankConfirmMs;
   delete state.durations.revolutionIntroMs;
+  delete state.durations.greatRevolutionSwapMs;
   state.durations.rankRevealMs = 2_800;
 
   const view = projectOnlineRoom(state, "p1");
@@ -1597,6 +1751,7 @@ test("legacy persisted room JSON hydrates new optional ranking fields safely", (
   assert.equal(started.durations.handRevealMs, 1_400);
   assert.equal(started.durations.revolutionDecisionMs, 20_000);
   assert.equal(started.durations.revolutionIntroMs, 3_300);
+  assert.equal(started.durations.greatRevolutionSwapMs, 2_600);
   assert.equal(started.durations.taxIntroMs, 2_400);
   assert.equal(started.durations.taxSelectionMs, 45_000);
   assert.equal(started.durations.taxTributeMs, 6_000);
