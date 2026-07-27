@@ -104,6 +104,12 @@ test("ships without the disposable starter preview", async () => {
   assert.match(page, /playedSet\?\.rank === 1/);
   assert.match(page, /isDalmuti \? "달무티" : "공개 플레이"/);
   assert.doesNotMatch(page, /달무티 효과/);
+  assert.match(page, /resolveQuickDalmutiAutoPass/);
+  assert.match(page, /set\.rank === 1/);
+  assert.match(page, /nextState\.table = null/);
+  assert.match(page, /nextState\.passed = \[\]/);
+  assert.match(page, /나머지 플레이어 자동 PASS/);
+  assert.match(styles, /@keyframes quickDalmutiAutoPass/);
   assert.match(page, /kind: "play"/);
   assert.match(page, /kind: "pass"/);
   assert.match(page, /previousTable: state\.table/);

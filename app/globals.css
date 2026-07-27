@@ -2437,10 +2437,78 @@ button:focus-visible {
 
 .public-play-card,
 .public-play-caption,
-.public-pass-badge {
+.public-pass-badge,
+.dalmuti-auto-pass-badge,
+.dalmuti-auto-pass-banner {
   position: absolute;
   top: 0;
   left: 0;
+}
+
+.dalmuti-auto-pass-badge {
+  z-index: 7;
+  display: grid;
+  min-width: 92px;
+  justify-items: center;
+  gap: 1px;
+  padding: 7px 11px 8px;
+  border: 1px solid rgba(255, 224, 126, 0.74);
+  border-radius: 999px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.12), transparent 44%),
+    rgba(42, 27, 13, 0.94);
+  color: #fff5cb;
+  opacity: 0;
+  box-shadow:
+    0 0 0 3px rgba(241, 194, 61, 0.12),
+    0 10px 26px rgba(13, 9, 3, 0.38);
+  transform:
+    translate3d(
+      calc(var(--pass-from-x) - 50%),
+      calc(var(--pass-from-y) - 50%),
+      0
+    )
+    scale(0.72);
+  animation: quickDalmutiAutoPass 2.55s var(--pass-delay)
+    cubic-bezier(0.2, 0.72, 0.22, 1) both;
+}
+
+.dalmuti-auto-pass-badge span {
+  max-width: 100px;
+  overflow: hidden;
+  font-size: 8px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dalmuti-auto-pass-badge strong {
+  color: #ffe073;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 15px;
+  letter-spacing: 0.08em;
+}
+
+.dalmuti-auto-pass-banner {
+  z-index: 9;
+  padding: 7px 14px;
+  border: 1px solid rgba(255, 223, 122, 0.68);
+  border-radius: 999px;
+  background: rgba(42, 27, 13, 0.95);
+  color: #ffe28a;
+  font-size: 9px;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  opacity: 0;
+  box-shadow: 0 0 24px rgba(255, 204, 62, 0.38);
+  transform:
+    translate3d(
+      calc(var(--to-x) - 50%),
+      calc(var(--to-y) - 50% - 148px),
+      0
+    )
+    scale(0.9);
+  animation: quickDalmutiAutoPassBanner 3.05s 240ms ease both;
 }
 
 .public-play-card {
@@ -5749,6 +5817,85 @@ button:focus-visible {
   100% {
     opacity: 0;
     transform: translate(-50%, -50%) scale(1.55);
+  }
+}
+
+@keyframes quickDalmutiAutoPass {
+  0% {
+    opacity: 0;
+    transform:
+      translate3d(
+        calc(var(--pass-from-x) - 50%),
+        calc(var(--pass-from-y) - 50%),
+        0
+      )
+      scale(0.58);
+  }
+  14%,
+  34% {
+    opacity: 1;
+    transform:
+      translate3d(
+        calc(var(--pass-from-x) - 50%),
+        calc(var(--pass-from-y) - 50%),
+        0
+      )
+      scale(1);
+  }
+  70% {
+    opacity: 1;
+    transform:
+      translate3d(
+        calc(var(--pass-to-x) - 50% + var(--pass-offset-x)),
+        calc(var(--pass-to-y) - 50% - 88px),
+        0
+      )
+      scale(0.92);
+  }
+  100% {
+    opacity: 0;
+    transform:
+      translate3d(
+        calc(var(--pass-to-x) - 50% + var(--pass-offset-x)),
+        calc(var(--pass-to-y) - 50% - 82px),
+        0
+      )
+      scale(0.78);
+  }
+}
+
+@keyframes quickDalmutiAutoPassBanner {
+  0%,
+  12% {
+    opacity: 0;
+    transform:
+      translate3d(
+        calc(var(--to-x) - 50%),
+        calc(var(--to-y) - 50% - 138px),
+        0
+      )
+      scale(0.88);
+  }
+  24%,
+  76% {
+    opacity: 1;
+    transform:
+      translate3d(
+        calc(var(--to-x) - 50%),
+        calc(var(--to-y) - 50% - 148px),
+        0
+      )
+      scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform:
+      translate3d(
+        calc(var(--to-x) - 50%),
+        calc(var(--to-y) - 50% - 154px),
+        0
+      )
+      scale(0.96);
   }
 }
 

@@ -10,7 +10,7 @@
     "dev:lan": "vinext dev --hostname 0.0.0.0",
     "build": "vinext build",
     "start": "vinext start",
-    "test": "pnpm run build && node --test tests/rendered-html.test.mjs tests/online-engine.test.mjs",
+    "test": "pnpm run build && node --test tests/rendered-html.test.mjs tests/online-engine.test.mjs tests/quick-dalmuti.test.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"

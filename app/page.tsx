@@ -6,6 +6,7 @@ import {
   selectPeonTaxCards,
 } from "@/lib/taxation";
 import { rankedDealCounts } from "@/lib/dealing";
+import { resolveQuickDalmutiAutoPass } from "@/lib/quick-dalmuti";
 import { toggleWholeRankSelection } from "@/lib/selection";
 
 type Role =
@@ -58,6 +59,7 @@ type PublicTurnAction = {
   cards: Card[];
   previousTable: PlayedSet | null;
   automatic?: boolean;
+  autoPassedPlayerIds?: string[];
 };
 
 type TaxExchange = {
@@ -680,15 +682,24 @@ function playCards(state: GameState, playerId: string, cardIds: string[]): GameS
   const selected = hand.filter((card) => cardIds.includes(card.id));
   const set = normalizedSet(selected);
   if (!set || validationMessage(selected, state.table)) return state;
+  const hands = { ...state.hands, [playerId]: removeCards(hand, cardIds) };
+  const dalmutiResolution =
+    set.rank === 1
+      ? resolveQuickDalmutiAutoPass(
+          state.players,
+          hands,
+          playerId,
+          state.currentIndex,
+        )
+      : null;
   const publicAction: PublicTurnAction = {
     id: createPublicActionId("play"),
     kind: "play",
     player: current,
     cards: selected,
     previousTable: state.table,
+    autoPassedPlayerIds: dalmutiResolution?.autoPassedPlayerIds,
   };
-
-  const hands = { ...state.hands, [playerId]: removeCards(hand, cardIds) };
   const finishOrder = [...state.finishOrder];
   const scores = { ...state.scores };
   const log = [
@@ -701,6 +712,17 @@ function playCards(state: GameState, playerId: string, cardIds: string[]): GameS
     scores[playerId] += state.players.length - finishOrder.length;
     log.unshift(
       `${subjectLabel(current.name)} ${finishOrder.length}위로 계급 경쟁을 마쳤습니다.`,
+    );
+  }
+
+  if (dalmutiResolution?.autoPassedPlayerIds.length) {
+    const autoPassedNames = dalmutiResolution.autoPassedPlayerIds
+      .map(
+        (id) => state.players.find((player) => player.id === id)?.name ?? id,
+      )
+      .join(", ");
+    log.unshift(
+      `달무티로 ${autoPassedNames}이(가) 자동 패스했습니다.`,
     );
   }
 
@@ -733,6 +755,20 @@ function playCards(state: GameState, playerId: string, cardIds: string[]): GameS
     log,
     publicAction,
   };
+
+  if (dalmutiResolution) {
+    nextState.table = null;
+    nextState.passed = [];
+    nextState.currentIndex = dalmutiResolution.nextPlayerIndex;
+    nextState.log = [
+      hands[playerId].length > 0
+        ? `${subjectLabel(current.name)} 달무티를 내고 새로운 묶음을 시작합니다.`
+        : "달무티로 판이 비워졌습니다. 다음 활성 플레이어가 새로운 묶음을 시작합니다.",
+      ...log,
+    ].slice(0, 12);
+    return nextState;
+  }
+
   nextState.currentIndex = nextActiveIndex(nextState, state.currentIndex);
   return nextState;
 }
@@ -1173,9 +1209,11 @@ function TaxTransferLayer({
 function PublicTurnActionLayer({
   action,
   anchors,
+  players,
 }: {
   action: PublicTurnAction;
   anchors: TaxAnchorMap;
+  players: Player[];
 }) {
   const from = anchors.players[action.player.id];
   const to = anchors.midpoint;
@@ -1183,6 +1221,9 @@ function PublicTurnActionLayer({
 
   const playedSet = action.kind === "play" ? normalizedSet(action.cards) : null;
   const isDalmuti = playedSet?.rank === 1;
+  const autoPassedPlayers = (action.autoPassedPlayerIds ?? [])
+    .map((playerId) => players.find((player) => player.id === playerId))
+    .filter((player): player is Player => Boolean(player));
   const cardCount = action.cards.length;
   const expandedStep =
     cardCount <= 1 ? 0 : Math.min(112, 430 / Math.max(1, cardCount - 1));
@@ -1208,7 +1249,9 @@ function PublicTurnActionLayer({
       aria-live="polite"
       aria-label={
         action.kind === "play" && playedSet
-          ? `${subjectLabel(action.player.name)} ${RANK_NAMES[playedSet.rank]} 카드 ${playedSet.count}장을 냈습니다`
+          ? isDalmuti
+            ? `${subjectLabel(action.player.name)} 달무티를 내 나머지 플레이어가 자동 패스했습니다`
+            : `${subjectLabel(action.player.name)} ${RANK_NAMES[playedSet.rank]} 카드 ${playedSet.count}장을 냈습니다`
           : action.automatic
             ? `${subjectLabel(action.player.name)} 제한시간이 끝나 자동으로 패스했습니다`
             : `${subjectLabel(action.player.name)} 패스했습니다`
@@ -1230,6 +1273,42 @@ function PublicTurnActionLayer({
               }
             />
           ))}
+        </div>
+      )}
+      {isDalmuti &&
+        autoPassedPlayers.map((player, playerIndex) => {
+          const passFrom = anchors.players[player.id];
+          if (!passFrom) return null;
+          const passOffset =
+            playerIndex - (autoPassedPlayers.length - 1) / 2;
+          const passStyle = {
+            "--pass-from-x": `${passFrom.x}px`,
+            "--pass-from-y": `${passFrom.y}px`,
+            "--pass-to-x": `${to.x}px`,
+            "--pass-to-y": `${to.y}px`,
+            "--pass-offset-x": `${passOffset * 104}px`,
+            "--pass-delay": `${360 + playerIndex * 90}ms`,
+          } as React.CSSProperties;
+
+          return (
+            <div
+              key={`${action.id}-auto-pass-${player.id}`}
+              className="dalmuti-auto-pass-badge"
+              style={passStyle}
+              aria-hidden="true"
+            >
+              <span>{player.name}</span>
+              <strong>PASS</strong>
+            </div>
+          );
+        })}
+      {isDalmuti && autoPassedPlayers.length > 0 && (
+        <div
+          className="dalmuti-auto-pass-banner"
+          style={routeStyle}
+          aria-hidden="true"
+        >
+          나머지 플레이어 자동 PASS
         </div>
       )}
       {action.kind === "play" && playedSet ? (
@@ -2383,7 +2462,9 @@ export default function Home() {
     ? "왕실의 자리가 비어 있습니다"
     : game.publicAction
       ? game.publicAction.kind === "play" && publicPlayedSet
-        ? `${subjectLabel(game.publicAction.player.name)} ${RANK_NAMES[publicPlayedSet.rank]} 카드 ${publicPlayedSet.count}장을 내는 중`
+        ? publicPlayedSet.rank === 1
+          ? `${subjectLabel(game.publicAction.player.name)} 달무티를 내 모두 자동 패스합니다`
+          : `${subjectLabel(game.publicAction.player.name)} ${RANK_NAMES[publicPlayedSet.rank]} 카드 ${publicPlayedSet.count}장을 내는 중`
         : `${subjectLabel(game.publicAction.player.name)} 패스했습니다`
       : game.phase === "ready"
         ? game.round === 1 && !hasDealtHands
@@ -2542,6 +2623,7 @@ export default function Home() {
             <PublicTurnActionLayer
               action={game.publicAction}
               anchors={taxAnchors}
+              players={game.players}
             />
           )}
 
