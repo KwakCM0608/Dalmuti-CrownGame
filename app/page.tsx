@@ -1525,7 +1525,7 @@ function PublicTurnActionLayer({
             );
           })}
           <div className="public-play-caption" style={routeStyle} aria-hidden="true">
-            <small>{isDalmuti ? "달무티" : "공개 플레이"}</small>
+            <small>{isDalmuti ? "DALMUTI" : "공개 플레이"}</small>
             <strong>{action.player.name}</strong>
             <span>
               {RANK_NAMES[playedSet.rank]}({playedSet.rank}) x {playedSet.count}장

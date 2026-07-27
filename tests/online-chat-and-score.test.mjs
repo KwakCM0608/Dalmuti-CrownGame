@@ -9,6 +9,12 @@ const {
 const { scoreChipCount } = await import(
   new URL("../lib/score-chips.ts", import.meta.url)
 );
+const {
+  ONLINE_EMOTES,
+  ONLINE_EMOTE_DURATION_MS,
+  isOnlineEmoteId,
+  onlineEmoteById,
+} = await import(new URL("../lib/online-emotes.ts", import.meta.url));
 
 test("online chat normalizes whitespace and strips invisible controls", () => {
   assert.equal(
@@ -46,4 +52,17 @@ test("score chips stay compact while preserving relative score comparison", () =
   assert.equal(scoreChipCount(6, 12), 3);
   assert.equal(scoreChipCount(12, 12), 5);
   assert.equal(scoreChipCount(100, 100, 4), 4);
+});
+
+test("online emotes use a fixed safe whitelist and a short display window", () => {
+  assert.equal(ONLINE_EMOTES.length, 8);
+  assert.equal(ONLINE_EMOTE_DURATION_MS, 4_200);
+  assert.equal(isOnlineEmoteId("celebrate"), true);
+  assert.equal(isOnlineEmoteId("<img src=x onerror=alert(1)>"), false);
+  assert.deepEqual(onlineEmoteById("clap"), {
+    id: "clap",
+    emoji: "👏",
+    label: "박수",
+  });
+  assert.equal(onlineEmoteById("custom"), null);
 });

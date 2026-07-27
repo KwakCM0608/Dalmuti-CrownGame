@@ -6,6 +6,12 @@ import {
   sanitizeOnlineChatText,
   type OnlineChatMessage,
 } from "./online-chat";
+import {
+  ONLINE_EMOTE_COOLDOWN_MS,
+  ONLINE_EMOTE_DURATION_MS,
+  isOnlineEmoteId,
+  type OnlineRoomEmote,
+} from "./online-emotes";
 
 const ROOM_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 const ROOM_CODE_LENGTH = 6;
@@ -84,6 +90,16 @@ interface ChatMessageRow extends D1Row {
   created_at: number;
 }
 
+interface EmoteRow extends D1Row {
+  seq: number;
+  room_code: string;
+  request_id: string;
+  player_id: string;
+  emote_id: string;
+  created_at: number;
+  expires_at: number;
+}
+
 let schemaReady: Promise<void> | undefined;
 
 async function getD1(): Promise<D1Database> {
@@ -150,6 +166,18 @@ async function initializeSchema(): Promise<void> {
           FOREIGN KEY (room_code) REFERENCES online_rooms(code) ON DELETE CASCADE
         )
       `),
+      db.prepare(`
+        CREATE TABLE IF NOT EXISTS online_room_emotes (
+          seq INTEGER PRIMARY KEY AUTOINCREMENT,
+          room_code TEXT NOT NULL,
+          request_id TEXT NOT NULL,
+          player_id TEXT NOT NULL,
+          emote_id TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL,
+          FOREIGN KEY (room_code) REFERENCES online_rooms(code) ON DELETE CASCADE
+        )
+      `),
       db.prepare(
         "CREATE UNIQUE INDEX IF NOT EXISTS online_rooms_code_idx ON online_rooms(code)",
       ),
@@ -170,6 +198,15 @@ async function initializeSchema(): Promise<void> {
       ),
       db.prepare(
         "CREATE INDEX IF NOT EXISTS online_room_chat_player_time_idx ON online_room_chat_messages(room_code, player_id, created_at)",
+      ),
+      db.prepare(
+        "CREATE UNIQUE INDEX IF NOT EXISTS online_room_emote_request_idx ON online_room_emotes(room_code, request_id)",
+      ),
+      db.prepare(
+        "CREATE INDEX IF NOT EXISTS online_room_emote_player_time_idx ON online_room_emotes(room_code, player_id, created_at)",
+      ),
+      db.prepare(
+        "CREATE INDEX IF NOT EXISTS online_room_emote_expiry_idx ON online_room_emotes(room_code, expires_at)",
       ),
     ]);
   } catch (error) {
@@ -390,6 +427,9 @@ export async function deleteStoredOnlineRoom(
       // Delete members explicitly instead of depending on a connection-level
       // SQLite foreign_keys setting. D1 batch statements commit atomically.
       db
+        .prepare("DELETE FROM online_room_emotes WHERE room_code = ?")
+        .bind(code),
+      db
         .prepare("DELETE FROM online_room_chat_messages WHERE room_code = ?")
         .bind(code),
       db
@@ -399,7 +439,7 @@ export async function deleteStoredOnlineRoom(
         .prepare("DELETE FROM online_rooms WHERE code = ?")
         .bind(code),
     ]);
-    if (changes(results[2]) !== 1) {
+    if (changes(results[3]) !== 1) {
       throw roomNotFound();
     }
   } catch (error) {
@@ -648,6 +688,237 @@ export async function readOnlineRoomChatMessages(
   }
 }
 
+export async function appendOnlineRoomEmote(
+  roomCodeInput: string,
+  member: OnlineRoomMember,
+  requestIdInput: unknown,
+  emoteIdInput: unknown,
+  now = Date.now(),
+): Promise<OnlineRoomEmote> {
+  await ensureOnlineRoomSchema();
+  const code = normalizeRoomCode(roomCodeInput);
+  if (member.roomCode !== code) {
+    throw unauthorized();
+  }
+  const requestId =
+    typeof requestIdInput === "string" ? requestIdInput.trim() : "";
+  if (
+    !requestId ||
+    requestId.length > 128 ||
+    !/^[A-Za-z0-9._:-]+$/.test(requestId)
+  ) {
+    throw new OnlineStoreError(
+      "INVALID_EMOTE_REQUEST_ID",
+      "감정표현 요청을 다시 보내 주세요.",
+      400,
+    );
+  }
+  if (!isOnlineEmoteId(emoteIdInput)) {
+    throw new OnlineStoreError(
+      "INVALID_EMOTE",
+      "지원하지 않는 감정표현입니다.",
+      400,
+    );
+  }
+  if (!Number.isFinite(now) || now < 0) {
+    throw new OnlineStoreError(
+      "INVALID_EMOTE_TIME",
+      "감정표현 시간을 확인할 수 없습니다.",
+      400,
+    );
+  }
+
+  const db = await getD1();
+  try {
+    const existing = await db
+      .prepare(`
+        SELECT seq, room_code, request_id, player_id, emote_id, created_at, expires_at
+        FROM online_room_emotes
+        WHERE room_code = ? AND request_id = ?
+        LIMIT 1
+      `)
+      .bind(code, requestId)
+      .first<EmoteRow>();
+    if (existing) {
+      if (existing.player_id !== member.playerId) {
+        throw new OnlineStoreError(
+          "EMOTE_REQUEST_ID_CONFLICT",
+          "감정표현 요청이 충돌했습니다. 다시 선택해 주세요.",
+          409,
+        );
+      }
+      return emoteFromRow(existing);
+    }
+
+    const expiresAt = now + ONLINE_EMOTE_DURATION_MS;
+    const insertResult = await db
+      .prepare(`
+        INSERT OR IGNORE INTO online_room_emotes
+          (room_code, request_id, player_id, emote_id, created_at, expires_at)
+        SELECT ?, ?, ?, ?, ?, ?
+        WHERE EXISTS (
+          SELECT 1
+          FROM online_rooms AS rooms
+          INNER JOIN online_room_members AS members
+            ON members.room_code = rooms.code
+          WHERE rooms.code = ?
+            AND rooms.expires_at > ?
+            AND members.player_id = ?
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM online_room_emotes
+          WHERE room_code = ?
+            AND player_id = ?
+            AND created_at > ?
+        )
+      `)
+      .bind(
+        code,
+        requestId,
+        member.playerId,
+        emoteIdInput,
+        now,
+        expiresAt,
+        code,
+        now,
+        member.playerId,
+        code,
+        member.playerId,
+        now - ONLINE_EMOTE_COOLDOWN_MS,
+      )
+      .run();
+
+    if (changes(insertResult) !== 1) {
+      const duplicate = await db
+        .prepare(`
+          SELECT seq, room_code, request_id, player_id, emote_id, created_at, expires_at
+          FROM online_room_emotes
+          WHERE room_code = ? AND request_id = ?
+          LIMIT 1
+        `)
+        .bind(code, requestId)
+        .first<EmoteRow>();
+      if (duplicate) {
+        if (duplicate.player_id === member.playerId) {
+          return emoteFromRow(duplicate);
+        }
+        throw new OnlineStoreError(
+          "EMOTE_REQUEST_ID_CONFLICT",
+          "감정표현 요청이 충돌했습니다. 다시 선택해 주세요.",
+          409,
+        );
+      }
+      const activeMembership = await db
+        .prepare(`
+          SELECT 1 AS active
+          FROM online_rooms AS rooms
+          INNER JOIN online_room_members AS members
+            ON members.room_code = rooms.code
+          WHERE rooms.code = ?
+            AND rooms.expires_at > ?
+            AND members.player_id = ?
+          LIMIT 1
+        `)
+        .bind(code, now, member.playerId)
+        .first<{ active: number }>();
+      if (!activeMembership) {
+        throw unauthorized();
+      }
+      throw new OnlineStoreError(
+        "EMOTE_RATE_LIMIT",
+        "감정표현은 잠시 후 다시 사용할 수 있습니다.",
+        429,
+        true,
+      );
+    }
+
+    await db
+      .prepare(`
+        DELETE FROM online_room_emotes
+        WHERE room_code = ?
+          AND (
+            expires_at <= ?
+            OR seq NOT IN (
+              SELECT seq
+              FROM online_room_emotes
+              WHERE room_code = ?
+              ORDER BY seq DESC
+              LIMIT 40
+            )
+          )
+      `)
+      .bind(code, now, code)
+      .run();
+
+    const inserted = await db
+      .prepare(`
+        SELECT seq, room_code, request_id, player_id, emote_id, created_at, expires_at
+        FROM online_room_emotes
+        WHERE room_code = ? AND request_id = ?
+        LIMIT 1
+      `)
+      .bind(code, requestId)
+      .first<EmoteRow>();
+    if (!inserted) {
+      throw new OnlineStoreError(
+        "EMOTE_WRITE_FAILED",
+        "감정표현을 보내지 못했습니다. 다시 시도해 주세요.",
+        503,
+        true,
+      );
+    }
+    return emoteFromRow(inserted);
+  } catch (error) {
+    if (error instanceof OnlineStoreError) throw error;
+    throw storageFailure(error);
+  }
+}
+
+export async function readOnlineRoomEmotes(
+  roomCodeInput: string,
+  now = Date.now(),
+): Promise<OnlineRoomEmote[]> {
+  await ensureOnlineRoomSchema();
+  const code = normalizeRoomCode(roomCodeInput);
+  if (!Number.isFinite(now) || now < 0) {
+    throw new OnlineStoreError(
+      "INVALID_EMOTE_TIME",
+      "감정표현 시간을 확인할 수 없습니다.",
+      400,
+    );
+  }
+  try {
+    const result = await (await getD1())
+      .prepare(`
+        SELECT
+          emotes.seq,
+          emotes.room_code,
+          emotes.request_id,
+          emotes.player_id,
+          emotes.emote_id,
+          emotes.created_at,
+          emotes.expires_at
+        FROM online_room_emotes AS emotes
+        WHERE emotes.room_code = ?
+          AND emotes.expires_at > ?
+          AND emotes.seq = (
+            SELECT MAX(latest.seq)
+            FROM online_room_emotes AS latest
+            WHERE latest.room_code = emotes.room_code
+              AND latest.player_id = emotes.player_id
+              AND latest.expires_at > ?
+          )
+        ORDER BY emotes.seq ASC
+      `)
+      .bind(code, now, now)
+      .all<EmoteRow>();
+    return (result.results ?? []).map(emoteFromRow);
+  } catch (error) {
+    throw storageFailure(error);
+  }
+}
+
 export async function authenticateOnlineRoomRequest(
   request: Request,
   roomCodeInput: string,
@@ -857,6 +1128,25 @@ function chatMessageFromRow(row: ChatMessageRow): OnlineChatMessage {
     authorName: row.author_name,
     text: row.body,
     sentAt: numberValue(row.created_at),
+  };
+}
+
+function emoteFromRow(row: EmoteRow): OnlineRoomEmote {
+  if (!isOnlineEmoteId(row.emote_id)) {
+    throw new OnlineStoreError(
+      "CORRUPT_EMOTE",
+      "저장된 감정표현을 읽을 수 없습니다.",
+      500,
+    );
+  }
+  return {
+    seq: numberValue(row.seq),
+    id: row.request_id,
+    roomCode: row.room_code,
+    playerId: row.player_id,
+    emoteId: row.emote_id,
+    createdAt: numberValue(row.created_at),
+    expiresAt: numberValue(row.expires_at),
   };
 }
 

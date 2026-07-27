@@ -1174,6 +1174,15 @@ test("a player with fewer cards than the occupied table requires is automaticall
     playerId: "p1",
     automatic: true,
     reason: "insufficient-cards",
+    previousTable: {
+      rank: 8,
+      count: 2,
+      playerId: "p4",
+      cards: [
+        { id: "table-8-a", rank: 8 },
+        { id: "table-8-b", rank: 8 },
+      ],
+    },
   });
   assert.equal(automaticPass?.at, 100);
 });
@@ -1212,6 +1221,16 @@ test("timeout PASS clears an occupied trick and resets the next leader's full de
         event.payload.nextPlayerId === "p4",
     ),
     true,
+  );
+  assert.deepEqual(
+    state.events.findLast((event) => event.type === "PLAYER_PASSED")
+      ?.payload.previousTable,
+    {
+      rank: 8,
+      count: 1,
+      playerId: "p4",
+      cards: [{ id: "p4-table", rank: 8 }],
+    },
   );
 });
 

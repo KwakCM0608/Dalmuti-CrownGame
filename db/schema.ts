@@ -64,3 +64,33 @@ export const onlineRoomChatMessages = sqliteTable(
     ),
   ],
 );
+
+export const onlineRoomEmotes = sqliteTable(
+  "online_room_emotes",
+  {
+    seq: integer("seq").primaryKey({ autoIncrement: true }),
+    roomCode: text("room_code")
+      .notNull()
+      .references(() => onlineRooms.code, { onDelete: "cascade" }),
+    requestId: text("request_id").notNull(),
+    playerId: text("player_id").notNull(),
+    emoteId: text("emote_id").notNull(),
+    createdAt: integer("created_at").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("online_room_emote_request_idx").on(
+      table.roomCode,
+      table.requestId,
+    ),
+    index("online_room_emote_player_time_idx").on(
+      table.roomCode,
+      table.playerId,
+      table.createdAt,
+    ),
+    index("online_room_emote_expiry_idx").on(
+      table.roomCode,
+      table.expiresAt,
+    ),
+  ],
+);

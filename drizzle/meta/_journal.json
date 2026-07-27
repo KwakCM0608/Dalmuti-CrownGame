@@ -15,6 +15,13 @@
       "when": 1785148733927,
       "tag": "0001_foamy_arachne",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785171880710,
+      "tag": "0002_new_shooting_star",
+      "breakpoints": true
     }
   ]
 }

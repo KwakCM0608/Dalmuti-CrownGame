@@ -7,6 +7,7 @@ import {
   authenticateOnlineRoomRequest,
   mutateStoredOnlineRoom,
   readOnlineRoomChatMessages,
+  readOnlineRoomEmotes,
 } from "@/lib/online-room-store";
 import {
   onlineApiErrorResponse,
@@ -39,7 +40,10 @@ export async function GET(
       member.playerId,
       sinceEventSeq,
     );
-    const chat = await readOnlineRoomChatMessages(code, sinceChatSeq);
+    const [chat, emotes] = await Promise.all([
+      readOnlineRoomChatMessages(code, sinceChatSeq),
+      readOnlineRoomEmotes(code, now),
+    ]);
 
     return onlineJson({
       roomCode: room.code,
@@ -49,6 +53,7 @@ export async function GET(
       snapshot,
       chatMessages: chat.messages,
       latestChatSeq: chat.latestSequence,
+      emotes,
     });
   } catch (error) {
     return onlineApiErrorResponse(error);

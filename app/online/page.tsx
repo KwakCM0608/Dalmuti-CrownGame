@@ -17,6 +17,13 @@ import {
   ONLINE_CHAT_HISTORY_LIMIT,
   ONLINE_CHAT_MAX_LENGTH,
 } from "@/lib/online-chat";
+import {
+  ONLINE_EMOTE_DURATION_MS,
+  ONLINE_EMOTES,
+  isOnlineEmoteId,
+  onlineEmoteById,
+  type OnlineEmoteId,
+} from "@/lib/online-emotes";
 import { scoreChipCount } from "@/lib/score-chips";
 import {
   BOT_DIFFICULTIES,
@@ -77,6 +84,16 @@ type ChatMessageView = {
   authorName: string;
   text: string;
   sentAt: number;
+};
+
+type RoomEmoteView = {
+  seq: number;
+  id: string;
+  playerId: string;
+  emoteId: OnlineEmoteId;
+  createdAt: number;
+  expiresAt: number;
+  optimistic?: boolean;
 };
 
 type MotionPoint = {
@@ -179,6 +196,7 @@ type SnapshotEnvelope = {
   unchanged: boolean;
   chatMessages: ChatMessageView[];
   latestChatSeq: number;
+  emotes: RoomEmoteView[];
 };
 
 type StoredSession = {
@@ -428,6 +446,33 @@ function chatMessageFrom(value: unknown): ChatMessageView | null {
     authorName,
     text,
     sentAt,
+  };
+}
+
+function roomEmoteFrom(value: unknown): RoomEmoteView | null {
+  const source = record(value);
+  const id = stringValue(source.id, stringValue(source.requestId));
+  const playerId = stringValue(source.playerId);
+  const emoteId = source.emoteId;
+  const createdAt = numberValue(source.createdAt);
+  const expiresAt = numberValue(source.expiresAt);
+  if (
+    !id ||
+    !playerId ||
+    !isOnlineEmoteId(emoteId) ||
+    !Number.isFinite(createdAt) ||
+    !Number.isFinite(expiresAt) ||
+    expiresAt <= createdAt
+  ) {
+    return null;
+  }
+  return {
+    seq: numberValue(source.seq),
+    id,
+    playerId,
+    emoteId,
+    createdAt,
+    expiresAt,
   };
 }
 
@@ -719,12 +764,18 @@ function unwrapSnapshotResponse(value: unknown): SnapshotEnvelope {
     response.latestChatSeq,
     chatMessages.at(-1)?.seq ?? 0,
   );
+  const emotes = Array.isArray(response.emotes)
+    ? response.emotes
+        .map(roomEmoteFrom)
+        .filter((emote): emote is RoomEmoteView => emote !== null)
+    : [];
   if (response.unchanged === true) {
     return {
       snapshot: null,
       unchanged: true,
       chatMessages,
       latestChatSeq,
+      emotes,
     };
   }
   const candidate = response.snapshot ?? response.projection ?? value;
@@ -733,6 +784,7 @@ function unwrapSnapshotResponse(value: unknown): SnapshotEnvelope {
     unchanged: false,
     chatMessages,
     latestChatSeq,
+    emotes,
   };
 }
 
@@ -1004,6 +1056,7 @@ function PlayerSeat({
   isHandRevealing = false,
   handRevealElapsedMs = 0,
   isDalmutiHighlighted = false,
+  activeEmote = null,
   roleHidden = false,
   elementRef,
   style,
@@ -1019,12 +1072,14 @@ function PlayerSeat({
   isHandRevealing?: boolean;
   handRevealElapsedMs?: number;
   isDalmutiHighlighted?: boolean;
+  activeEmote?: RoomEmoteView | null;
   roleHidden?: boolean;
   elementRef?: (element: HTMLElement | null) => void;
   style?: CSSProperties;
 }) {
   const visibleRoleLabel = roleHidden ? "계급 미정" : roleLabel(player.role);
   const visibleRoleMark = roleHidden ? "?" : roleMark(player.role);
+  const emote = onlineEmoteById(activeEmote?.emoteId);
   return (
     <article
       ref={elementRef}
@@ -1079,6 +1134,16 @@ function PlayerSeat({
       {isHost && <span className={styles.hostMark}>방장</span>}
       {isCurrent && <span className={styles.turnMark}>차례</span>}
       {!player.connected && <span className={styles.offlineMark}>재접속 대기</span>}
+      {activeEmote && emote && (
+        <span
+          key={activeEmote.id}
+          className={styles.playerEmote}
+          role="status"
+          aria-label={`${player.name}: ${emote.label}`}
+        >
+          {emote.emoji}
+        </span>
+      )}
       {(showHandBacks || isHandRevealing) &&
         player.handCount > 0 &&
         !player.finishedPlace && (
@@ -1685,7 +1750,7 @@ function EventOverlayView({
             </div>
           ))}
         </div>
-        <strong>달무티</strong>
+        <strong>DALMUTI</strong>
         <span>
           {playerName(players, actorId)}이(가) 달무티(1) x{" "}
           {dalmutiCards.length}장을 냈습니다
@@ -1901,18 +1966,23 @@ function OnlineChatPanel({
   viewerId,
   connected,
   onSend,
+  onEmote,
 }: {
   className?: string;
   messages: ChatMessageView[];
   viewerId: string;
   connected: boolean;
   onSend: (text: string) => Promise<void>;
+  onEmote?: (emoteId: OnlineEmoteId) => Promise<void>;
 }) {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [emoteSending, setEmoteSending] = useState(false);
+  const [emotePickerOpen, setEmotePickerOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
+  const emotePickerRef = useRef<HTMLDivElement | null>(null);
   const sendingRef = useRef(false);
 
   useEffect(() => {
@@ -1920,6 +1990,27 @@ function OnlineChatPanel({
     if (!messageList) return;
     messageList.scrollTop = messageList.scrollHeight;
   }, [messages.length]);
+
+  useEffect(() => {
+    if (!emotePickerOpen) return;
+    const closeFromOutside = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !emotePickerRef.current?.contains(event.target)
+      ) {
+        setEmotePickerOpen(false);
+      }
+    };
+    const closeFromKeyboard = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setEmotePickerOpen(false);
+    };
+    document.addEventListener("pointerdown", closeFromOutside);
+    document.addEventListener("keydown", closeFromKeyboard);
+    return () => {
+      document.removeEventListener("pointerdown", closeFromOutside);
+      document.removeEventListener("keydown", closeFromKeyboard);
+    };
+  }, [emotePickerOpen]);
 
   const submitChat = async (event: FormEvent) => {
     event.preventDefault();
@@ -1944,6 +2035,24 @@ function OnlineChatPanel({
     }
   };
 
+  const submitEmote = async (emoteId: OnlineEmoteId) => {
+    if (!onEmote || !connected || emoteSending) return;
+    setEmotePickerOpen(false);
+    setEmoteSending(true);
+    setChatError(null);
+    try {
+      await onEmote(emoteId);
+    } catch (reason) {
+      setChatError(
+        reason instanceof Error
+          ? reason.message
+          : "감정표현을 보내지 못했습니다.",
+      );
+    } finally {
+      setEmoteSending(false);
+    }
+  };
+
   return (
     <aside
       className={`${styles.chatPanel} ${
@@ -1958,7 +2067,10 @@ function OnlineChatPanel({
         </span>
         <button
           type="button"
-          onClick={() => setCollapsed((current) => !current)}
+          onClick={() => {
+            setEmotePickerOpen(false);
+            setCollapsed((current) => !current);
+          }}
           aria-expanded={!collapsed}
           aria-label={collapsed ? "채팅 펼치기" : "채팅 접기"}
         >
@@ -1991,7 +2103,12 @@ function OnlineChatPanel({
           <p className={styles.chatEmpty}>첫 메시지를 남겨보세요.</p>
         )}
       </div>
-      <form className={styles.chatComposer} onSubmit={submitChat}>
+      <form
+        className={`${styles.chatComposer} ${
+          onEmote ? styles.chatComposerWithEmotes : ""
+        }`}
+        onSubmit={submitChat}
+      >
         <input
           value={draft}
           onChange={(event) =>
@@ -2005,6 +2122,40 @@ function OnlineChatPanel({
           aria-label="채팅 메시지"
           disabled={!connected}
         />
+        {onEmote && (
+          <div className={styles.emoteControl} ref={emotePickerRef}>
+            <button
+              type="button"
+              className={styles.emoteToggle}
+              disabled={!connected || emoteSending}
+              onClick={() => setEmotePickerOpen((current) => !current)}
+              aria-expanded={emotePickerOpen}
+              aria-label="감정표현 선택"
+            >
+              ☺
+            </button>
+            {emotePickerOpen && (
+              <div
+                className={styles.emotePicker}
+                role="menu"
+                aria-label="감정표현"
+              >
+                {ONLINE_EMOTES.map((emote) => (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    key={emote.id}
+                    onClick={() => void submitEmote(emote.id)}
+                    aria-label={emote.label}
+                  >
+                    <span aria-hidden="true">{emote.emoji}</span>
+                    <small>{emote.label}</small>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <button
           type="submit"
           disabled={!connected || sending || !draft.trim()}
@@ -2030,6 +2181,7 @@ export default function OnlinePage() {
   const [eventBuffer, setEventBuffer] = useState<EventView[]>([]);
   const [remoteActionQueue, setRemoteActionQueue] = useState<EventView[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessageView[]>([]);
+  const [roomEmotes, setRoomEmotes] = useState<RoomEmoteView[]>([]);
   const [clock, setClock] = useState(() => Date.now());
   const [observedRevolution, setObservedRevolution] =
     useState<DeclaredRevolutionView | null>(null);
@@ -2433,6 +2585,26 @@ export default function OnlinePage() {
     [],
   );
 
+  const ingestRoomEmotes = useCallback((incoming: RoomEmoteView[]) => {
+    if (!incoming.length) return;
+    setRoomEmotes((current) => {
+      const latestByPlayer = new Map(
+        current.map((emote) => [emote.playerId, emote]),
+      );
+      for (const emote of incoming) {
+        const existing = latestByPlayer.get(emote.playerId);
+        if (
+          !existing ||
+          emote.id === existing.id ||
+          emote.createdAt >= existing.createdAt
+        ) {
+          latestByPlayer.set(emote.playerId, emote);
+        }
+      }
+      return [...latestByPlayer.values()];
+    });
+  }, []);
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const query = new URLSearchParams(window.location.search);
@@ -2492,6 +2664,7 @@ export default function OnlinePage() {
       const result = unwrapSnapshotResponse(body);
       if (result.snapshot) ingestSnapshot(result.snapshot);
       ingestChatMessages(result.chatMessages, result.latestChatSeq);
+      ingestRoomEmotes(result.emotes);
       failureCountRef.current = 0;
       setConnection("online");
       setError(null);
@@ -2509,7 +2682,7 @@ export default function OnlinePage() {
     } finally {
       inFlightRef.current = false;
     }
-  }, [ingestChatMessages, ingestSnapshot]);
+  }, [ingestChatMessages, ingestRoomEmotes, ingestSnapshot]);
 
   useEffect(() => {
     if (!session || screen !== "room") return;
@@ -2617,6 +2790,7 @@ export default function OnlinePage() {
         unwrapped.chatMessages,
         unwrapped.latestChatSeq,
       );
+      ingestRoomEmotes(unwrapped.emotes);
       window.history.replaceState(
         null,
         "",
@@ -2688,6 +2862,7 @@ export default function OnlinePage() {
         const result = unwrapSnapshotResponse(body);
         if (result.snapshot) ingestSnapshot(result.snapshot);
         ingestChatMessages(result.chatMessages, result.latestChatSeq);
+        ingestRoomEmotes(result.emotes);
         setSelectedIds([]);
         setConnection("online");
       } catch (reason) {
@@ -2701,7 +2876,7 @@ export default function OnlinePage() {
         setBusy(false);
       }
     },
-    [busy, ingestChatMessages, ingestSnapshot, pollRoom],
+    [busy, ingestChatMessages, ingestRoomEmotes, ingestSnapshot, pollRoom],
   );
 
   const chooseRankCard = useCallback(
@@ -2803,6 +2978,75 @@ export default function OnlinePage() {
     [connection, ingestChatMessages],
   );
 
+  const sendEmote = useCallback(
+    async (emoteId: OnlineEmoteId) => {
+      const activeSession = sessionRef.current;
+      const current = snapshotRef.current;
+      if (!activeSession || !current || connection !== "online") {
+        throw new Error("연결을 복구한 뒤 감정표현을 사용할 수 있습니다.");
+      }
+      const requestId = createCommandId();
+      const createdAt = Date.now() + serverOffset;
+      const optimisticEmote: RoomEmoteView = {
+        seq: 0,
+        id: requestId,
+        playerId: current.viewerId || activeSession.playerId,
+        emoteId,
+        createdAt,
+        expiresAt: createdAt + ONLINE_EMOTE_DURATION_MS,
+        optimistic: true,
+      };
+      setRoomEmotes((emotes) => [
+        ...emotes.filter(
+          (emote) => emote.playerId !== optimisticEmote.playerId,
+        ),
+        optimisticEmote,
+      ]);
+
+      try {
+        const response = await fetch(
+          `/api/online/rooms/${activeSession.roomCode}/emote`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${activeSession.token}`,
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify({ id: requestId, emoteId }),
+          },
+        );
+        const body: unknown = await response.json().catch(() => ({}));
+        if (sessionRef.current?.token !== activeSession.token) {
+          throw new Error("방이 변경되어 감정표현을 보내지 않았습니다.");
+        }
+        if (!response.ok) {
+          if (response.status === 401 || response.status === 404) {
+            setFatalError(true);
+            setConnection("offline");
+          }
+          throw new Error(
+            apiErrorMessage(body, "감정표현을 보내지 못했습니다."),
+          );
+        }
+        const emote = roomEmoteFrom(record(body).emote);
+        if (!emote) {
+          throw new Error("전송한 감정표현을 확인하지 못했습니다.");
+        }
+        ingestRoomEmotes([emote]);
+      } catch (reason) {
+        setRoomEmotes((emotes) =>
+          emotes.filter(
+            (emote) =>
+              emote.id !== requestId || emote.optimistic !== true,
+          ),
+        );
+        throw reason;
+      }
+    },
+    [connection, ingestRoomEmotes, serverOffset],
+  );
+
   const me = useMemo(
     () =>
       snapshot?.players.find(
@@ -2893,6 +3137,21 @@ export default function OnlinePage() {
     return null;
   }, [selectedCards, selectedNormalRanks.length, selectedRank, snapshot?.table]);
   const effectiveClock = clock + serverOffset;
+  const activeEmotesByPlayerId = useMemo(() => {
+    const active: Record<string, RoomEmoteView> = {};
+    for (const emote of roomEmotes) {
+      if (
+        emote.createdAt <= effectiveClock + 250 &&
+        emote.expiresAt > effectiveClock
+      ) {
+        const existing = active[emote.playerId];
+        if (!existing || emote.createdAt >= existing.createdAt) {
+          active[emote.playerId] = emote;
+        }
+      }
+    }
+    return active;
+  }, [effectiveClock, roomEmotes]);
   const turnStartsAt =
     snapshot?.phase === "playing" && snapshot.turnDeadline !== null
       ? snapshot.turnDeadline - TURN_DURATION_MS
@@ -3097,12 +3356,18 @@ export default function OnlinePage() {
   const visibleTable = useMemo<TableView>(() => {
     if (
       !activeEvent ||
-      !["CARDS_PLAYED", "DALMUTI_EFFECT"].includes(activeEvent.type)
+      !["CARDS_PLAYED", "DALMUTI_EFFECT", "PLAYER_PASSED"].includes(
+        activeEvent.type,
+      )
     ) {
       return snapshot?.table ?? null;
     }
     const previousTable = record(activeEvent.data.previousTable);
-    if (!Object.keys(previousTable).length) return null;
+    if (!Object.keys(previousTable).length) {
+      return activeEvent.type === "PLAYER_PASSED"
+        ? snapshot?.table ?? null
+        : null;
+    }
     const previousCards = cardsFrom(previousTable.cards);
     const rank = numberValue(previousTable.rank);
     const count = numberValue(previousTable.count, previousCards.length);
@@ -3434,6 +3699,7 @@ export default function OnlinePage() {
     setRemoteActionQueue([]);
     remoteActionSeenIdsRef.current.clear();
     setChatMessages([]);
+    setRoomEmotes([]);
     latestChatSeqRef.current = 0;
     setTaxVisualOverride(null);
     setRankMovingPlayerIds([]);
@@ -4184,6 +4450,7 @@ export default function OnlinePage() {
                     isDalmutiHighlighted={
                       player.id === dalmutiHighlightPlayerId
                     }
+                    activeEmote={activeEmotesByPlayerId[player.id] ?? null}
                     roleHidden={isRankSelectionPhase}
                     elementRef={(element) =>
                       bindSeatElement(player.id, element)
@@ -4408,6 +4675,7 @@ export default function OnlinePage() {
                 isHandRevealing={isHandRevealing}
                 handRevealElapsedMs={handRevealElapsedMs}
                 isDalmutiHighlighted={me.id === dalmutiHighlightPlayerId}
+                activeEmote={activeEmotesByPlayerId[me.id] ?? null}
                 roleHidden={isRankSelectionPhase}
                 elementRef={(element) => bindSeatElement(me.id, element)}
               />
@@ -4483,10 +4751,12 @@ export default function OnlinePage() {
               </div>
             </div>
             <OnlineChatPanel
+              className={styles.gameChatPanel}
               messages={chatMessages}
               viewerId={snapshot.viewerId}
               connected={connection === "online"}
               onSend={sendChatMessage}
+              onEmote={sendEmote}
             />
             <div className={styles.actionBar}>
               <div className={styles.selectionCopy}>

@@ -1508,10 +1508,14 @@ function handlePass(
   state.passedPlayerIds = [
     ...new Set([...state.passedPlayerIds, actorId]),
   ];
+  const previousTable = state.table
+    ? { ...state.table, cards: [...state.table.cards] }
+    : null;
   appendEvent(state, "PLAYER_PASSED", at, {
     playerId: actorId,
     ...(options.automatic ? { automatic: true } : {}),
     ...(options.reason ? { reason: options.reason } : {}),
+    ...(previousTable ? { previousTable } : {}),
   });
   state.actionLockUntil = at + PASS_ACTION_LOCK_MS + ACTION_SETTLE_MS;
 

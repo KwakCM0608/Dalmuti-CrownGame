@@ -108,7 +108,7 @@ test("ships without the disposable starter preview", async () => {
   assert.match(page, /PASS_ACTION_DURATION_MS = 1500/);
   assert.match(page, /DALMUTI_ACTION_DURATION_MS = 3300/);
   assert.match(page, /playedSet\?\.rank === 1/);
-  assert.match(page, /isDalmuti \? "달무티" : "공개 플레이"/);
+  assert.match(page, /isDalmuti \? "DALMUTI" : "공개 플레이"/);
   assert.doesNotMatch(page, /달무티 효과/);
   assert.match(page, /resolveQuickDalmutiAutoPass/);
   assert.match(page, /set\.rank === 1/);
@@ -603,6 +603,11 @@ test("online play keeps the previous table visible during the submit animation",
     onlinePage,
     /const visibleTable = useMemo(?:<TableView>)?\([\s\S]{0,900}activeEvent\.data\.previousTable/,
   );
+  assert.match(
+    onlinePage,
+    /\["CARDS_PLAYED", "DALMUTI_EFFECT", "PLAYER_PASSED"\]/,
+  );
+  assert.match(onlinePage, /<strong>DALMUTI<\/strong>/);
   assert.match(onlinePage, /visibleTable\?\.cards/);
   assert.match(
     onlineStyles,
@@ -839,6 +844,7 @@ test("online chat is room-scoped and score rails use compact casino chips", asyn
     roomStore,
     roomRoute,
     chatRoute,
+    emoteRoute,
     leaveRoute,
     schema,
   ] = await Promise.all([
@@ -857,6 +863,13 @@ test("online chat is room-scoped and score rails use compact casino chips", asyn
     readFile(
       new URL(
         "../app/api/online/rooms/[code]/chat/route.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../app/api/online/rooms/[code]/emote/route.ts",
         import.meta.url,
       ),
       "utf8",
@@ -888,24 +901,34 @@ test("online chat is room-scoped and score rails use compact casino chips", asyn
   assert.match(onlineStyles, /\.chatPanel\s*\{/);
   assert.match(
     onlineStyles,
-    /grid-template-columns: auto minmax\(0, 1fr\) clamp\(190px, 15vw, 220px\)/,
+    /\.gameChatPanel\s*\{[\s\S]{0,300}background: transparent/,
   );
+  assert.match(onlineStyles, /\.emotePicker\s*\{/);
+  assert.match(onlineStyles, /\.playerEmote\s*\{/);
+  assert.match(onlinePage, /onEmote=\{sendEmote\}/);
+  assert.match(onlinePage, /activeEmote=\{activeEmotesByPlayerId/);
   assert.match(chatRoute, /authenticateOnlineRoomRequest/);
   assert.match(chatRoute, /appendOnlineRoomChatMessage/);
   assert.match(chatRoute, /room\.state\.players\.some/);
   assert.match(roomRoute, /readOnlineRoomChatMessages/);
+  assert.match(roomRoute, /readOnlineRoomEmotes/);
+  assert.match(emoteRoute, /appendOnlineRoomEmote/);
+  assert.match(emoteRoute, /room\.state\.players\.some/);
   assert.match(roomStore, /CHAT_RATE_LIMIT/);
   assert.match(
     roomStore,
     /INSERT OR IGNORE INTO online_room_chat_messages[\s\S]*WHERE EXISTS[\s\S]*AND NOT EXISTS/,
   );
   assert.match(roomStore, /online_room_chat_messages/);
+  assert.match(roomStore, /online_room_emotes/);
+  assert.match(roomStore, /EMOTE_RATE_LIMIT/);
   assert.match(
     roomStore,
     /INNER JOIN online_rooms AS rooms[\s\S]*rooms\.expires_at > \?/,
   );
   assert.doesNotMatch(leaveRoute, /clearOnlineRoomChat/);
   assert.match(schema, /onlineRoomChatMessages/);
+  assert.match(schema, /onlineRoomEmotes/);
 
   assert.match(quickPage, /className="score-display"/);
   assert.match(quickStyles, /\.score-chip-stack/);
