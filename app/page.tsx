@@ -216,6 +216,7 @@ const RANK_NAMES: Record<number, string> = {
 };
 
 function subjectLabel(name: string): string {
+  if (name === "나") return "내가";
   return `${name}이(가)`;
 }
 
@@ -3086,7 +3087,7 @@ export default function Home() {
                             game.phase === "rank-reveal"
                               ? `${selectedPlayer?.name ?? "선택자"}의 계급 카드, ${RANK_NAMES[rank]} ${rank}`
                               : selectedPlayer
-                                ? `${selectedPlayer.name}이(가) 선택한 카드`
+                                ? `${subjectLabel(selectedPlayer.name)} 선택한 카드`
                                 : `${cardIndex + 1}번째 뒤집힌 계급 카드 선택`
                           }
                         >

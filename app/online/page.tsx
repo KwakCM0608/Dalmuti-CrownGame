@@ -2,6 +2,7 @@
 
 import type { CSSProperties, FormEvent } from "react";
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -77,6 +78,36 @@ type MotionAnchors = {
   center: MotionPoint | null;
 };
 
+const MOTION_ANCHOR_EPSILON = 0.5;
+
+function motionPointsEqual(
+  previous: MotionPoint | null,
+  next: MotionPoint | null,
+): boolean {
+  if (previous === next) return true;
+  if (!previous || !next) return false;
+  return (
+    Math.abs(previous.x - next.x) <= MOTION_ANCHOR_EPSILON &&
+    Math.abs(previous.y - next.y) <= MOTION_ANCHOR_EPSILON
+  );
+}
+
+function motionAnchorsEqual(
+  previous: MotionAnchors,
+  next: MotionAnchors,
+): boolean {
+  if (!motionPointsEqual(previous.center, next.center)) return false;
+  const previousIds = Object.keys(previous.players);
+  const nextIds = Object.keys(next.players);
+  if (previousIds.length !== nextIds.length) return false;
+  return nextIds.every((playerId) =>
+    motionPointsEqual(
+      previous.players[playerId] ?? null,
+      next.players[playerId] ?? null,
+    ),
+  );
+}
+
 type RankChoiceCardView = {
   slotIndex: number;
   claimedByPlayerId: string | null;
@@ -84,7 +115,7 @@ type RankChoiceCardView = {
 };
 
 type RankSelectionView = {
-  stage: "intro" | "selecting" | "locked" | "revealed";
+  stage: "intro" | "selecting" | "locked" | "revealed" | "confirmed";
   cards: RankChoiceCardView[];
   introStartedAt: number | null;
   countdownStartsAt: number | null;
@@ -146,6 +177,13 @@ type StoredSession = {
   nickname: string;
 };
 
+type TaxVisualOverride = {
+  phase: "tax-tribute" | "tax-return";
+  expiresAt: number;
+  hand: CardView[] | null;
+  handCounts: Record<string, number>;
+};
+
 type ConnectionState =
   | "idle"
   | "connecting"
@@ -155,7 +193,8 @@ type ConnectionState =
 
 const SESSION_PREFIX = "dalmuti.online.room.";
 const LAST_SESSION_KEY = "dalmuti.online.last-session";
-const POLL_INTERVAL_MS = 700;
+const POLL_INTERVAL_MS = 250;
+const MAX_EVENT_CATCHUP_MS = 120;
 const TURN_DURATION_MS = 30_000;
 const ROLE_LABELS: Record<string, string> = {
   "great-dalmuti": "달무티",
@@ -169,15 +208,15 @@ const ROLE_LABELS: Record<string, string> = {
   great_peon: "농노",
 };
 const ROLE_MARKS: Record<string, string> = {
-  "great-dalmuti": "Ⅰ",
-  great_dalmuti: "Ⅰ",
-  "lesser-dalmuti": "Ⅱ",
-  lesser_dalmuti: "Ⅱ",
+  "great-dalmuti": "♛",
+  great_dalmuti: "♛",
+  "lesser-dalmuti": "♕",
+  lesser_dalmuti: "♕",
   merchant: "◆",
-  "lesser-peon": "Ⅺ",
-  lesser_peon: "Ⅺ",
-  "great-peon": "Ⅻ",
-  great_peon: "Ⅻ",
+  "lesser-peon": "♙",
+  lesser_peon: "♙",
+  "great-peon": "♟",
+  great_peon: "♟",
 };
 const RANK_NAMES: Record<number, string> = {
   1: "달무티",
@@ -283,6 +322,9 @@ function eventFrom(value: unknown, index: number): EventView {
   const source = record(value);
   const payload = firstRecord(source.payload, source.data, source.private);
   const merged = { ...source, ...payload };
+  const type = stringValue(source.type, stringValue(source.kind, "EVENT"))
+    .toUpperCase()
+    .replaceAll("-", "_");
   const seq = numberValue(source.seq, numberValue(source.eventSeq, index));
   const at = numberValue(
     source.at,
@@ -292,29 +334,23 @@ function eventFrom(value: unknown, index: number): EventView {
     source.startsAt,
     numberValue(payload.startsAt, at),
   );
-  const endsAt = numberValue(
-    source.endsAt,
-    numberValue(payload.endsAt, startsAt + defaultEventDuration(source.type)),
+  const explicitEndsAt = nullableNumber(source.endsAt ?? payload.endsAt);
+  const explicitDuration = nullableNumber(
+    source.durationMs ?? payload.durationMs,
   );
-  const minimumDuration = defaultEventDuration(source.type ?? source.kind);
+  const durationMs =
+    explicitEndsAt !== null
+      ? Math.max(0, explicitEndsAt - startsAt)
+      : explicitDuration !== null && explicitDuration > 0
+        ? explicitDuration
+        : defaultEventDuration(type);
   return {
     id: stringValue(source.id, `${seq}-${stringValue(source.type, "event")}`),
     seq,
-    type: stringValue(source.type, stringValue(source.kind, "EVENT"))
-      .toUpperCase()
-      .replaceAll("-", "_"),
+    type,
     at,
     startsAt,
-    durationMs: Math.max(
-      minimumDuration,
-      numberValue(
-        source.durationMs,
-        numberValue(
-          payload.durationMs,
-          Math.max(0, endsAt - startsAt) || defaultEventDuration(source.type),
-        ),
-      ),
-    ),
+    durationMs,
     playerIds: stringArray(source.playerIds).length
       ? stringArray(source.playerIds)
       : stringArray(payload.playerIds),
@@ -354,8 +390,9 @@ function chatMessageFrom(value: unknown): ChatMessageView | null {
 function defaultEventDuration(type: unknown): number {
   const label = stringValue(type).toUpperCase();
   if (label === "DALMUTI_EFFECT") return 3300;
-  if (label.includes("REVOLUTION")) return 4600;
-  if (label.includes("HAND_REVEAL") || label === "MATCH_STARTED") return 2800;
+  if (label.includes("REVOLUTION")) return 3300;
+  if (label === "MATCH_STARTED") return 2400;
+  if (label.includes("HAND_REVEAL")) return 1400;
   if (
     label.includes("TAX_TRIBUTE") ||
     label.includes("TAX_RETURN") ||
@@ -363,11 +400,13 @@ function defaultEventDuration(type: unknown): number {
   ) {
     return 6000;
   }
-  if (label.includes("TAX")) return 3800;
-  if (label.includes("RANK")) return 3800;
+  if (label.includes("TAX_INTRO")) return 2400;
+  if (label.includes("TAX")) return 2400;
+  if (label.includes("RANK_CONFIRM")) return 2600;
+  if (label.includes("RANK")) return 3400;
   // PLAYER_PASSED also contains "PLAY", so PASS must be matched first.
   if (label.includes("PASS")) return 1500;
-  if (label.includes("PLAY_INTRO") || label.includes("GAME_START")) return 3600;
+  if (label.includes("PLAY_INTRO") || label.includes("GAME_START")) return 2600;
   if (label.includes("PLAY")) return 2250;
   return 2600;
 }
@@ -451,6 +490,8 @@ function snapshotFrom(
     rankSelectionView.stage,
     normalizedPhase === "rank-intro"
       ? "intro"
+      : normalizedPhase === "rank-confirm"
+        ? "confirmed"
       : normalizedPhase === "rank-reveal"
         ? "revealed"
         : "selecting",
@@ -458,7 +499,8 @@ function snapshotFrom(
   const rankStage: RankSelectionView["stage"] =
     rankStageValue === "intro" ||
     rankStageValue === "locked" ||
-    rankStageValue === "revealed"
+    rankStageValue === "revealed" ||
+    rankStageValue === "confirmed"
       ? rankStageValue
       : "selecting";
   const declaredKind = stringValue(declaredRevolutionView.kind).toLowerCase();
@@ -584,7 +626,9 @@ function snapshotFrom(
     ),
     rankSelection:
       rankCards.length ||
-      ["rank-intro", "rank-selection", "rank-reveal"].includes(normalizedPhase)
+      ["rank-intro", "rank-selection", "rank-reveal", "rank-confirm"].includes(
+        normalizedPhase,
+      )
         ? {
             stage: rankStage,
             cards: rankCards,
@@ -791,8 +835,9 @@ function seatPosition(rankIndex: number, total: number): CSSProperties {
     "--seat-x": `${50 + Math.cos(radians) * 42}%`,
     "--seat-y": `${46 + Math.sin(radians) * 34}%`,
     "--seat-rank": rankIndex,
-    "--seat-grid-column": (rankIndex % 4) + 1,
-    "--seat-grid-row": Math.floor(rankIndex / 4) + 1,
+    "--seat-grid-column":
+      total <= 5 ? rankIndex + 1 : (rankIndex % 4) + 1,
+    "--seat-grid-row": total <= 5 ? 1 : Math.floor(rankIndex / 4) + 1,
   } as CSSProperties;
 }
 
@@ -857,7 +902,7 @@ function Brand({
       <span className={styles.brandSeal} aria-hidden="true" />
       <span>
         <strong>DALMUTI</strong>
-        <small>DCLab의 온라인 계급전</small>
+        <small>DCLab의 계급전</small>
       </span>
     </>
   );
@@ -906,12 +951,12 @@ function PlayerSeat({
   isSelf,
   isHost,
   isCurrent,
-  passed,
   rankNumber,
   isRankMoving = false,
   rankMovement = null,
   showHandBacks = false,
   isHandRevealing = false,
+  handRevealElapsedMs = 0,
   isDalmutiHighlighted = false,
   roleHidden = false,
   elementRef,
@@ -921,12 +966,12 @@ function PlayerSeat({
   isSelf?: boolean;
   isHost: boolean;
   isCurrent: boolean;
-  passed: boolean;
   rankNumber?: number;
   isRankMoving?: boolean;
   rankMovement?: "up" | "down" | null;
   showHandBacks?: boolean;
   isHandRevealing?: boolean;
+  handRevealElapsedMs?: number;
   isDalmutiHighlighted?: boolean;
   roleHidden?: boolean;
   elementRef?: (element: HTMLElement | null) => void;
@@ -962,7 +1007,7 @@ function PlayerSeat({
     >
       <span className={styles.avatar}>
         {player.monogram}
-        <i>{roleHidden ? visibleRoleMark : (rankNumber ?? visibleRoleMark)}</i>
+        <i>{visibleRoleMark}</i>
       </span>
       <span className={styles.playerCopy}>
         <strong>
@@ -982,18 +1027,32 @@ function PlayerSeat({
       </span>
       {isHost && <span className={styles.hostMark}>방장</span>}
       {isCurrent && <span className={styles.turnMark}>차례</span>}
-      {passed && <span className={styles.passedMark}>PASS</span>}
       {!player.connected && <span className={styles.offlineMark}>재접속 대기</span>}
-      {(showHandBacks || isHandRevealing) && player.handCount > 0 && (
+      {(showHandBacks || isHandRevealing) &&
+        player.handCount > 0 &&
+        !player.finishedPlace && (
         <span
           className={`${styles.seatRevealCards} ${
             isHandRevealing ? styles.seatRevealCardsAnimating : ""
           }`}
           aria-hidden="true"
         >
-          <i />
-          <i />
-          <i />
+          {Array.from(
+            { length: Math.min(4, Math.max(1, player.handCount)) },
+            (_, index) => (
+              <i
+                key={index}
+                style={
+                  {
+                    "--seat-card-index": index,
+                    animationDelay: `${
+                      index * 70 - handRevealElapsedMs
+                    }ms`,
+                  } as CSSProperties
+                }
+              />
+            ),
+          )}
         </span>
       )}
     </article>
@@ -1005,6 +1064,7 @@ function RankSelectionField({
   players,
   viewerId,
   effectiveClock,
+  phaseEndsAt,
   busy,
   onChoose,
 }: {
@@ -1012,24 +1072,26 @@ function RankSelectionField({
   players: PlayerView[];
   viewerId: string;
   effectiveClock: number;
+  phaseEndsAt: number | null;
   busy: boolean;
   onChoose: (slotIndex: number) => void;
 }) {
   const isIntro = rankSelection.stage === "intro";
   const isRevealed = rankSelection.stage === "revealed";
+  const isConfirmed = rankSelection.stage === "confirmed";
   const isLocked = rankSelection.stage === "locked";
-  const countdownRemaining = rankSelection.countdownEndsAt
-    ? Math.max(
-        0,
-        Math.min(
-          3,
-          Math.ceil((rankSelection.countdownEndsAt - effectiveClock) / 1000),
-        ),
-      )
-    : 0;
-  const countdownStarted =
-    !rankSelection.countdownStartsAt ||
-    effectiveClock >= rankSelection.countdownStartsAt;
+  const countdownStart =
+    rankSelection.countdownStartsAt ??
+    rankSelection.introStartedAt ??
+    (rankSelection.countdownEndsAt !== null
+      ? rankSelection.countdownEndsAt - 3_300
+      : effectiveClock);
+  const countdownElapsed = Math.max(0, effectiveClock - countdownStart);
+  const countdownRemaining =
+    rankSelection.countdownEndsAt !== null &&
+    effectiveClock >= rankSelection.countdownEndsAt
+      ? 0
+      : Math.max(1, 3 - Math.floor(countdownElapsed / 1_050));
   const cards = [...rankSelection.cards].sort(
     (a, b) => a.slotIndex - b.slotIndex,
   );
@@ -1038,33 +1100,76 @@ function RankSelectionField({
   );
   const viewerRank =
     viewerCardIndex >= 0 ? cards[viewerCardIndex].revealedRank : null;
-  const claimedCount = cards.filter(
-    (card) => card.claimedByPlayerId,
-  ).length;
   const viewerHasChosen =
     rankSelection.selectedSlotIndex !== null ||
     cards.some((card) => card.claimedByPlayerId === viewerId);
+  const phaseStartedAt = isIntro
+    ? rankSelection.introStartedAt
+    : isRevealed
+      ? rankSelection.revealAt
+      : isConfirmed && phaseEndsAt !== null
+        ? phaseEndsAt - 2_600
+        : rankSelection.countdownEndsAt;
+  const [phaseElapsed] = useState(() =>
+    Math.max(
+      0,
+      Math.min(
+        MAX_EVENT_CATCHUP_MS,
+        phaseStartedAt === null ? 0 : effectiveClock - phaseStartedAt,
+      ),
+    ),
+  );
 
   if (isIntro) {
     return (
       <div
         className={styles.rankChoiceIntro}
+        style={{ "--phase-elapsed": `${phaseElapsed}ms` } as CSSProperties}
         role="status"
         aria-live="polite"
       >
         <small>ACT I · RANK DRAW</small>
         <strong>계급 정하기</strong>
-        <p>
-          첫 게임은 선착순으로 카드를 선택해
-          <br />
-          랩실의 첫 서열을 정합니다
-        </p>
-        <div className={styles.rankCountdown} aria-label="선택 시작 카운트다운">
-          {countdownStarted && countdownRemaining > 0 ? (
-            <b key={countdownRemaining}>{countdownRemaining}</b>
-          ) : (
-            <b className={styles.rankCountdownReady}>READY</b>
-          )}
+        <span>첫 게임은 선착순으로 카드를 한 장씩 골라 계급을 정합니다</span>
+        {countdownRemaining > 0 && (
+          <b
+            className={styles.rankCountdown}
+            key={countdownRemaining}
+            aria-label={`${countdownRemaining}초 후 선택 시작`}
+          >
+            {countdownRemaining}
+          </b>
+        )}
+        <em className={styles.rankChoiceIntroHint}>
+          숫자가 낮을수록 높은 계급입니다
+        </em>
+      </div>
+    );
+  }
+
+  if (isConfirmed && viewerRank !== null) {
+    return (
+      <div
+        className={styles.rankConfirmation}
+        style={{ "--phase-elapsed": `${phaseElapsed}ms` } as CSSProperties}
+        role="status"
+        aria-live="assertive"
+      >
+        <small>YOUR RANK · ACT I</small>
+        <div className={styles.rankConfirmationBody}>
+          <div className={styles.rankConfirmationCard} aria-hidden="true">
+            <img src={cardImage(viewerRank)} alt="" />
+          </div>
+          <div className={styles.rankConfirmationCopy}>
+            <span>나의 서열</span>
+            <strong>
+              {roleLabelForRank(viewerRank - 1, players.length)}
+            </strong>
+            <em>
+              {RANK_NAMES[viewerRank] ?? "계급"}({viewerRank}) 카드를
+              선택했습니다
+            </em>
+          </div>
         </div>
       </div>
     );
@@ -1075,35 +1180,40 @@ function RankSelectionField({
       className={`${styles.rankChoiceField} ${
         isRevealed ? styles.rankChoiceFieldRevealed : ""
       }`}
+      style={
+        {
+          "--phase-elapsed": `${phaseElapsed}ms`,
+          "--rank-card-count": Math.max(1, cards.length),
+        } as CSSProperties
+      }
       role="group"
       aria-label={isRevealed ? "공개된 계급 카드" : "계급 카드 선택"}
     >
       <div className={styles.rankChoiceHeading}>
-        <small>{isRevealed ? "RANKS REVEALED" : "FIRST COME, FIRST SERVED"}</small>
+        <small>ACT I · RANK DRAW</small>
         <strong>
           {isRevealed
-            ? "첫 서열이 정해졌습니다"
+            ? "계급 카드 공개"
             : isLocked
               ? "모든 선택 완료"
               : viewerHasChosen
-                ? "선택 완료"
-                : "카드 한 장을 고르세요"}
+                ? "다른 플레이어를 기다리는 중"
+                : "계급 카드를 고르세요"}
         </strong>
         <p>
           {isRevealed
-            ? "낮은 숫자를 고른 플레이어부터 높은 계급을 얻습니다"
+            ? "낮은 숫자의 카드를 뽑은 순서로 서열이 정해집니다"
             : isLocked
               ? "1초 뒤 선택한 카드를 공개합니다"
               : viewerHasChosen
-                ? "다른 플레이어의 선택을 기다리는 중입니다"
+                ? "빛나는 카드는 이미 선택된 카드입니다"
                 : rankSelection.canChoose
-                  ? "먼저 고른 카드가 당신의 첫 계급이 됩니다"
+                  ? "빛나는 카드는 이미 다른 플레이어가 선택했습니다"
                   : "다른 플레이어들이 카드를 선택하는 중입니다"}
         </p>
       </div>
       <div
         className={styles.rankChoiceCards}
-        style={{ "--rank-card-count": Math.max(1, cards.length) } as CSSProperties}
       >
         {cards.map((card, index) => {
           const claimant = card.claimedByPlayerId
@@ -1153,72 +1263,31 @@ function RankSelectionField({
                     {rank !== null && <img src={cardImage(rank)} alt="" />}
                   </i>
                 </span>
-                {!isRevealed && claimed && (
-                  <b className={styles.rankChoiceClaim}>
-                    {mine ? "내 선택" : "선택됨"}
-                  </b>
-                )}
               </button>
-              {isRevealed && (
-                <span className={styles.rankChoiceOwner}>
-                  <strong>{claimant?.name ?? "플레이어"}</strong>
-                  <small>{formatRank(rank ?? index + 1)}</small>
-                </span>
-              )}
+              <span className={styles.rankChoiceOwner}>
+                {claimant ? `${claimant.name} 선택` : "선택 가능"}
+              </span>
             </div>
           );
         })}
       </div>
-      {!isRevealed && (
-        <div className={styles.rankChoiceProgress} aria-live="polite">
-          <span>
-            <i
-              style={{
-                width: `${cards.length ? (claimedCount / cards.length) * 100 : 0}%`,
-              }}
-            />
-          </span>
-          <small>
-            {claimedCount} / {cards.length} 선택
-          </small>
-        </div>
-      )}
-      {isRevealed && viewerRank !== null && (
-        <div
-          className={styles.rankConfirmation}
-          style={
-            {
-              "--rank-confirm-delay": `${
-                1_550 + Math.max(0, viewerCardIndex) * 120
-              }ms`,
-            } as CSSProperties
-          }
-          role="status"
-          aria-live="polite"
-        >
-          <small>MY RANK</small>
-          <strong>
-            {roleLabelForRank(viewerRank - 1, players.length)}
-            <span>({viewerRank})</span>
-          </strong>
-          <p>당신의 첫 서열은 {viewerRank}위입니다</p>
-        </div>
-      )}
     </div>
   );
 }
 
-function EventOverlay({
-  event,
-  players,
-  anchors,
-  effectiveClock,
-}: {
+type EventOverlayProps = {
   event: EventView;
   players: PlayerView[];
   anchors: MotionAnchors;
   effectiveClock: number;
-}) {
+};
+
+function EventOverlayView({
+  event,
+  players,
+  anchors,
+  effectiveClock,
+}: EventOverlayProps) {
   const type = event.type;
   const data = event.data;
   const cards = cardsFrom(
@@ -1259,20 +1328,43 @@ function EventOverlay({
   const from = anchors.players[fromId || actorId || ""] ?? center;
   const to = anchors.players[toId] ?? center;
   const [initialElapsed] = useState(() =>
-    Math.max(0, Math.min(event.durationMs, effectiveClock - event.startsAt)),
+    Math.max(
+      0,
+      Math.min(
+        MAX_EVENT_CATCHUP_MS,
+        event.durationMs,
+        effectiveClock - event.startsAt,
+      ),
+    ),
   );
-  const overlayStyle = {
-    "--event-duration": `${event.durationMs}ms`,
-    "--event-elapsed": `${initialElapsed}ms`,
-    "--from-x": `${from.x}px`,
-    "--from-y": `${from.y}px`,
-    "--to-x": `${to.x}px`,
-    "--to-y": `${to.y}px`,
-    "--center-x": `${center.x}px`,
-    "--center-y": `${center.y}px`,
-  } as CSSProperties;
+  const overlayStyle = useMemo(
+    () =>
+      ({
+        "--event-duration": `${event.durationMs}ms`,
+        "--event-elapsed": `${initialElapsed}ms`,
+        "--from-x": `${from.x}px`,
+        "--from-y": `${from.y}px`,
+        "--to-x": `${to.x}px`,
+        "--to-y": `${to.y}px`,
+        "--center-x": `${center.x}px`,
+        "--center-y": `${center.y}px`,
+      }) as CSSProperties,
+    [
+      center.x,
+      center.y,
+      event.durationMs,
+      from.x,
+      from.y,
+      initialElapsed,
+      to.x,
+      to.y,
+    ],
+  );
 
-  if (type === "REVOLUTION_DECLARED") {
+  if (
+    type === "REVOLUTION_DECLARED" ||
+    type === "REVOLUTION_INTRO_STARTED"
+  ) {
     const isGreatRevolution =
       stringValue(data.kind).toLowerCase() === "great" ||
       booleanValue(data.isGreatRevolution) ||
@@ -1281,7 +1373,9 @@ function EventOverlay({
       <div
         className={`${styles.eventOverlay} ${styles.introOverlay} ${
           styles.revolutionOverlay
-        } ${isGreatRevolution ? styles.greatRevolutionOverlay : ""}`}
+        } ${styles.phaseIntroOverlay} ${
+          isGreatRevolution ? styles.greatRevolutionOverlay : ""
+        }`}
         style={overlayStyle}
       >
         <div className={styles.revolutionJokers} aria-hidden="true">
@@ -1310,7 +1404,7 @@ function EventOverlay({
     if (isIntro) {
       return (
         <div
-          className={`${styles.eventOverlay} ${styles.introOverlay}`}
+          className={`${styles.eventOverlay} ${styles.introOverlay} ${styles.phaseIntroOverlay} ${styles.taxIntroOverlay}`}
           style={overlayStyle}
         >
           <div className={styles.eventCenterCopy}>
@@ -1321,29 +1415,163 @@ function EventOverlay({
         </div>
       );
     }
+    const publicRoutes = (
+      Array.isArray(data.routes) && data.routes.length
+        ? data.routes.map(record)
+        : Object.keys(route).length
+          ? [route]
+          : [
+              {
+                fromPlayerId: fromId,
+                toPlayerId: toId,
+                count: numberValue(data.count, Math.max(1, cards.length)),
+              },
+            ]
+    ).filter((candidate) => Object.keys(candidate).length > 0);
+    const privateFromId = stringValue(
+      data.fromPlayerId,
+      stringValue(data.sourcePlayerId),
+    );
+    const privateToId = stringValue(
+      data.toPlayerId,
+      stringValue(data.destinationPlayerId),
+    );
     return (
       <div
         className={`${styles.eventOverlay} ${styles.taxOverlay}`}
         style={overlayStyle}
       >
-        <div className={styles.transferNames}>
-          <span>{playerName(players, fromId)}</span>
-          <i>→</i>
-          <span>{playerName(players, toId)}</span>
-        </div>
-        <div className={styles.eventCards}>
-          {(cards.length
-            ? cards
-            : Array.from(
-                {
-                  length: Math.max(
-                    1,
-                    numberValue(data.count, numberValue(route.count, 1)),
+        <div className={styles.taxRoutes}>
+          {publicRoutes.map((publicRoute, routeIndex) => {
+            const routeFromId = stringValue(
+              publicRoute.fromPlayerId,
+              stringValue(publicRoute.peonId, fromId),
+            );
+            const routeToId = stringValue(
+              publicRoute.toPlayerId,
+              stringValue(publicRoute.nobleId, toId),
+            );
+            const routeCount = Math.max(
+              1,
+              numberValue(publicRoute.count, numberValue(data.count, 1)),
+            );
+            const routeIsPrivate =
+              cards.length > 0 &&
+              (publicRoutes.length === 1 ||
+                (privateFromId === routeFromId && privateToId === routeToId));
+            const routeCards = routeIsPrivate
+              ? cards
+              : Array.from({ length: routeCount }, (_, index) => ({
+                  id: `hidden-tax-${routeIndex}-${index}`,
+                  rank: 13,
+                }));
+            const routeFrom =
+              anchors.players[routeFromId] ?? anchors.center ?? center;
+            const routeTo =
+              anchors.players[routeToId] ?? anchors.center ?? center;
+            const routeMidpoint = routeIsPrivate
+              ? center
+              : {
+                  x: Math.round((routeFrom.x + routeTo.x) / 2),
+                  y: Math.round(
+                    Math.min(
+                      center.y - 78,
+                      Math.max(routeFrom.y, routeTo.y) +
+                        88 +
+                        routeIndex * 22,
+                    ),
                   ),
-                },
-                (_, index) => ({ id: `hidden-tax-${index}`, rank: 13 }),
-              )
-          ).map((card, index) => (
+                };
+            return (
+            <div
+              className={`${styles.taxRoute} ${
+                routeIsPrivate ? styles.taxRoutePrivate : styles.taxRoutePublic
+              }`}
+              key={`${event.id}-${routeFromId}-${routeToId}-${routeIndex}`}
+              style={
+                {
+                  "--from-x": `${routeFrom.x}px`,
+                  "--from-y": `${routeFrom.y}px`,
+                  "--to-x": `${routeTo.x}px`,
+                  "--to-y": `${routeTo.y}px`,
+                  "--center-x": `${routeMidpoint.x}px`,
+                  "--center-y": `${routeMidpoint.y}px`,
+                  "--tax-route-index": routeIndex,
+                  "--tax-route-count": publicRoutes.length,
+                } as CSSProperties
+              }
+            >
+              <div className={styles.transferNames}>
+                <span>{playerName(players, routeFromId)}</span>
+                <i>→</i>
+                <span>{playerName(players, routeToId)}</span>
+              </div>
+              <div className={styles.eventCards}>
+                {routeCards.map((card, index) => (
+                  <div
+                    className={styles.eventCardWrap}
+                    key={`${event.id}-${routeIndex}-${card.id}-${index}`}
+                    style={
+                      {
+                        "--event-card-endpoint-offset-x": `${
+                          (index - (routeCards.length - 1) / 2) * 18
+                        }px`,
+                        "--event-card-mid-offset-x": `${
+                          (index - (routeCards.length - 1) / 2) *
+                          (routeIsPrivate ? 132 : 42)
+                        }px`,
+                        "--event-card-index": index,
+                        "--event-card-offset":
+                          index - (routeCards.length - 1) / 2,
+                      } as CSSProperties
+                    }
+                  >
+                    <PlayingCard
+                      card={card}
+                      concealed={!routeIsPrivate}
+                      displayOnly
+                    />
+                  </div>
+                ))}
+              </div>
+              <strong>
+                {routeIsPrivate
+                  ? cards.map((card) => formatRank(card.rank)).join(" · ")
+                  : `카드 ${routeCount}장 이동`}
+              </strong>
+              <small>
+                {routeIsPrivate
+                  ? "이 카드 정보는 교환 당사자에게만 보입니다"
+                  : "카드의 정체는 교환 당사자만 확인할 수 있습니다"}
+              </small>
+            </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  if (type === "DALMUTI_EFFECT") {
+    const dalmutiCards = cards.length
+      ? cards
+      : [{ id: `${event.id}-dalmuti`, rank: 1 }];
+    const expandedStep =
+      dalmutiCards.length <= 1
+        ? 0
+        : Math.min(112, 430 / Math.max(1, dalmutiCards.length - 1));
+    const delayStep =
+      dalmutiCards.length <= 1
+        ? 0
+        : Math.min(36, 100 / Math.max(1, dalmutiCards.length - 1));
+    return (
+      <div
+        className={`${styles.eventOverlay} ${styles.playOverlay} ${styles.dalmutiEffectOverlay}`}
+        style={overlayStyle}
+      >
+        <small>DALMUTI</small>
+        <div className={styles.eventCards}>
+          {dalmutiCards.map((card, index) => (
             <div
               className={styles.eventCardWrap}
               key={`${event.id}-${card.id}-${index}`}
@@ -1351,65 +1579,44 @@ function EventOverlay({
                 {
                   "--event-card-index": index,
                   "--event-card-offset":
-                    index -
-                    ((cards.length ||
-                      numberValue(data.count, numberValue(route.count, 1))) -
-                      1) /
-                      2,
+                    index - (dalmutiCards.length - 1) / 2,
                   "--event-card-offset-x": `${
-                    (index -
-                      ((cards.length ||
-                        numberValue(data.count, numberValue(route.count, 1))) -
-                        1) /
-                        2) *
-                    46
+                    (index - (dalmutiCards.length - 1) / 2) * 46
                   }px`,
+                  "--event-card-expanded-x": `${
+                    (index - (dalmutiCards.length - 1) / 2) * expandedStep
+                  }px`,
+                  "--event-card-from-spread": `${
+                    (index - (dalmutiCards.length - 1) / 2) * 9
+                  }px`,
+                  "--event-card-angle": `${
+                    (index - (dalmutiCards.length - 1) / 2) * 3
+                  }deg`,
+                  "--event-card-delay": `${index * delayStep}ms`,
                 } as CSSProperties
               }
             >
-              <PlayingCard card={card} concealed={!cards.length} displayOnly />
+              <PlayingCard card={card} displayOnly />
             </div>
           ))}
         </div>
-        <strong>
-          {cards.length
-            ? cards.map((card) => formatRank(card.rank)).join(" · ")
-            : `카드 ${numberValue(data.count, numberValue(route.count, 1))}장 이동`}
-        </strong>
-        <small>
-          {cards.length
-            ? "이 카드 정보는 교환 당사자에게만 보입니다"
-            : "카드의 정체는 교환 당사자만 확인할 수 있습니다"}
-        </small>
-      </div>
-    );
-  }
-
-  if (type === "DALMUTI_EFFECT") {
-    return (
-      <div
-        className={`${styles.eventOverlay} ${styles.dalmutiEffectOverlay}`}
-        style={overlayStyle}
-      >
-        <small>DALMUTI</small>
-        <div className={styles.dalmutiEffectCard}>
-          <PlayingCard
-            card={{ id: `${event.id}-dalmuti`, rank: 1 }}
-            displayOnly
-          />
-        </div>
         <strong>달무티</strong>
         <span>
-          {playerName(players, actorId)}이(가) 달무티를 냈습니다
+          {playerName(players, actorId)}이(가) 달무티(1) x{" "}
+          {dalmutiCards.length}장을 냈습니다
         </span>
         <div className={styles.autoPassPlayers}>
-          {autoPassedIds.map((playerId) => (
+          {autoPassedIds.map((playerId, playerIndex) => (
             <i
               key={playerId}
               style={
                 {
                   "--pass-x": `${anchors.players[playerId]?.x ?? center.x}px`,
                   "--pass-y": `${anchors.players[playerId]?.y ?? center.y}px`,
+                  "--pass-offset-x": `${
+                    (playerIndex - (autoPassedIds.length - 1) / 2) * 104
+                  }px`,
+                  "--pass-delay": `${360 + playerIndex * 90}ms`,
                 } as CSSProperties
               }
             >
@@ -1445,12 +1652,21 @@ function EventOverlay({
   }
 
   if (type.includes("PLAY") && !type.includes("INTRO") && cards.length) {
+    const playedRank =
+      cards.find((card) => card.rank !== 13)?.rank ?? 13;
+    const expandedStep =
+      cards.length <= 1
+        ? 0
+        : Math.min(112, 430 / Math.max(1, cards.length - 1));
+    const delayStep =
+      cards.length <= 1
+        ? 0
+        : Math.min(36, 100 / Math.max(1, cards.length - 1));
     return (
       <div
         className={`${styles.eventOverlay} ${styles.playOverlay}`}
         style={overlayStyle}
       >
-        <span>{playerName(players, actorId)}</span>
         <div className={styles.eventCards}>
           {cards.map((card, index) => (
             <div
@@ -1463,6 +1679,14 @@ function EventOverlay({
                   "--event-card-offset-x": `${
                     (index - (cards.length - 1) / 2) * 46
                   }px`,
+                  "--event-card-expanded-x": `${
+                    (index - (cards.length - 1) / 2) * expandedStep
+                  }px`,
+                  "--event-card-from-spread": `${
+                    (index - (cards.length - 1) / 2) * 9
+                  }px`,
+                  "--event-card-angle": `${(index - 1) * 3}deg`,
+                  "--event-card-delay": `${index * delayStep}ms`,
                 } as CSSProperties
               }
             >
@@ -1470,25 +1694,29 @@ function EventOverlay({
             </div>
           ))}
         </div>
-        <strong>
-          {formatRank(cards.find((card) => card.rank !== 13)?.rank ?? 13)} ×{" "}
-          {cards.length}장
-        </strong>
+        <div className={styles.playCaption}>
+          <small>공개 플레이</small>
+          <strong>{playerName(players, actorId)}</strong>
+          <span>
+            {RANK_NAMES[playedRank] ?? "어릿광대"}({playedRank}) x{" "}
+            {cards.length}장
+          </span>
+        </div>
       </div>
     );
   }
 
-  if (type.includes("REVEAL") || type === "MATCH_STARTED") {
+  if (type === "MATCH_STARTED") {
     return (
       <div
-        className={`${styles.eventOverlay} ${styles.revealOverlay}`}
+        className={`${styles.eventOverlay} ${styles.revealOverlay} ${styles.phaseIntroOverlay}`}
         style={overlayStyle}
       >
         <div className={styles.eventCenterCopy}>
           <span className={styles.revealCard} aria-hidden="true" />
           <small>HAND REVEAL</small>
           <strong>패를 공개합니다</strong>
-          <span>모든 플레이어가 자신의 패를 확인합니다</span>
+          <span>모든 플레이어가 동시에 자신의 패를 확인합니다</span>
         </div>
       </div>
     );
@@ -1501,16 +1729,19 @@ function EventOverlay({
     (type.includes("PLAY") && type.includes("INTRO"))
   ) {
     const starterId = stringValue(
-      data.currentPlayerId,
-      stringValue(data.startingPlayerId),
+      data.firstPlayerId,
+      stringValue(
+        data.currentPlayerId,
+        stringValue(data.startingPlayerId),
+      ),
     );
     return (
       <div
-        className={`${styles.eventOverlay} ${styles.introOverlay}`}
+        className={`${styles.eventOverlay} ${styles.introOverlay} ${styles.phaseIntroOverlay} ${styles.playIntroOverlay}`}
         style={overlayStyle}
       >
         <div className={styles.eventCenterCopy}>
-          <small>ROUND START</small>
+          <small>ROUND {numberValue(data.round, 1)}</small>
           <strong>게임 시작</strong>
           <span>{playerName(players, starterId)}이(가) 먼저 시작합니다</span>
         </div>
@@ -1533,6 +1764,33 @@ function EventOverlay({
     </div>
   );
 }
+
+function eventOverlayPropsEqual(
+  previous: EventOverlayProps,
+  next: EventOverlayProps,
+): boolean {
+  if (
+    previous.event.id !== next.event.id ||
+    previous.event.type !== next.event.type ||
+    previous.event.startsAt !== next.event.startsAt ||
+    previous.event.durationMs !== next.event.durationMs ||
+    previous.event.actorPlayerId !== next.event.actorPlayerId ||
+    previous.anchors !== next.anchors ||
+    previous.players.length !== next.players.length
+  ) {
+    return false;
+  }
+
+  // Events are immutable once issued. Ignore the 120 ms clock tick and fresh
+  // polling projections while the same animation is already running.
+  return previous.players.every(
+    (player, index) =>
+      player.id === next.players[index]?.id &&
+      player.name === next.players[index]?.name,
+  );
+}
+
+const EventOverlay = memo(EventOverlayView, eventOverlayPropsEqual);
 
 function formatChatTime(timestamp: number): string {
   if (!timestamp) return "";
@@ -1674,9 +1932,10 @@ export default function OnlinePage() {
   const [eventBuffer, setEventBuffer] = useState<EventView[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessageView[]>([]);
   const [clock, setClock] = useState(() => Date.now());
-  const [handRevealUntil, setHandRevealUntil] = useState(0);
   const [observedRevolution, setObservedRevolution] =
     useState<DeclaredRevolutionView | null>(null);
+  const [taxVisualOverride, setTaxVisualOverride] =
+    useState<TaxVisualOverride | null>(null);
   const [serverOffset, setServerOffset] = useState(0);
   const [connection, setConnection] = useState<ConnectionState>("idle");
   const [busy, setBusy] = useState(false);
@@ -1692,6 +1951,7 @@ export default function OnlinePage() {
     string[] | null
   >(null);
   const [roundEndResultReady, setRoundEndResultReady] = useState(true);
+  const [handRevealElapsedMs, setHandRevealElapsedMs] = useState(0);
   const [motionAnchors, setMotionAnchors] = useState<MotionAnchors>({
     players: {},
     center: null,
@@ -1721,6 +1981,50 @@ export default function OnlinePage() {
   const ingestSnapshot = useCallback((next: SnapshotView) => {
     const previous = snapshotRef.current;
     if (previous && next.revision < previous.revision) return;
+    if (
+      next.phase === "hand-reveal" &&
+      next.phaseEndsAt !== null &&
+      (previous?.phase !== "hand-reveal" ||
+        previous.phaseEndsAt !== next.phaseEndsAt)
+    ) {
+      setHandRevealElapsedMs(
+        Math.max(
+          0,
+          Math.min(
+            MAX_EVENT_CATCHUP_MS,
+            next.serverTime - (next.phaseEndsAt - 1_400),
+          ),
+        ),
+      );
+    } else if (
+      previous?.phase === "hand-reveal" &&
+      next.phase !== "hand-reveal"
+    ) {
+      setHandRevealElapsedMs(0);
+    }
+    if (
+      previous &&
+      (next.phase === "tax-tribute" || next.phase === "tax-return") &&
+      previous.phase !== next.phase &&
+      next.phaseEndsAt !== null
+    ) {
+      setTaxVisualOverride({
+        phase: next.phase,
+        expiresAt: next.phaseEndsAt,
+        hand:
+          previous.hand === null
+            ? null
+            : previous.hand.map((card) => ({ ...card })),
+        handCounts: Object.fromEntries(
+          previous.players.map((player) => [player.id, player.handCount]),
+        ),
+      });
+    } else if (
+      next.phase !== "tax-tribute" &&
+      next.phase !== "tax-return"
+    ) {
+      setTaxVisualOverride(null);
+    }
     const enteringRoundEnd =
       previous &&
       previous.phase !== "round-end" &&
@@ -1760,13 +2064,6 @@ export default function OnlinePage() {
       setPendingRoundEndMoveIds(null);
       setRankMovingPlayerIds([]);
       setRoundEndResultReady(true);
-    }
-    if (
-      next.hand !== null &&
-      next.phase === "hand-reveal" &&
-      (previous?.hand === null || previous?.phase !== "hand-reveal")
-    ) {
-      setHandRevealUntil(Date.now() + 1_900);
     }
     snapshotRef.current = next;
     setSnapshot(next);
@@ -2158,14 +2455,40 @@ export default function OnlinePage() {
   const isHandRevealing = Boolean(
     snapshot &&
       snapshot.hand !== null &&
-      clock < handRevealUntil,
+      snapshot.phase === "hand-reveal" &&
+      (snapshot.phaseEndsAt === null ||
+        clock + serverOffset < snapshot.phaseEndsAt),
   );
   const isRankSelectionPhase = Boolean(
     snapshot &&
-      ["rank-intro", "rank-selection", "rank-reveal"].includes(snapshot.phase) &&
+      ["rank-intro", "rank-selection", "rank-reveal", "rank-confirm"].includes(
+        snapshot.phase,
+      ) &&
       snapshot.rankSelection,
   );
   const hand = snapshot?.hand ?? [];
+  const activeTaxVisualOverride =
+    snapshot &&
+    taxVisualOverride?.phase === snapshot.phase &&
+    clock + serverOffset < taxVisualOverride.expiresAt
+      ? taxVisualOverride
+      : null;
+  const renderedHandValue = activeTaxVisualOverride
+    ? activeTaxVisualOverride.hand
+    : snapshot?.hand ?? null;
+  const renderedHand = renderedHandValue ?? [];
+  const displayedMe =
+    me && activeTaxVisualOverride
+      ? {
+          ...me,
+          handCount:
+            activeTaxVisualOverride.handCounts[me.id] ?? me.handCount,
+        }
+      : me;
+  const isHandConcealed = Boolean(
+    snapshot &&
+      (snapshot.phase === "reveal-intro" || snapshot.hand === null),
+  );
   const selectedCards = hand.filter((card) => selectedIds.includes(card.id));
   const selectedNormalRanks = [
     ...new Set(
@@ -2276,15 +2599,27 @@ export default function OnlinePage() {
             "PLAY_INTRO_STARTED",
             "CARDS_PLAYED",
             "DALMUTI_EFFECT",
+            "REVOLUTION_INTRO_STARTED",
             "REVOLUTION_DECLARED",
             "PLAYER_PASSED",
           ].includes(event.type) &&
+            !(
+              event.type === "REVOLUTION_DECLARED" &&
+              eventBuffer.some(
+                (candidate) =>
+                  candidate.type === "REVOLUTION_INTRO_STARTED" &&
+                  Math.abs(candidate.startsAt - event.startsAt) < 2_000,
+              )
+            ) &&
             effectiveClock >= event.startsAt - 120 &&
             effectiveClock <= event.startsAt + event.durationMs,
       );
     return (
       [...candidates].reverse().find(
         (event) => event.type === "DALMUTI_EFFECT",
+      ) ??
+      [...candidates].reverse().find(
+        (event) => event.type === "REVOLUTION_INTRO_STARTED",
       ) ??
       [...candidates].reverse().find(
         (event) => event.type === "REVOLUTION_DECLARED",
@@ -2299,6 +2634,10 @@ export default function OnlinePage() {
     isRankSelectionPhase,
     snapshot?.phase,
   ]);
+  const motionLayoutKey = snapshot
+    ? `${snapshot.phase}:${snapshot.players.map((player) => player.id).join("|")}`
+    : "";
+  const rankMotionKey = rankMovingPlayerIds.join("|");
 
   useLayoutEffect(() => {
     const root = tableColumnRef.current;
@@ -2316,30 +2655,45 @@ export default function OnlinePage() {
           y: rect.top - rootRect.top + rect.height / 2,
         };
       });
-      setMotionAnchors({
+      const nextAnchors: MotionAnchors = {
         players,
         center: {
           x: centerRect.left - rootRect.left + centerRect.width / 2,
           y: centerRect.top - rootRect.top + centerRect.height / 2,
         },
+      };
+      setMotionAnchors((current) =>
+        motionAnchorsEqual(current, nextAnchors) ? current : nextAnchors,
+      );
+    };
+
+    let pendingFrame: number | null = null;
+    const scheduleMeasure = () => {
+      if (pendingFrame !== null) return;
+      pendingFrame = window.requestAnimationFrame(() => {
+        pendingFrame = null;
+        measure();
       });
     };
 
     measure();
-    const observer = new ResizeObserver(measure);
+    const observer = new ResizeObserver(scheduleMeasure);
     observer.observe(root);
     observer.observe(centerElement);
     seatElementsRef.current.forEach((element) => observer.observe(element));
-    window.addEventListener("resize", measure);
+    window.addEventListener("resize", scheduleMeasure);
     return () => {
       observer.disconnect();
-      window.removeEventListener("resize", measure);
+      window.removeEventListener("resize", scheduleMeasure);
+      if (pendingFrame !== null) {
+        window.cancelAnimationFrame(pendingFrame);
+      }
     };
   }, [
     activeEvent?.id,
     isHandRevealing,
-    rankMovingPlayerIds,
-    snapshot?.players,
+    motionLayoutKey,
+    rankMotionKey,
   ]);
 
   const dalmutiHighlightPlayerId = useMemo(
@@ -2426,7 +2780,7 @@ export default function OnlinePage() {
     const startTimer = window.setTimeout(() => {
       setPendingRoundEndMoveIds(null);
       if (!movingPlayerIds.length) {
-        setRoundEndResultReady(true);
+        window.setTimeout(() => setRoundEndResultReady(true), 280);
         return;
       }
 
@@ -2442,7 +2796,7 @@ export default function OnlinePage() {
         setRankMovingPlayerIds([]);
         setRoundEndResultReady(true);
         rankMoveTimerRef.current = null;
-      }, reduceMotion ? 320 : 3_150);
+      }, reduceMotion ? 80 : 2_580);
     }, 0);
     return () => window.clearTimeout(startTimer);
   }, [
@@ -2476,8 +2830,8 @@ export default function OnlinePage() {
             { translate: "0 0" },
           ],
           {
-            duration: 2_350,
-            easing: "cubic-bezier(0.16, 0.78, 0.18, 1)",
+            duration: 2_300,
+            easing: "cubic-bezier(0.16, 0.74, 0.2, 1)",
           },
         );
       }
@@ -2533,7 +2887,7 @@ export default function OnlinePage() {
     setEventBuffer([]);
     setChatMessages([]);
     latestChatSeqRef.current = 0;
-    setHandRevealUntil(0);
+    setTaxVisualOverride(null);
     setRankMovingPlayerIds([]);
     setSeatRankOverrides(null);
     setPendingRoundEndMoveIds(null);
@@ -2812,7 +3166,7 @@ export default function OnlinePage() {
             <div className={styles.lobbyHeading}>
               <div>
                 <small>PLAYERS</small>
-                <h2>랩실 서열 참가자</h2>
+                <h2>계급전 참가자</h2>
               </div>
               <span>{snapshot?.players.length ?? 0} / 8</span>
             </div>
@@ -2981,11 +3335,7 @@ export default function OnlinePage() {
   }
 
   return (
-    <main
-      className={`${styles.gameShell} ${
-        greatRevolutionActive ? styles.gameShellGreatRevolution : ""
-      }`}
-    >
+    <main className={styles.gameShell}>
       <div className={styles.grain} />
       <header className={styles.roomHeader}>
         <Brand
@@ -2993,15 +3343,9 @@ export default function OnlinePage() {
           disabled={busy}
         />
         <div className={styles.roundInfo}>
-          <span>ROUND {snapshot.round}</span>
+          <span>제 {snapshot.round}막</span>
           <i />
-          <strong>
-            {isRankSelectionPhase
-              ? "계급 미정"
-              : roleLabel(me?.role ?? "merchant")}
-          </strong>
-          <i />
-          <span>{snapshot.players.length} PLAYERS</span>
+          <span>{snapshot.players.length}인</span>
         </div>
         <div className={styles.headerActions}>
           <ConnectionPill state={connection} />
@@ -3026,7 +3370,7 @@ export default function OnlinePage() {
             <small>누적 점수</small>
           </div>
           <ol>
-            {snapshot.players.map((player, index) => {
+            {snapshot.players.map((player) => {
               const chipCount = scoreChipCount(
                 player.score,
                 highestScore,
@@ -3036,7 +3380,9 @@ export default function OnlinePage() {
                   key={player.id}
                   className={player.id === me?.id ? styles.rankSelf : ""}
                 >
-                  <span>{isRankSelectionPhase ? "?" : index + 1}</span>
+                  <span>
+                    {isRankSelectionPhase ? "·" : roleMark(player.role)}
+                  </span>
                   <p>
                     <strong>{player.name}</strong>
                     <small>
@@ -3073,12 +3419,9 @@ export default function OnlinePage() {
               );
             })}
           </ol>
-          <div className={styles.railRoom}>
-            <small>ROOM CODE</small>
-            <strong>{displayCode}</strong>
-            <button type="button" onClick={copyInvite}>
-              {copied ? "복사됨" : "초대"}
-            </button>
+          <div className={styles.railNote}>
+            <span>계급의 법칙</span>
+            <p>숫자가 낮을수록 강합니다. 더 강하게 맞서세요.</p>
           </div>
         </aside>
 
@@ -3095,7 +3438,7 @@ export default function OnlinePage() {
               "--turn-alert-strength": turnUrgency,
               "--turn-alert-alpha": 0.24 + turnUrgency * 0.5,
               "--turn-pulse-duration": `${Math.round(
-                920 - turnUrgency * 390,
+                920 - turnUrgency * 430,
               )}ms`,
             } as CSSProperties
           }
@@ -3112,21 +3455,22 @@ export default function OnlinePage() {
               style={
                 {
                   "--turn-angle": `${turnProgress * 360}deg`,
+                  "--turn-urgency": turnUrgency,
+                  "--turn-accent-hue": turnAlertHue,
                 } as CSSProperties
               }
               role="timer"
               aria-label={`${currentTurnPlayer.name}의 차례, ${turnSecondsRemaining}초 남음`}
             >
-              <span className={styles.turnCountdownRing} aria-hidden="true">
-                <b>{turnSecondsRemaining}</b>
-                <small>SEC</small>
-              </span>
-              <span className={styles.turnCountdownCopy}>
-                <small>{isMyTurn ? "YOUR TURN" : "CURRENT TURN"}</small>
-                <strong>
-                  {isMyTurn ? "내 차례" : `${currentTurnPlayer.name} 차례`}
-                </strong>
-              </span>
+              <div className={styles.turnCountdownRing} aria-hidden="true">
+                <span>
+                  <b>{turnSecondsRemaining}</b>
+                  <small>SEC</small>
+                </span>
+              </div>
+              <p className={styles.turnCountdownCopy}>
+                {isMyTurn ? "내 차례" : `${currentTurnPlayer.name}의 차례`}
+              </p>
             </div>
           )}
           <div
@@ -3149,18 +3493,48 @@ export default function OnlinePage() {
                   : undefined
             }
           >
-            <div className={styles.tableLine} />
-            {showMyTurnHighlight && (
-              <span
-                className={styles.turnFieldNotice}
-                role="status"
-                aria-live="polite"
+            <div className={styles.tableLine} aria-hidden="true">
+              <span>♜</span>
+              <i />
+              <span>♞</span>
+              <i />
+              <span>♝</span>
+            </div>
+            {greatRevolutionActive && (
+              <div
+                className={styles.greatRevolutionFieldEffect}
+                aria-hidden="true"
               >
-                YOUR TURN <b>내 차례</b>
-              </span>
+                <i />
+                <i />
+                {Array.from({ length: 14 }, (_, index) => (
+                  <span
+                    key={`great-revolution-ember-${index}`}
+                    style={
+                      {
+                        "--ember-x": `${8 + ((index * 17) % 84)}%`,
+                        "--ember-y": `${12 + ((index * 23) % 74)}%`,
+                        "--ember-size": `${3 + (index % 3)}px`,
+                        "--ember-delay": `${(index % 7) * -0.52}s`,
+                        "--ember-duration": `${
+                          3.2 + (index % 5) * 0.42
+                        }s`,
+                      } as CSSProperties
+                    }
+                  />
+                ))}
+              </div>
             )}
             <div className={styles.seatRing}>
               {rankedOpponents.map(({ player, rankIndex }) => {
+                const displayedPlayer = activeTaxVisualOverride
+                  ? {
+                      ...player,
+                      handCount:
+                        activeTaxVisualOverride.handCounts[player.id] ??
+                        player.handCount,
+                    }
+                  : player;
                 const displayedRankIndex =
                   seatRankOverrides?.[player.id] ?? rankIndex;
                 const priorRankIndex = snapshot.players.findIndex(
@@ -3175,19 +3549,19 @@ export default function OnlinePage() {
                 return (
                   <PlayerSeat
                     key={player.id}
-                    player={player}
+                    player={displayedPlayer}
                     isHost={player.id === snapshot.hostId}
                     isCurrent={
                       snapshot.phase === "playing" &&
                       !dalmutiHighlightPlayerId &&
                       player.id === snapshot.currentPlayerId
                     }
-                    passed={snapshot.passedPlayerIds.includes(player.id)}
                     rankNumber={rankIndex + 1}
                     isRankMoving={rankMovingPlayerIds.includes(player.id)}
                     rankMovement={movementDirection}
                     showHandBacks={player.handCount > 0}
                     isHandRevealing={isHandRevealing}
+                    handRevealElapsedMs={handRevealElapsedMs}
                     isDalmutiHighlighted={
                       player.id === dalmutiHighlightPlayerId
                     }
@@ -3206,23 +3580,36 @@ export default function OnlinePage() {
             {rankMovingPlayerIds.length > 0 && (
               <div
                 className={styles.rankShiftEffect}
-                role="status"
-                aria-live="polite"
+                aria-hidden="true"
               >
                 <i />
-                <small>RANK SHIFT</small>
-                <strong>서열 이동</strong>
-                <span>새로운 자리를 정하는 중입니다</span>
                 <i />
+                {Array.from({ length: 10 }, (_, index) => (
+                  <span
+                    key={`rank-transition-spark-${index}`}
+                    style={
+                      {
+                        "--transition-spark-y": `${16 + index * 7}%`,
+                        "--transition-spark-delay": `${index * 90}ms`,
+                      } as CSSProperties
+                    }
+                  />
+                ))}
               </div>
             )}
             <div ref={tableCenterRef} className={styles.tableCenter}>
               {isRankSelectionPhase && snapshot.rankSelection ? (
                 <RankSelectionField
+                  key={`${snapshot.rankSelection.stage}:${
+                    snapshot.phaseEndsAt ??
+                    snapshot.rankSelection.countdownEndsAt ??
+                    0
+                  }`}
                   rankSelection={snapshot.rankSelection}
                   players={snapshot.players}
                   viewerId={snapshot.viewerId}
                   effectiveClock={effectiveClock}
+                  phaseEndsAt={snapshot.phaseEndsAt}
                   busy={busy}
                   onChoose={(slotIndex) =>
                     void sendCommand("CHOOSE_RANK_CARD", { slotIndex })
@@ -3282,6 +3669,16 @@ export default function OnlinePage() {
                     미선택 상위 계급 플레이어의 가장 낮은 가치 카드가 자동
                     반환됩니다.
                   </p>
+                </div>
+              ) : snapshot.phase === "hand-reveal" ? (
+                <div
+                  className={styles.taxWaitingField}
+                  role="status"
+                  aria-live="polite"
+                >
+                  <small>HAND REVEAL</small>
+                  <strong>패를 확인하는 중</strong>
+                  <p>패 공개가 끝나면 세금 교환을 시작합니다</p>
                 </div>
               ) : snapshot.table?.cards.length ? (
                 <>
@@ -3350,20 +3747,18 @@ export default function OnlinePage() {
           <section
             className={`${styles.ownDock} ${
               isTaxSelection ? styles.ownDockTaxSelection : ""
-            } ${isRankSelectionPhase ? styles.ownDockRankHidden : ""} ${
-              snapshot.hand !== null && hand.length === 0
+            } ${
+              me?.finishedPlace && hand.length === 0
                 ? styles.ownDockFinished
                 : ""
             }`}
-            aria-hidden={isRankSelectionPhase || undefined}
           >
             {me && (
               <PlayerSeat
-                player={me}
+                player={displayedMe ?? me}
                 isSelf
                 isHost={isHost}
                 isCurrent={isMyTurn && !dalmutiHighlightPlayerId}
-                passed={snapshot.passedPlayerIds.includes(me.id)}
                 rankNumber={
                   tableRankedPlayers.findIndex((player) => player.id === me.id) +
                   1
@@ -3383,19 +3778,26 @@ export default function OnlinePage() {
                       : null;
                 })()}
                 isHandRevealing={isHandRevealing}
+                handRevealElapsedMs={handRevealElapsedMs}
                 isDalmutiHighlighted={me.id === dalmutiHighlightPlayerId}
+                roleHidden={isRankSelectionPhase}
                 elementRef={(element) => bindSeatElement(me.id, element)}
               />
             )}
             <div className={styles.handScroller}>
               <div
                 className={`${styles.hand} ${
-                  snapshot.hand === null ? styles.handConcealed : ""
+                  isHandConcealed ? styles.handConcealed : ""
                 } ${isHandRevealing ? styles.handRevealing : ""}`}
+                style={
+                  {
+                    "--phase-elapsed": `${handRevealElapsedMs}ms`,
+                  } as CSSProperties
+                }
               >
-                {snapshot.hand === null
+                {renderedHandValue === null
                   ? Array.from(
-                      { length: Math.max(1, me?.handCount ?? 14) },
+                      { length: Math.max(1, displayedMe?.handCount ?? 14) },
                       (_, index) => (
                         <PlayingCard
                           key={`back-${index}`}
@@ -3410,10 +3812,11 @@ export default function OnlinePage() {
                         />
                       ),
                     )
-                  : hand.map((card, index) => (
+                  : renderedHand.map((card, index) => (
                       <PlayingCard
                         key={card.id}
                         card={card}
+                        concealed={isHandConcealed}
                         selected={selectedIds.includes(card.id)}
                         disabled={!isMyTurn && !isTaxSelection}
                         onClick={() => toggleCard(card.id)}
@@ -3425,7 +3828,7 @@ export default function OnlinePage() {
                         }
                       />
                     ))}
-                {snapshot.hand !== null && hand.length === 0 && (
+                {me?.finishedPlace && hand.length === 0 && (
                   <div
                     className={styles.finishedHand}
                     role="status"
@@ -3538,7 +3941,7 @@ export default function OnlinePage() {
         <aside className={styles.historyRail}>
           <div className={styles.railHeading}>
             <span>기록</span>
-            <small>LIVE</small>
+            <small>최근 행동</small>
           </div>
           <ul>
             {[...eventBuffer]
@@ -3553,7 +3956,7 @@ export default function OnlinePage() {
                       : event.type === "BOT_REMOVED"
                         ? `${stringValue(event.data.name, "봇")}이(가) 삭제되었습니다`
                     : event.type === "RANK_ORDER_ASSIGNED"
-                      ? "첫 막의 랩실 서열이 정해졌습니다"
+                      ? "첫 막의 서열이 정해졌습니다"
                       : event.type === "RANK_CARD_CHOSEN"
                         ? "계급 카드가 선택되었습니다"
                         : event.type === "REVOLUTION_DECLARED"
@@ -3585,9 +3988,16 @@ export default function OnlinePage() {
               </li>
             )}
           </ul>
-          <div className={styles.liveNote}>
-            <ConnectionPill state={connection} />
-            <p>서버가 모든 행동과 카드 소유권을 검증합니다.</p>
+          <div className={styles.quickLegend}>
+            <span>
+              <i className={styles.legendStrong} />1은 가장 강함
+            </span>
+            <span>
+              <i className={styles.legendWeak} />12는 가장 약함
+            </span>
+            <span>
+              <i className={styles.legendJoker} />조커는 만능 카드
+            </span>
           </div>
         </aside>
       </section>
@@ -3640,8 +4050,8 @@ export default function OnlinePage() {
       {snapshot.phase === "round-end" && roundEndResultReady && (
         <div className={styles.modalLayer}>
           <section className={styles.resultCard}>
-            <span className={styles.eyebrow}>THE LAB HAS SPOKEN</span>
-            <h2>제{snapshot.round}막 랩실 서열</h2>
+            <span className={styles.eyebrow}>THE COURT HAS SPOKEN</span>
+            <h2>제 {snapshot.round}막의 새로운 계급</h2>
             <ol>
               {sortedFinishers.map((player, index) => {
                 const priorRankIndex = snapshot.players.findIndex(
@@ -3699,7 +4109,8 @@ export default function OnlinePage() {
                 disabled={busy}
                 onClick={() => void sendCommand("START_NEXT_ROUND")}
               >
-                <span>다음 막 시작</span>
+                <span>다음 막으로</span>
+                <small>새 계급으로 카드 배분</small>
                 <b>→</b>
               </button>
             ) : (

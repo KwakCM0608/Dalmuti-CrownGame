@@ -3,9 +3,11 @@ export type OnlineRoomPhase =
   | "rank-intro"
   | "rank-selection"
   | "rank-reveal"
+  | "rank-confirm"
   | "reveal-intro"
   | "hand-reveal"
   | "revolution"
+  | "revolution-intro"
   | "tax-intro"
   | "tax-selection"
   | "tax-tribute"
@@ -95,6 +97,7 @@ export type OnlineEventType =
   | "RANK_CHOICES_LOCKED"
   | "RANK_CARDS_REVEALED"
   | "RANK_ORDER_ASSIGNED"
+  | "RANK_CONFIRM_STARTED"
   | "DEAL_SEALED"
   | "MATCH_STARTED"
   | "HAND_REVEAL_STARTED"
@@ -102,6 +105,7 @@ export type OnlineEventType =
   | "REVOLUTION_DECISION_STARTED"
   | "REVOLUTION_DECLARED"
   | "REVOLUTION_DECLINED"
+  | "REVOLUTION_INTRO_STARTED"
   | "TAX_INTRO_STARTED"
   | "TAX_SELECTION_STARTED"
   | "TAX_RETURN_SELECTED"
@@ -182,9 +186,11 @@ export type OnlinePhaseDurations = {
   rankChoiceIntroMs: number;
   rankRevealDelayMs: number;
   rankRevealMs: number;
+  rankConfirmMs: number;
   revealIntroMs: number;
   handRevealMs: number;
   revolutionDecisionMs: number;
+  revolutionIntroMs: number;
   taxIntroMs: number;
   taxSelectionMs: number;
   taxTributeMs: number;
@@ -263,7 +269,7 @@ export type OnlineSnapshot = {
   events: OnlineEvent[];
   latestEventSeq: number;
   rankSelection: {
-    stage: "intro" | "selecting" | "locked" | "revealed";
+    stage: "intro" | "selecting" | "locked" | "revealed" | "confirmed";
     cards: Array<{
       slotIndex: number;
       claimedByPlayerId: string | null;

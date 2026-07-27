@@ -51,7 +51,7 @@ test("server-renders the online room entry surface", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /온라인 계급전/);
+  assert.match(html, />DALMUTI</);
   assert.match(html, /방 만들기/);
   assert.match(html, /코드로 참가/);
   assert.match(html, /4–8 PLAYERS/);
@@ -153,6 +153,7 @@ test("ships without the disposable starter preview", async () => {
   assert.match(page, /onDoubleClick=\{onDoubleClick\}/);
   assert.match(page, /onDoubleClick=\{\(\) => selectAllOfRank\(card\)\}/);
   assert.match(page, /모든 카드를 냈습니다/);
+  assert.match(page, /if \(name === "나"\) return "내가"/);
   assert.match(page, /return `\$\{name\}이\(가\)`/);
   assert.match(page, /taxSourcePlaceholder=\{humanSourceIds\.has\(card\.id\)\}/);
   assert.doesNotMatch(
@@ -319,7 +320,7 @@ test("online mode exposes synchronized reveal, tax, Dalmuti, and exit states", a
   assert.match(page, /clearSavedSession/);
   assert.match(page, /function RankSelectionField/);
   assert.match(page, /sendCommand\("CHOOSE_RANK_CARD", \{ slotIndex \}\)/);
-  assert.match(page, /첫 게임은 선착순으로 카드를 선택해/);
+  assert.match(page, /첫 게임은 선착순으로 카드를 한 장씩 골라 계급을 정합니다/);
   assert.match(page, /계급 미정/);
   assert.match(page, /declaredKind === "great-revolution"/);
   assert.match(page, /대혁명을 선포하시겠습니까/);
@@ -345,7 +346,8 @@ test("online mode exposes synchronized reveal, tax, Dalmuti, and exit states", a
   assert.match(page, /next\.finishOrder\.map/);
   assert.match(page, /element\.animate/);
   assert.match(page, /Boolean\(activeEvent\)/);
-  assert.match(page, /당신의 첫 서열은 \{viewerRank\}위입니다/);
+  assert.match(page, /<span>나의 서열<\/span>/);
+  assert.match(page, /RANK_NAMES\[viewerRank\][\s\S]{0,100}카드를[\s\S]{0,100}선택했습니다/);
   assert.match(page, /styles\.resultFirst/);
   assert.match(page, /styles\.resultSecond/);
   assert.match(page, /--table-card-step-wide/);
@@ -363,7 +365,10 @@ test("online mode exposes synchronized reveal, tax, Dalmuti, and exit states", a
   assert.match(page, /key=\{activeEvent\.id\}/);
   assert.match(page, /const \[initialElapsed\] = useState/);
   assert.match(page, /className=\{styles\.eventCenterCopy\}/);
-  assert.match(page, /length: Math\.max\(1, me\?\.handCount \?\? 14\)/);
+  assert.match(
+    page,
+    /length: Math\.max\(1, displayedMe\?\.handCount \?\? 14\)/,
+  );
   assert.match(page, /"--card-index": index/);
   assert.match(styles, /\.ownDockFinished \.playerSeatSelf/);
   assert.match(
@@ -443,12 +448,105 @@ test("quick and online tables expose the enhanced timed and rank feedback", asyn
   assert.match(onlineStyles, /\.resultRoleDown/);
   assert.match(
     onlineStyles,
-    /@media \(max-width: 820px\)[\s\S]*\.turnCountdown\s*\{[^}]*position: relative;[^}]*top: auto;[^}]*animation-name: turnCountdownArrivalMobile;/,
+    /@media \(max-width: 820px\)[\s\S]*\.turnCountdown\s*\{[^}]*position: absolute;[^}]*top: 104px;[^}]*right: 13px;[^}]*left: auto;/,
   );
-  assert.doesNotMatch(
+});
+
+test("online phase locks and visual animation timing mirror quick match", async () => {
+  const [onlinePage, onlineStyles, engine] = await Promise.all([
+    readFile(new URL("../app/online/page.tsx", import.meta.url), "utf8"),
+    readFile(
+      new URL("../app/online/online.module.css", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../lib/online-game/engine.ts", import.meta.url), "utf8"),
+  ]);
+
+  for (const expected of [
+    /rankChoiceIntroMs: 3_300/,
+    /rankRevealDelayMs: 1_500/,
+    /rankRevealMs: 3_400/,
+    /rankConfirmMs: 2_600/,
+    /revealIntroMs: 2_400/,
+    /handRevealMs: 1_400/,
+    /revolutionIntroMs: 3_300/,
+    /taxIntroMs: 2_400/,
+    /taxTributeMs: 6_000/,
+    /taxReturnMs: 6_000/,
+    /playIntroMs: 2_600/,
+    /BOT_ACTION_DELAY_MS = 750/,
+    /PASS_ACTION_LOCK_MS = 1_500/,
+    /PLAY_ACTION_LOCK_MS = 2_250/,
+    /DALMUTI_ACTION_LOCK_MS = 3_300/,
+  ]) {
+    assert.match(engine, expected);
+  }
+
+  for (const expected of [
+    /animation: onlineOpeningRankCountdown 1\.05s/,
+    /animation: rankCardReveal 1\.25s/,
+    /animation: onlineRankConfirmation 2\.5s/,
+    /animation: onlineHandCardReveal 1\.2s/,
+    /animation: seatHandReveal 1\.15s/,
+    /animation: onlinePhaseIntroReveal 2\.25s/,
+    /\.playIntroOverlay \.eventCenterCopy\s*\{[^}]*animation-duration: 2\.45s;/s,
+    /animation: onlineHandRevealIntro 2\.25s/,
+    /animation: onlineRevealIntroCard 1\.8s/,
+    /animation: onlineRevolutionAnnouncement 3\.1s/,
+    /animation: onlinePublicCardPlay 2\.08s/,
+    /animation: onlinePublicPlayCaption 2\.08s/,
+    /animation: onlinePublicPassToTable 1\.38s/,
+    /animation: taxCardTransfer 5\.55s/,
+    /animation: onlineDalmutiFieldSpectacle 3\.25s/,
+    /animation: onlineDalmutiShockwave 3\.1s/,
+    /animation: onlineDalmutiAutoPass 2\.55s/,
+    /animation: onlineDalmutiAutoPassBanner 3\.05s 240ms/,
+    /\.rankShiftEffect\s*\{[^}]*animation-duration: 2\.3s;/s,
+    /animation: myTurnBoardPulse 1\.3s ease-in-out infinite alternate/,
+    /animation: greatRevolutionFieldBreath 2\.8s ease-in-out infinite alternate/,
+    /animation: onlineGreatRevolutionOrbit 9s linear infinite/,
+    /animation: onlineGreatRevolutionOrbit 14s linear infinite reverse/,
+    /animation: onlineGreatRevolutionOrbit 7s linear infinite/,
+  ]) {
+    assert.match(onlineStyles, expected);
+  }
+
+  assert.match(onlinePage, /const EventOverlay = memo\(EventOverlayView/);
+  assert.match(onlinePage, /const POLL_INTERVAL_MS = 250/);
+  assert.match(onlinePage, /const MAX_EVENT_CATCHUP_MS = 120/);
+  assert.match(onlinePage, /setHandRevealElapsedMs/);
+  assert.match(onlinePage, /const \[phaseElapsed\] = useState/);
+  assert.match(onlinePage, /styles\.greatRevolutionFieldEffect/);
+  assert.match(onlinePage, /motionAnchorsEqual\(current, nextAnchors\)/);
+  assert.match(onlinePage, /window\.requestAnimationFrame/);
+  assert.match(onlinePage, /"--event-elapsed": `\$\{initialElapsed\}ms`/);
+  assert.match(onlinePage, /"--phase-elapsed": `\$\{phaseElapsed\}ms`/);
+  assert.match(onlinePage, /모든 플레이어가 동시에 자신의 패를 확인합니다/);
+  assert.match(onlinePage, /패 공개가 끝나면 세금 교환을 시작합니다/);
+  assert.match(onlinePage, /dalmutiCards\.map/);
+  assert.match(onlinePage, /"--event-card-mid-offset-x"/);
+  assert.match(onlineStyles, /var\(--event-elapsed, 0ms\) \* -1/);
+  assert.match(
     onlineStyles,
-    /@media \(max-width: 820px\)[\s\S]{0,300}\.turnCountdown\s*\{[^}]*top: (?:80|136|158)px;/,
+    /@keyframes onlineOpeningRankCountdown\s*\{[\s\S]*transform: scale\(0\.66\);[\s\S]*25%,[\s\S]*74%[\s\S]*transform: scale\(1\.18\);/,
   );
+  assert.match(
+    onlineStyles,
+    /@keyframes rankCardReveal\s*\{\s*0%\s*\{\s*transform: rotateY\(0deg\);[\s\S]*100%\s*\{\s*transform: rotateY\(180deg\);/,
+  );
+  assert.match(
+    onlineStyles,
+    /\.rankConfirmationBody\s*\{[^}]*grid-template-columns: 70px minmax\(0, 1fr\);[^}]*gap: 26px;/s,
+  );
+  assert.match(
+    onlineStyles,
+    /\.taxRoutePrivate \.eventCardWrap\s*\{[^}]*--tax-endpoint-scale: 0\.342;[^}]*--tax-mid-scale: 1;/s,
+  );
+  assert.match(
+    onlineStyles,
+    /@keyframes seatHandReveal\s*\{[\s\S]*rotate\(var\(--card-angle, 0deg\)\) rotateY\(88deg\) scale\(1\)/,
+  );
+  assert.doesNotMatch(onlinePage, /event\.durationMs \+ 220/);
 });
 
 test("quick and online modes use the official player rank labels", async () => {

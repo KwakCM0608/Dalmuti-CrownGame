@@ -224,6 +224,8 @@ test("server bots act automatically during rank choice, revolution, tax, and pla
       rankChoiceIntroMs: 0,
       rankRevealDelayMs: 1,
       rankRevealMs: 1,
+      rankConfirmMs: 1,
+      revolutionIntroMs: 1,
       playIntroMs: 1,
     },
   };
@@ -251,7 +253,7 @@ test("server bots act automatically during rank choice, revolution, tax, and pla
   );
   rankState = advanceOnlineRoom(rankState, 100, botDeps);
   assert.equal(rankState.phase, "rank-selection");
-  assert.equal(rankState.botActionAt, 950);
+  assert.equal(rankState.botActionAt, 850);
 
   rankState = advanceOnlineRoom(rankState, rankState.botActionAt, botDeps);
   const rankBot = rankState.players.find((player) => player.isBot);
@@ -273,13 +275,22 @@ test("server bots act automatically during rank choice, revolution, tax, and pla
     (player) => player.isBot,
   );
   assert.equal(revolutionBot.role, "great-peon");
-  revolutionState.phase = "revolution";
-  revolutionState.phaseEndsAt = 10_000;
+  revolutionState.phase = "hand-reveal";
+  revolutionState.phaseEndsAt = 200;
   revolutionState.round = 1;
-  revolutionState.revolutionHolderId = revolutionBot.id;
-  revolutionState.botActionAt = 200;
+  revolutionState.hands = Object.fromEntries(
+    revolutionState.players.map((player, index) => [
+      player.id,
+      player.id === revolutionBot.id
+        ? [
+            { id: "bot-joker-1", rank: 13 },
+            { id: "bot-joker-2", rank: 13 },
+          ]
+        : [{ id: `human-${index + 1}`, rank: index + 2 }],
+    ]),
+  );
   revolutionState = advanceOnlineRoom(revolutionState, 200, botDeps);
-  assert.equal(revolutionState.phase, "play-intro");
+  assert.equal(revolutionState.phase, "revolution-intro");
   assert.deepEqual(revolutionState.declaredRevolution, {
     round: 1,
     playerId: revolutionBot.id,
@@ -290,6 +301,12 @@ test("server bots act automatically during rank choice, revolution, tax, and pla
       (event) => event.type === "REVOLUTION_DECLARED",
     )?.payload.playerId,
     revolutionBot.id,
+  );
+  assert.equal(
+    revolutionState.events.some(
+      (event) => event.type === "REVOLUTION_DECISION_STARTED",
+    ),
+    false,
   );
 
   let taxState = createOnlineRoom(
@@ -302,9 +319,9 @@ test("server bots act automatically during rank choice, revolution, tax, and pla
   taxState = joinOnlineRoom(taxState, { id: "p3", name: "p3" }, 4);
   const taxBot = taxState.players.find((player) => player.isBot);
   assert.equal(taxBot.role, "lesser-dalmuti");
-  taxState.phase = "tax-selection";
-  taxState.phaseEndsAt = 10_000;
-  taxState.botActionAt = 300;
+  taxState.phase = "tax-intro";
+  taxState.phaseEndsAt = 300;
+  taxState.botActionAt = null;
   taxState.hands = {
     p1: [
       { id: "p1-return-a", rank: 12 },
@@ -330,7 +347,7 @@ test("server bots act automatically during rank choice, revolution, tax, and pla
       peonId: "p3",
       count: 2,
       peonCardIds: ["p3-tax-a", "p3-tax-b"],
-      nobleCardIds: ["p1-return-a", "p1-return-b"],
+      nobleCardIds: null,
     },
     {
       nobleId: taxBot.id,
@@ -340,15 +357,64 @@ test("server bots act automatically during rank choice, revolution, tax, and pla
       nobleCardIds: null,
     },
   ];
+
+  let completedByBotState = structuredClone(taxState);
+  completedByBotState.taxExchanges[0].nobleCardIds = [
+    "p1-return-a",
+    "p1-return-b",
+  ];
+  completedByBotState = advanceOnlineRoom(
+    completedByBotState,
+    300,
+    botDeps,
+  );
+  assert.equal(completedByBotState.phase, "tax-tribute");
+  assert.deepEqual(
+    completedByBotState.taxExchanges[1].nobleCardIds,
+    ["bot-return"],
+  );
+  assert.equal(
+    completedByBotState.events.some(
+      (event) => event.type === "TAX_SELECTION_STARTED",
+    ),
+    false,
+  );
+
   taxState = advanceOnlineRoom(taxState, 300, botDeps);
-  assert.equal(taxState.phase, "tax-tribute");
+  assert.equal(taxState.phase, "tax-selection");
   assert.deepEqual(taxState.taxExchanges[1].nobleCardIds, ["bot-return"]);
+  assert.equal(taxState.taxExchanges[0].nobleCardIds, null);
+  assert.equal(taxState.botActionAt, null);
+  const taxSelectionStarted = taxState.events.findLast(
+    (event) =>
+      event.type === "TAX_SELECTION_STARTED" &&
+      event.visibility === "public",
+  );
+  assert.deepEqual(taxSelectionStarted?.payload.waitingForPlayerIds, ["p1"]);
+  assert.equal(
+    taxState.events.some(
+      (event) =>
+        event.type === "TAX_SELECTION_STARTED" &&
+        event.playerIds?.includes(taxBot.id),
+    ),
+    false,
+  );
   const automaticTaxChoice = taxState.events.findLast(
     (event) =>
       event.type === "TAX_RETURN_SELECTED" &&
       event.playerIds?.includes(taxBot.id),
   );
   assert.equal(automaticTaxChoice?.payload.automatic, true);
+  assert.equal(automaticTaxChoice?.at, 300);
+
+  taxState = command(
+    taxState,
+    "p1",
+    "SELECT_TAX_RETURN",
+    { cardIds: ["p1-return-a", "p1-return-b"] },
+    301,
+  );
+  assert.equal(taxState.phase, "tax-tribute");
 
   let playingState = createThreeHumanOneBotLobby();
   const playingBot = playingState.players.find((player) => player.isBot);
@@ -397,6 +463,7 @@ const instantRankDurations = {
   rankChoiceIntroMs: 0,
   rankRevealDelayMs: 1,
   rankRevealMs: 1,
+  rankConfirmMs: 1,
 };
 
 function startAndAssignJoinOrder(
@@ -463,6 +530,9 @@ function startAndAssignJoinOrder(
   next = advanceOnlineRoom(next, next.phaseEndsAt, deps);
   assert.equal(next.phase, "rank-reveal");
   next = advanceOnlineRoom(next, next.phaseEndsAt, deps);
+  assert.equal(next.phase, "rank-confirm");
+  assert.equal(projectOnlineRoom(next, next.hostId).hand, null);
+  next = advanceOnlineRoom(next, next.phaseEndsAt, deps);
   assert.equal(next.phase, "reveal-intro");
   return next;
 }
@@ -478,6 +548,7 @@ test("the opening PLAY runs a hidden, server-authoritative rank choice before de
     rankChoiceIntroMs: 3_000,
     rankRevealDelayMs: 1_000,
     rankRevealMs: 1_500,
+    rankConfirmMs: 1_000,
   };
   state = applyOnlineCommand(
     state,
@@ -631,11 +702,34 @@ test("the opening PLAY runs a hidden, server-authoritative rank choice before de
     randomInt: () => 0,
     durations,
   });
+  assert.equal(state.phase, "rank-confirm");
+  view = projectOnlineRoom(state, "p3");
+  assert.equal(view.rankSelection.stage, "confirmed");
+  assert.equal(view.hand, null);
+  assert.deepEqual(
+    state.players.map((player) => player.id),
+    ["p1", "p2", "p3", "p4"],
+  );
+  assert.equal(
+    state.events.some((event) => event.type === "RANK_ORDER_ASSIGNED"),
+    false,
+  );
+
+  state = advanceOnlineRoom(state, 6_605, {
+    randomInt: () => 0,
+    durations,
+  });
   assert.equal(state.phase, "reveal-intro");
   assert.equal(state.dealSealed, true);
   assert.deepEqual(
     state.players.map((player) => player.id),
     revealedOrder,
+  );
+  assert.equal(
+    state.events.findLast(
+      (event) => event.type === "RANK_ORDER_ASSIGNED",
+    )?.at,
+    6_605,
   );
   const allCards = state.players.flatMap((player) => state.hands[player.id]);
   assert.equal(allCards.length, 80);
@@ -751,18 +845,11 @@ test("rank order controls remainder dealing and later rounds skip rank choice", 
   );
 });
 
-test("PLAY reveals only the viewer hand and never an opponent hand", () => {
+test("the concealed reveal intro already projects only the viewer's stable hand", () => {
   let state = readyEveryone(createFourPlayerLobby());
   state = startAndAssignJoinOrder(state);
 
   assert.equal(state.phase, "reveal-intro");
-  assert.equal(projectOnlineRoom(state, "p1").hand, null);
-
-  state = advanceOnlineRoom(state, state.phaseEndsAt, {
-    randomInt: () => 0,
-  });
-  assert.equal(state.phase, "hand-reveal");
-
   const firstView = projectOnlineRoom(state, "p1");
   const firstCardIds = new Set(state.hands.p1.map((card) => card.id));
   const secondCardIds = new Set(state.hands.p2.map((card) => card.id));
@@ -779,6 +866,12 @@ test("PLAY reveals only the viewer hand and never an opponent hand", () => {
   for (const cardId of secondCardIds) {
     assert.equal(serialized.includes(`"id":"${cardId}"`), false);
   }
+
+  state = advanceOnlineRoom(state, state.phaseEndsAt, {
+    randomInt: () => 0,
+  });
+  assert.equal(state.phase, "hand-reveal");
+  assert.deepEqual(projectOnlineRoom(state, "p1").hand, firstView.hand);
 });
 
 test("lobby readiness never deals before opening ranks are assigned", () => {
@@ -1164,6 +1257,16 @@ test("tax card identities are visible only to each exchange pair", () => {
 
   state = advanceOnlineRoom(state, 1_201);
   assert.equal(state.phase, "tax-return");
+  const returnRoutes = state.events.findLast(
+    (event) => event.type === "TAX_RETURN_STARTED",
+  )?.payload.routes;
+  assert.deepEqual(
+    returnRoutes.map((route) => [route.fromPlayerId, route.toPlayerId]),
+    [
+      ["p1", "p4"],
+      ["p2", "p3"],
+    ],
+  );
   assert.deepEqual(
     state.hands.p1.map((card) => card.id).sort(),
     ["great-peon-joker", "great-peon-one"].sort(),
@@ -1171,6 +1274,16 @@ test("tax card identities are visible only to each exchange pair", () => {
   assert.deepEqual(
     state.hands.p4.map((card) => card.id).sort(),
     ["great-peon-two", "noble-a", "noble-b"].sort(),
+  );
+
+  state = advanceOnlineRoom(state, state.phaseEndsAt, {
+    durations: shortIntros,
+  });
+  assert.equal(
+    state.events.findLast(
+      (event) => event.type === "PLAY_INTRO_STARTED",
+    )?.payload.round,
+    1,
   );
 });
 
@@ -1249,11 +1362,20 @@ test("playing rank 1 auto-passes every other active player and starts a new tric
   state.phaseEndsAt = null;
   state.currentIndex = 0;
   state.actionLockUntil = null;
-  state.table = { rank: 2, count: 1, playerId: "p4", cards: [{ id: "old-2", rank: 2 }] };
+  state.table = {
+    rank: 2,
+    count: 2,
+    playerId: "p4",
+    cards: [
+      { id: "old-2-a", rank: 2 },
+      { id: "old-2-b", rank: 2 },
+    ],
+  };
   state.lastPlayedId = "p4";
   state.hands = {
     p1: [
       { id: "dalmuti", rank: 1 },
+      { id: "dalmuti-joker", rank: 13 },
       { id: "p1-12", rank: 12 },
     ],
     p2: [{ id: "p2-11", rank: 11 }],
@@ -1265,7 +1387,7 @@ test("playing rank 1 auto-passes every other active player and starts a new tric
     state,
     "p1",
     "PLAY_CARDS",
-    { cardIds: ["dalmuti"] },
+    { cardIds: ["dalmuti", "dalmuti-joker"] },
     100,
   );
 
@@ -1279,6 +1401,12 @@ test("playing rank 1 auto-passes every other active player and starts a new tric
   assert.equal(state.events.at(-1).payload.endsAt, state.turnDeadline);
   assert.deepEqual(state.passedPlayerIds, []);
   const effect = state.events.find((event) => event.type === "DALMUTI_EFFECT");
+  assert.deepEqual(effect.payload.cards, [
+    { id: "dalmuti", rank: 1 },
+    { id: "dalmuti-joker", rank: 13 },
+  ]);
+  assert.equal(effect.payload.rank, 1);
+  assert.equal(effect.payload.count, 2);
   assert.deepEqual(effect.payload.autoPassedPlayerIds, ["p2", "p3", "p4"]);
   const automaticPasses = state.events.filter(
     (event) =>
@@ -1306,6 +1434,7 @@ test("the opening round offers revolution and declining it proceeds to tax selec
     revealIntroMs: 0,
     handRevealMs: 0,
     revolutionDecisionMs: 10_000,
+    revolutionIntroMs: 1,
     taxIntroMs: 0,
     taxSelectionMs: 10_000,
     taxTributeMs: 1_000,
@@ -1440,6 +1569,8 @@ test("legacy persisted room JSON hydrates new optional ranking fields safely", (
   delete state.declaredRevolution;
   delete state.durations.rankChoiceIntroMs;
   delete state.durations.rankRevealDelayMs;
+  delete state.durations.rankConfirmMs;
+  delete state.durations.revolutionIntroMs;
   state.durations.rankRevealMs = 2_800;
 
   const view = projectOnlineRoom(state, "p1");
@@ -1458,16 +1589,19 @@ test("legacy persisted room JSON hydrates new optional ranking fields safely", (
     { randomInt: () => 0 },
   );
   assert.equal(started.phase, "rank-intro");
-  assert.equal(started.durations.rankRevealDelayMs, 1_000);
-  assert.equal(started.durations.rankRevealMs, 4_800);
-  assert.equal(started.durations.revealIntroMs, 2_200);
-  assert.equal(started.durations.handRevealMs, 2_000);
+  assert.equal(started.durations.rankChoiceIntroMs, 3_300);
+  assert.equal(started.durations.rankRevealDelayMs, 1_500);
+  assert.equal(started.durations.rankRevealMs, 3_400);
+  assert.equal(started.durations.rankConfirmMs, 2_600);
+  assert.equal(started.durations.revealIntroMs, 2_400);
+  assert.equal(started.durations.handRevealMs, 1_400);
   assert.equal(started.durations.revolutionDecisionMs, 20_000);
-  assert.equal(started.durations.taxIntroMs, 2_200);
+  assert.equal(started.durations.revolutionIntroMs, 3_300);
+  assert.equal(started.durations.taxIntroMs, 2_400);
   assert.equal(started.durations.taxSelectionMs, 45_000);
   assert.equal(started.durations.taxTributeMs, 6_000);
   assert.equal(started.durations.taxReturnMs, 6_000);
-  assert.equal(started.durations.playIntroMs, 2_500);
+  assert.equal(started.durations.playIntroMs, 2_600);
 });
 
 test("the host can reset a room and a non-host can leave without stale match data", () => {

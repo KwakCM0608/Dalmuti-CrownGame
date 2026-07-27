@@ -21,24 +21,25 @@ const MAX_PROCESSED_COMMANDS = 512;
 const PASS_ACTION_LOCK_MS = 1_500;
 const PLAY_ACTION_LOCK_MS = 2_250;
 const DALMUTI_ACTION_LOCK_MS = 3_300;
-const RANK_COUNTDOWN_MS = 3_000;
 const TURN_DURATION_MS = 30_000;
-const BOT_ACTION_DELAY_MS = 850;
+const BOT_ACTION_DELAY_MS = 750;
 const EMPTY_TABLE_TIMEOUT_CYCLE_MS =
   PASS_ACTION_LOCK_MS + TURN_DURATION_MS;
 
 const DEFAULT_DURATIONS: OnlinePhaseDurations = {
-  rankChoiceIntroMs: 6_000,
-  rankRevealDelayMs: 1_000,
-  rankRevealMs: 4_800,
-  revealIntroMs: 2_200,
-  handRevealMs: 2_000,
+  rankChoiceIntroMs: 3_300,
+  rankRevealDelayMs: 1_500,
+  rankRevealMs: 3_400,
+  rankConfirmMs: 2_600,
+  revealIntroMs: 2_400,
+  handRevealMs: 1_400,
   revolutionDecisionMs: 20_000,
-  taxIntroMs: 2_200,
+  revolutionIntroMs: 3_300,
+  taxIntroMs: 2_400,
   taxSelectionMs: 45_000,
   taxTributeMs: 6_000,
   taxReturnMs: 6_000,
-  playIntroMs: 2_500,
+  playIntroMs: 2_600,
 };
 
 export class OnlineGameError extends Error {
@@ -188,19 +189,15 @@ function resolveDurations(
   deps?: OnlineEngineDeps,
 ): OnlinePhaseDurations {
   // Persisted rooms from an older deployment do not contain newly introduced
-  // duration keys, so always hydrate from the current defaults first.
-  const persistedDurations = {
-    ...DEFAULT_DURATIONS,
-    ...base,
-  };
-  // Rooms saved by the previous release can still carry the former 2.8 second
-  // reveal. Keep enough time for every card to flip and for the viewer's rank
-  // confirmation to remain readable. Explicit dependency overrides remain
-  // available to keep deterministic engine tests fast.
-  persistedDurations.rankRevealMs = Math.max(
-    DEFAULT_DURATIONS.rankRevealMs,
-    persistedDurations.rankRevealMs,
-  );
+  // duration keys. A legacy timing profile must be replaced as one unit so a
+  // room created before deployment still follows the same opening timeline as
+  // quick match instead of mixing old and new animation lengths.
+  const isLegacyProfile =
+    !Number.isFinite(base.rankConfirmMs) ||
+    !Number.isFinite(base.revolutionIntroMs);
+  const persistedDurations = isLegacyProfile
+    ? { ...DEFAULT_DURATIONS }
+    : { ...DEFAULT_DURATIONS, ...base };
   const durations = {
     ...persistedDurations,
     ...deps?.durations,
@@ -400,9 +397,7 @@ function beginRankSelection(
   clearSealedDeal(state);
 
   const countdownEndsAt = at + state.durations.rankChoiceIntroMs;
-  const countdownStartsAt =
-    countdownEndsAt -
-    Math.min(RANK_COUNTDOWN_MS, state.durations.rankChoiceIntroMs);
+  const countdownStartsAt = at;
   const shuffledRankCards = shuffle(
     state.players.map((_, index) => ({
       id: `rank-card-${index + 1}`,
@@ -580,6 +575,19 @@ function enterRankReveal(state: OnlineRoomState, at: number): void {
     }));
   appendEvent(state, "RANK_CARDS_REVEALED", at, {
     cards: assignments,
+    endsAt: state.phaseEndsAt,
+  });
+}
+
+function enterRankConfirm(
+  state: OnlineRoomState,
+  at: number,
+): void {
+  state.phase = "rank-confirm";
+  state.phaseEndsAt = at + state.durations.rankConfirmMs;
+  state.botActionAt = null;
+  appendEvent(state, "RANK_CONFIRM_STARTED", at, {
+    playerIds: state.players.map((player) => player.id),
     endsAt: state.phaseEndsAt,
   });
 }
@@ -819,10 +827,17 @@ function buildTaxExchanges(state: OnlineRoomState): OnlineTaxExchange[] {
   });
 }
 
-function publicTaxRoutes(exchanges: OnlineTaxExchange[]) {
+function publicTaxRoutes(
+  exchanges: OnlineTaxExchange[],
+  direction: "tribute" | "return" = "tribute",
+) {
   return exchanges.map((exchange) => ({
     nobleId: exchange.nobleId,
     peonId: exchange.peonId,
+    fromPlayerId:
+      direction === "tribute" ? exchange.peonId : exchange.nobleId,
+    toPlayerId:
+      direction === "tribute" ? exchange.nobleId : exchange.peonId,
     count: exchange.count,
   }));
 }
@@ -841,15 +856,27 @@ function enterTaxIntro(state: OnlineRoomState, at: number): void {
 
 function enterTaxSelection(state: OnlineRoomState, at: number): void {
   state.phase = "tax-selection";
+  state.phaseEndsAt = null;
+  state.botActionAt = null;
+  autoSelectTaxReturns(state, at, true);
+
+  if (allTaxReturnsSelected(state)) {
+    enterTaxTribute(state, at);
+    return;
+  }
+
+  const waitingForPlayerIds = state.taxExchanges
+    .filter((exchange) => !exchange.nobleCardIds)
+    .map((exchange) => exchange.nobleId);
   state.phaseEndsAt = at + state.durations.taxSelectionMs;
   appendEvent(state, "TAX_SELECTION_STARTED", at, {
-    waitingForPlayerIds: state.taxExchanges.map(
-      (exchange) => exchange.nobleId,
-    ),
+    waitingForPlayerIds,
     endsAt: state.phaseEndsAt,
   });
 
-  for (const exchange of state.taxExchanges) {
+  for (const exchange of state.taxExchanges.filter(
+    (candidate) => !candidate.nobleCardIds,
+  )) {
     appendEvent(
       state,
       "TAX_SELECTION_STARTED",
@@ -861,7 +888,6 @@ function enterTaxSelection(state: OnlineRoomState, at: number): void {
       [exchange.nobleId],
     );
   }
-  scheduleBotAction(state, at);
 }
 
 function allTaxReturnsSelected(state: OnlineRoomState): boolean {
@@ -934,7 +960,7 @@ function enterTaxTribute(state: OnlineRoomState, at: number): void {
   state.phaseEndsAt = at + state.durations.taxTributeMs;
   state.botActionAt = null;
   appendEvent(state, "TAX_TRIBUTE_STARTED", at, {
-    routes: publicTaxRoutes(state.taxExchanges),
+    routes: publicTaxRoutes(state.taxExchanges, "tribute"),
     endsAt: state.phaseEndsAt,
   });
 
@@ -951,6 +977,7 @@ function enterTaxTribute(state: OnlineRoomState, at: number): void {
         fromPlayerId: exchange.peonId,
         toPlayerId: exchange.nobleId,
         cards,
+        routes: publicTaxRoutes(state.taxExchanges, "tribute"),
         endsAt: state.phaseEndsAt,
       },
       [exchange.peonId, exchange.nobleId],
@@ -979,7 +1006,7 @@ function enterTaxReturn(state: OnlineRoomState, at: number): void {
   state.phaseEndsAt = at + state.durations.taxReturnMs;
   state.botActionAt = null;
   appendEvent(state, "TAX_RETURN_STARTED", at, {
-    routes: publicTaxRoutes(state.taxExchanges),
+    routes: publicTaxRoutes(state.taxExchanges, "return"),
     endsAt: state.phaseEndsAt,
   });
 
@@ -996,6 +1023,7 @@ function enterTaxReturn(state: OnlineRoomState, at: number): void {
         fromPlayerId: exchange.nobleId,
         toPlayerId: exchange.peonId,
         cards,
+        routes: publicTaxRoutes(state.taxExchanges, "return"),
         endsAt: state.phaseEndsAt,
       },
       [exchange.peonId, exchange.nobleId],
@@ -1012,7 +1040,31 @@ function enterPlayIntro(state: OnlineRoomState, at: number): void {
   state.revolutionHolderId = null;
   state.currentIndex = 0;
   appendEvent(state, "PLAY_INTRO_STARTED", at, {
+    round: state.round,
     firstPlayerId: state.players[0].id,
+    endsAt: state.phaseEndsAt,
+  });
+}
+
+function enterRevolutionIntro(
+  state: OnlineRoomState,
+  holderId: string,
+  kind: "great" | "normal",
+  at: number,
+): void {
+  state.phase = "revolution-intro";
+  state.phaseEndsAt = at + state.durations.revolutionIntroMs;
+  state.turnDeadline = null;
+  state.botActionAt = null;
+  state.revolutionHolderId = null;
+  appendEvent(state, "REVOLUTION_DECLARED", at, {
+    playerId: holderId,
+    kind,
+    endsAt: state.phaseEndsAt,
+  });
+  appendEvent(state, "REVOLUTION_INTRO_STARTED", at, {
+    playerId: holderId,
+    kind,
     endsAt: state.phaseEndsAt,
   });
 }
@@ -1055,17 +1107,33 @@ function chooseRevolution(
     playerId: holderId,
     kind: isGreatRevolution ? "great-revolution" : "revolution",
   };
-  appendEvent(state, "REVOLUTION_DECLARED", at, {
-    playerId: holderId,
-    kind: isGreatRevolution ? "great" : "normal",
-    endsAt: at + state.durations.playIntroMs,
-  });
-  enterPlayIntro(state, at);
+  enterRevolutionIntro(
+    state,
+    holderId,
+    isGreatRevolution ? "great" : "normal",
+    at,
+  );
 }
 
-function autoSelectTaxReturns(state: OnlineRoomState, at: number): void {
+function autoSelectTaxReturns(
+  state: OnlineRoomState,
+  at: number,
+  botNoblesOnly = false,
+): void {
+  const botPlayerIds = botNoblesOnly
+    ? new Set(
+        state.players
+          .filter((player) => player.isBot)
+          .map((player) => player.id),
+      )
+    : null;
   state.taxExchanges = state.taxExchanges.map((exchange) => {
-    if (exchange.nobleCardIds?.length === exchange.count) return exchange;
+    if (
+      exchange.nobleCardIds?.length === exchange.count ||
+      (botPlayerIds && !botPlayerIds.has(exchange.nobleId))
+    ) {
+      return exchange;
+    }
     const cards = selectAutomaticNobleReturns(
       state.hands[exchange.nobleId],
       exchange.count,
@@ -1097,6 +1165,9 @@ function advanceOneTimedPhase(
       enterRankReveal(state, at);
       return;
     case "rank-reveal":
+      enterRankConfirm(state, at);
+      return;
+    case "rank-confirm":
       finalizeRankOrder(state, at);
       startRound(state, 1, at, deps);
       return;
@@ -1109,12 +1180,21 @@ function advanceOneTimedPhase(
           state.hands[player.id].filter((card) => card.rank === 13).length ===
           2,
       );
-      if (holder) enterRevolutionDecision(state, holder.id, at);
-      else enterTaxIntro(state, at);
+      if (!holder) {
+        enterTaxIntro(state, at);
+      } else if (holder.isBot) {
+        state.revolutionHolderId = holder.id;
+        chooseRevolution(state, true, at);
+      } else {
+        enterRevolutionDecision(state, holder.id, at);
+      }
       return;
     }
     case "revolution":
       chooseRevolution(state, false, at);
+      return;
+    case "revolution-intro":
+      enterPlayIntro(state, at);
       return;
     case "tax-intro":
       enterTaxSelection(state, at);
@@ -1243,6 +1323,9 @@ function handlePlayCards(
   if (isDalmutiEffect) {
     appendEvent(state, "DALMUTI_EFFECT", at, {
       playerId: actorId,
+      cards: [...cards],
+      rank: normalized.rank,
+      count: normalized.count,
       autoPassedPlayerIds: automaticallyPassedPlayerIds,
     });
     for (const playerId of automaticallyPassedPlayerIds) {
@@ -2053,7 +2136,7 @@ function handIsVisible(phase: OnlineRoomState["phase"]): boolean {
     "rank-intro",
     "rank-selection",
     "rank-reveal",
-    "reveal-intro",
+    "rank-confirm",
   ].includes(phase);
 }
 
@@ -2165,7 +2248,9 @@ export function projectOnlineRoom(
                 ? rankChoicesLocked
                   ? "locked"
                   : "selecting"
-                : "revealed",
+                : state.phase === "rank-confirm"
+                  ? "confirmed"
+                  : "revealed",
           cards: rankSelection.cards.map((card) => ({
             slotIndex: card.slotIndex,
             claimedByPlayerId: card.claimedByPlayerId,
