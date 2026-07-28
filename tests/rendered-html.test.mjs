@@ -82,7 +82,7 @@ test("ships without the disposable starter preview", async () => {
     page,
     /chooseBotTaxReturn\([\s\S]{0,240}sourceHands\[noble\.id\]/,
   );
-  assert.match(page, /세금 계산에 한해 광대를 가장 강한/);
+  assert.match(page, /세금을 낼 때 광대는 대상에서 제외/);
   assert.match(page, /function chooseBotCards/);
   assert.match(page, /type TaxStage = "selection" \| "tribute" \| "return"/);
   assert.match(page, /\| "reveal-intro"/);
@@ -270,7 +270,7 @@ test("ships without the disposable starter preview", async () => {
   await assert.rejects(access(new URL("../app/_sites-preview", projectRoot)));
 });
 
-test("house taxation makes Jesters strongest for both rank pairs", async () => {
+test("tribute excludes Jesters while noble returns keep them", async () => {
   const { selectDalmutiReturnCards, selectPeonTaxCards } = await import(
     new URL("../lib/taxation.ts", import.meta.url)
   );
@@ -282,11 +282,15 @@ test("house taxation makes Jesters strongest for both rank pairs", async () => {
 
   assert.deepEqual(
     selectPeonTaxCards(hand, 2).map((card) => card.id),
-    ["jester", "dalmuti"],
+    ["dalmuti", "archbishop"],
   );
   assert.deepEqual(
     selectPeonTaxCards(hand, 1).map((card) => card.id),
-    ["jester"],
+    ["dalmuti"],
+  );
+  assert.deepEqual(
+    selectPeonTaxCards([{ id: "jester", rank: 13 }], 1),
+    [],
   );
   assert.deepEqual(
     selectDalmutiReturnCards(hand, 2).map((card) => card.id),
@@ -517,7 +521,10 @@ test("quick match delays its great-revolution seat reversal until the dedicated 
   );
   assert.ok(swapEffectEnd > swapEffectStart);
   const swapEffect = quickPage.slice(swapEffectStart, swapEffectEnd);
-  assert.match(swapEffect, /phase: "play-intro"/);
+  assert.match(
+    swapEffect,
+    /phase: latest\.round === 1 \? "tax-intro" : "play-intro"/,
+  );
   assert.match(
     swapEffect,
     /GREAT_REVOLUTION_SWAP_DURATION_MS/,
@@ -611,12 +618,21 @@ test("online play keeps the previous table visible during the submit animation",
   assert.match(onlinePage, /visibleTable\?\.cards/);
   assert.match(
     onlineStyles,
+    /\.dalmutiEffectOverlay > strong\s*\{[^}]*top: calc\(var\(--center-y\) \+ 100px\);[^}]*line-height: 0\.88;/s,
+  );
+  assert.match(
+    onlineStyles,
+    /\.dalmutiEffectOverlay > span\s*\{[^}]*top: calc\(var\(--center-y\) \+ 178px\);[^}]*line-height: 1\.45;/s,
+  );
+  assert.match(
+    onlineStyles,
     /\.revealOverlay \.eventCenterCopy > strong\s*\{[^}]*white-space:\s*nowrap;[^}]*word-break:\s*keep-all;/s,
   );
 });
 
 test("online phase locks and visual animation timing mirror quick match", async () => {
-  const [onlinePage, onlineStyles, engine] = await Promise.all([
+  const [quickPage, onlinePage, onlineStyles, engine] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/online/page.tsx", import.meta.url), "utf8"),
     readFile(
       new URL("../app/online/online.module.css", import.meta.url),
@@ -725,6 +741,10 @@ test("online phase locks and visual animation timing mirror quick match", async 
   assert.match(onlinePage, /"--phase-elapsed": `\$\{phaseElapsed\}ms`/);
   assert.match(onlinePage, /모든 플레이어가 동시에 자신의 패를 확인합니다/);
   assert.match(onlinePage, /패 공개가 끝나면 세금 교환을 시작합니다/);
+  assert.match(quickPage, /제 1막은 세금 교환 없이 진행됩니다/);
+  assert.match(onlinePage, /제 1막은 세금 교환 없이 진행됩니다/);
+  assert.match(onlinePage, /const skipped = booleanValue\(data\.skipped\)/);
+  assert.match(onlineStyles, /\.taxSkippedIntroOverlay/);
   assert.match(onlinePage, /dalmutiCards\.map/);
   assert.match(onlinePage, /"--event-card-mid-offset-x"/);
   assert.match(onlineStyles, /var\(--event-elapsed, 0ms\) \* -1/);

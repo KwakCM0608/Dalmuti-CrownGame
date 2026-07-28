@@ -668,10 +668,11 @@ export function selectForcedBotTribute(
   if (!Number.isInteger(count) || count < 0 || count > hand.length) {
     throw new RangeError("invalid tribute count");
   }
-  return [...hand]
+  return hand
+    .filter((card) => card.rank !== JOKER_RANK)
     .sort(
       (left, right) =>
-        taxPriority(left) - taxPriority(right) ||
+        left.rank - right.rank ||
         left.id.localeCompare(right.id),
     )
     .slice(0, count)

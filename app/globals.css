@@ -1889,6 +1889,29 @@ button:focus-visible {
   background: linear-gradient(90deg, transparent, rgba(226, 157, 97, 0.76), transparent);
 }
 
+.phase-intro.is-tax-skipped small {
+  color: #f0cf78;
+}
+
+.phase-intro.is-tax-skipped::before {
+  border-color: rgba(231, 199, 108, 0.3);
+  background: radial-gradient(
+    ellipse,
+    rgba(50, 60, 23, 0.58),
+    rgba(28, 52, 35, 0.3) 58%,
+    transparent 72%
+  );
+}
+
+.phase-intro.is-tax-skipped::after {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(235, 207, 124, 0.82),
+    transparent
+  );
+}
+
 .phase-intro.is-play {
   --intro-accent: 227, 194, 103;
   animation-duration: 2.45s;

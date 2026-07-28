@@ -1322,13 +1322,14 @@ test("tax card identities are visible only to each exchange pair", () => {
       { id: "great-peon-two", rank: 2 },
     ],
   };
+  state.round = 2;
   state = advanceOnlineRoom(state, state.phaseEndsAt, {
     durations: shortIntros,
   });
   assert.equal(state.phase, "tax-selection");
   assert.deepEqual(state.taxExchanges[0].peonCardIds, [
-    "great-peon-joker",
     "great-peon-one",
+    "great-peon-two",
   ]);
   assert.deepEqual(state.taxExchanges[1].peonCardIds, ["lesser-peon-best"]);
 
@@ -1360,12 +1361,18 @@ test("tax card identities are visible only to each exchange pair", () => {
   const greatPeonView = projectOnlineRoom(state, "p4");
   const unrelatedView = projectOnlineRoom(state, "p3");
   for (const view of [greatDalmutiView, greatPeonView]) {
-    const payload = JSON.stringify(view.events);
-    assert.match(payload, /great-peon-joker/);
+    const payload = JSON.stringify(
+      view.events.findLast((event) => event.type === "TAX_TRIBUTE"),
+    );
     assert.match(payload, /great-peon-one/);
+    assert.match(payload, /great-peon-two/);
+    assert.doesNotMatch(payload, /great-peon-joker/);
   }
   const unrelatedPayload = JSON.stringify(unrelatedView.events);
-  assert.doesNotMatch(unrelatedPayload, /great-peon-joker|great-peon-one/);
+  assert.doesNotMatch(
+    unrelatedPayload,
+    /great-peon-one|great-peon-two/,
+  );
 
   state = advanceOnlineRoom(state, 1_201);
   assert.equal(state.phase, "tax-return");
@@ -1381,11 +1388,11 @@ test("tax card identities are visible only to each exchange pair", () => {
   );
   assert.deepEqual(
     state.hands.p1.map((card) => card.id).sort(),
-    ["great-peon-joker", "great-peon-one"].sort(),
+    ["great-peon-one", "great-peon-two"].sort(),
   );
   assert.deepEqual(
     state.hands.p4.map((card) => card.id).sort(),
-    ["great-peon-two", "noble-a", "noble-b"].sort(),
+    ["great-peon-joker", "noble-a", "noble-b"].sort(),
   );
 
   state = advanceOnlineRoom(state, state.phaseEndsAt, {
@@ -1395,7 +1402,7 @@ test("tax card identities are visible only to each exchange pair", () => {
     state.events.findLast(
       (event) => event.type === "PLAY_INTRO_STARTED",
     )?.payload.round,
-    1,
+    2,
   );
 });
 
@@ -1431,6 +1438,7 @@ test("tax-selection timeout keeps submitted returns and automatically fills only
       { id: "p4-other", rank: 9 },
     ],
   };
+  state.round = 2;
   state = advanceOnlineRoom(state, state.phaseEndsAt, { durations });
   assert.equal(state.phase, "tax-selection");
   const selectionTimeoutAt = state.phaseEndsAt;
@@ -1548,7 +1556,7 @@ test("playing rank 1 auto-passes every other active player and starts a new tric
   );
 });
 
-test("the opening round offers revolution and declining it proceeds to tax selection", () => {
+test("the opening round skips taxation after revolution decisions", () => {
   let state = readyEveryone(createFourPlayerLobby());
   const durations = {
     ...instantRankDurations,
@@ -1605,18 +1613,19 @@ test("the opening round offers revolution and declining it proceeds to tax selec
     declineAt,
     { durations },
   );
+  assert.equal(state.phase, "tax-intro");
+  assert.deepEqual(state.taxExchanges, []);
+  const skippedTaxEvent = state.events.findLast(
+    (event) => event.type === "TAX_INTRO_STARTED",
+  );
+  assert.equal(skippedTaxEvent?.payload.skipped, true);
+  assert.deepEqual(skippedTaxEvent?.payload.routes, []);
   state = advanceOnlineRoom(state, declineAt, { durations });
 
-  assert.equal(state.phase, "tax-selection");
-  assert.deepEqual(
-    state.taxExchanges.map((exchange) => [
-      exchange.nobleId,
-      exchange.count,
-    ]),
-    [
-      ["p1", 2],
-      ["p2", 1],
-    ],
+  assert.equal(state.phase, "playing");
+  assert.equal(
+    state.events.some((event) => event.type === "TAX_SELECTION_STARTED"),
+    false,
   );
 
   const timedOut = advanceOnlineRoom(
@@ -1624,9 +1633,15 @@ test("the opening round offers revolution and declining it proceeds to tax selec
     pendingRevolution.phaseEndsAt,
     { durations },
   );
-  assert.equal(timedOut.phase, "tax-selection");
+  assert.equal(timedOut.phase, "playing");
   assert.equal(
     timedOut.events.some((event) => event.type === "REVOLUTION_DECLINED"),
+    true,
+  );
+  assert.equal(
+    timedOut.events.findLast(
+      (event) => event.type === "TAX_INTRO_STARTED",
+    )?.payload.skipped,
     true,
   );
 
@@ -1666,6 +1681,12 @@ test("the opening round offers revolution and declining it proceeds to tax selec
     playingWithRevolution.declaredRevolution,
     declared.declaredRevolution,
   );
+  assert.equal(
+    playingWithRevolution.events.findLast(
+      (event) => event.type === "TAX_INTRO_STARTED",
+    )?.payload.skipped,
+    true,
+  );
 
   const endedRound = structuredClone(playingWithRevolution);
   endedRound.phase = "round-end";
@@ -1684,7 +1705,7 @@ test("the opening round offers revolution and declining it proceeds to tax selec
   assert.equal(nextRound.declaredRevolution, null);
 });
 
-test("a great revolution announces first, reverses ranks in its own phase, then enters play intro", () => {
+test("a first-act great revolution reverses ranks before the no-tax intro", () => {
   let state = createFourPlayerLobby();
   const originalOrder = state.players.map((player) => player.id);
   const originalRoles = state.players.map((player) => player.role);
@@ -1696,6 +1717,7 @@ test("a great revolution announces first, reverses ranks in its own phase, then 
   const durations = {
     revolutionIntroMs: 300,
     greatRevolutionSwapMs: 200,
+    taxIntroMs: 240,
     playIntroMs: 100,
   };
   state.phase = "revolution";
@@ -1781,11 +1803,20 @@ test("a great revolution announces first, reverses ranks in its own phase, then 
   assert.equal(state.phase, "great-revolution-swap");
 
   state = advanceOnlineRoom(state, state.phaseEndsAt, { durations });
-  assert.equal(state.phase, "play-intro");
+  assert.equal(state.phase, "tax-intro");
+  assert.equal(
+    state.events.findLast(
+      (event) => event.type === "TAX_INTRO_STARTED",
+    )?.payload.skipped,
+    true,
+  );
   assert.deepEqual(
     state.players.map((player) => player.id),
     [...originalOrder].reverse(),
   );
+
+  state = advanceOnlineRoom(state, state.phaseEndsAt, { durations });
+  assert.equal(state.phase, "play-intro");
   assert.ok(
     state.events.findLast((event) => event.type === "PLAY_INTRO_STARTED").seq >
       swapEvent.seq,

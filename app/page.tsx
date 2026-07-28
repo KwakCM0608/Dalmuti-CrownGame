@@ -730,7 +730,31 @@ function advanceAfterHandReveal(state: GameState): GameState {
         "패 공개가 끝났습니다.",
         isGreatRevolution
           ? `${subjectLabel(holder.name)} 대혁명을 일으켰습니다.`
-          : `${subjectLabel(holder.name)} 혁명을 선포해 이번 막의 세금이 취소되었습니다.`,
+          : state.round === 1
+            ? `${subjectLabel(holder.name)} 혁명을 선포했습니다.`
+            : `${subjectLabel(holder.name)} 혁명을 선포해 이번 막의 세금이 취소되었습니다.`,
+        ...state.log,
+      ].slice(0, 12),
+    };
+  }
+
+  if (state.round === 1) {
+    return {
+      ...state,
+      phase: "tax-intro",
+      revision: state.revision + 1,
+      revolutionHolder: null,
+      taxExchanges: [],
+      taxStage: null,
+      taxAnimationId: null,
+      tributeHands: null,
+      taxedHands: null,
+      log: [
+        "패 공개가 끝났습니다.",
+        ...(holder
+          ? [`${subjectLabel(holder.name)} 혁명을 일으키지 않았습니다.`]
+          : []),
+        "제 1막은 세금 교환 없이 진행됩니다.",
         ...state.log,
       ].slice(0, 12),
     };
@@ -2304,7 +2328,7 @@ export default function Home() {
         }
         return {
           ...latest,
-          phase: "play-intro",
+          phase: latest.round === 1 ? "tax-intro" : "play-intro",
           revision: latest.revision + 1,
         };
       });
@@ -2327,7 +2351,7 @@ export default function Home() {
         }
         return {
           ...latest,
-          phase: "play-intro",
+          phase: latest.round === 1 ? "tax-intro" : "play-intro",
           revision: latest.revision + 1,
         };
       });
@@ -2365,6 +2389,17 @@ export default function Home() {
           latest.revision !== introRevision
         ) {
           return latest;
+        }
+        if (latest.round === 1) {
+          return {
+            ...latest,
+            phase: "play-intro",
+            revision: latest.revision + 1,
+            log: [
+              "제 1막은 세금 교환 없이 진행됩니다.",
+              ...latest.log,
+            ].slice(0, 12),
+          };
         }
         return {
           ...latest,
@@ -2651,20 +2686,33 @@ export default function Home() {
           holder,
           "revolution",
         );
-        log = ["당신이 혁명을 선포했습니다. 이번 막의 세금은 없습니다.", ...log];
+        log = [
+          current.round === 1
+            ? "당신이 혁명을 선포했습니다."
+            : "당신이 혁명을 선포했습니다. 이번 막의 세금은 없습니다.",
+          ...log,
+        ];
       } else {
-        const taxed = applyTax(
-          players,
-          hands,
-          current.botDifficulty,
-        );
         phase = "tax-intro";
-        taxExchanges = taxed.exchanges;
-        taxStage = taxed.hands ? "tribute" : "selection";
-        taxAnimationId = createTaxAnimationId();
-        tributeHands = taxed.tributeHands;
-        taxedHands = taxed.hands;
-        log = ["당신은 혁명을 숨겼습니다.", ...taxed.notes, ...log];
+        if (current.round === 1) {
+          log = [
+            "당신은 혁명을 숨겼습니다.",
+            "제 1막은 세금 교환 없이 진행됩니다.",
+            ...log,
+          ];
+        } else {
+          const taxed = applyTax(
+            players,
+            hands,
+            current.botDifficulty,
+          );
+          taxExchanges = taxed.exchanges;
+          taxStage = taxed.hands ? "tribute" : "selection";
+          taxAnimationId = createTaxAnimationId();
+          tributeHands = taxed.tributeHands;
+          taxedHands = taxed.hands;
+          log = ["당신은 혁명을 숨겼습니다.", ...taxed.notes, ...log];
+        }
       }
 
       return {
@@ -2853,7 +2901,9 @@ export default function Home() {
                 : game.phase === "hand-reveal"
                   ? "각 플레이어가 자신의 패를 확인하는 중"
                   : game.phase === "tax-intro"
-                    ? "세금 교환을 준비합니다"
+                    ? game.round === 1
+                      ? "제 1막은 세금 교환 없이 진행됩니다"
+                      : "세금 교환을 준비합니다"
                     : game.phase === "play-intro"
                       ? `${subjectLabel(currentPlayer?.name ?? "")} 먼저 시작합니다`
                       : game.phase === "round-end"
@@ -3349,7 +3399,11 @@ export default function Home() {
                 <div className="private-tax-state">
                   <span className="play-kicker">HAND REVEAL</span>
                   <strong>패를 확인하는 중</strong>
-                  <small>패 공개가 끝나면 세금 교환을 시작합니다</small>
+                  <small>
+                    {game.round === 1
+                      ? "제 1막은 세금 교환 없이 진행됩니다"
+                      : "패 공개가 끝나면 세금 교환을 시작합니다"}
+                  </small>
                 </div>
               ) : game?.phase === "revolution-intro" &&
                 game.revolutionAnnouncement ? (
@@ -3393,8 +3447,12 @@ export default function Home() {
                   </span>
                   <em>
                     {game.revolutionAnnouncement.kind === "great-revolution"
-                      ? "이번 막의 세금이 사라지고 계급 전복이 이어집니다"
-                      : "이번 막의 세금이 사라집니다"}
+                      ? game.round === 1
+                        ? "대혁명으로 계급 전복이 이어집니다"
+                        : "이번 막의 세금이 사라지고 계급 전복이 이어집니다"
+                      : game.round === 1
+                        ? "제 1막은 세금 교환 없이 진행됩니다"
+                        : "이번 막의 세금이 사라집니다"}
                   </em>
                 </div>
               ) : game?.phase === "great-revolution-swap" ? (
@@ -3412,11 +3470,23 @@ export default function Home() {
               ) : game?.phase === "tax-intro" ? (
                 <div
                   key={`tax-intro-${game.revision}`}
-                  className="phase-intro is-tax"
+                  className={`phase-intro ${
+                    game.round === 1 ? "is-tax-skipped" : "is-tax"
+                  }`}
                 >
-                  <small>TRIBUTE PHASE</small>
-                  <strong>세금 교환</strong>
-                  <span>계급에 따른 카드 교환을 시작합니다</span>
+                  {game.round === 1 ? (
+                    <>
+                      <small>ACT I · NO TRIBUTE</small>
+                      <strong>세금 교환 없음</strong>
+                      <span>제 1막은 세금 교환 없이 진행됩니다</span>
+                    </>
+                  ) : (
+                    <>
+                      <small>TRIBUTE PHASE</small>
+                      <strong>세금 교환</strong>
+                      <span>계급에 따른 카드 교환을 시작합니다</span>
+                    </>
+                  )}
                 </div>
               ) : game?.phase === "play-intro" ? (
                 <div
@@ -3865,8 +3935,9 @@ export default function Home() {
                 : "혁명을 선포하시겠습니까?"}
             </h2>
             <p>
-              혁명을 선포하면 이번 막의 세금이 사라집니다.
-              농노라면 모든 계급까지 뒤집힙니다.
+              {game.round === 1
+                ? "제 1막은 세금 교환 없이 진행됩니다. 농노의 대혁명은 모든 계급을 뒤집습니다."
+                : "혁명을 선포하면 이번 막의 세금이 사라집니다. 농노라면 모든 계급까지 뒤집힙니다."}
             </p>
             <div>
               <button type="button" className="secondary-button" onClick={() => resolveRevolution(false)}>
@@ -3978,9 +4049,9 @@ export default function Home() {
             </div>
             <div className="rule-detail">
               광대는 다른 카드와 함께 내면 그 숫자로 변하고, 단독으로는 가장 약한
-              13입니다. 이 게임의 하우스 룰에서는 세금 계산에 한해 광대를 가장 강한
-              카드로 취급합니다. 하위 계급은 광대를 먼저 바치고, 상위 계급은 일반
-              카드부터 돌려줍니다.
+              13입니다. 세금을 낼 때 광대는 대상에서 제외하며, 하위 계급은 가지고
+              있는 일반 카드 중 숫자가 낮은 카드부터 바칩니다. 상위 계급이 돌려줄
+              카드는 직접 선택합니다.
             </div>
           </section>
         </div>

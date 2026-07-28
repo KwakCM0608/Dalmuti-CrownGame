@@ -185,13 +185,13 @@ test("easy mode preserves the former deterministic joker-first lead", () => {
   assert.notDeepEqual(chooseBotCardIds(state, "normal"), ["joker"]);
 });
 
-test("forced peon tribute treats a joker as strongest", () => {
+test("forced peon tribute excludes jokers and takes the lowest ranks", () => {
   assert.deepEqual(
     selectForcedBotTribute(
       [card("twelve", 12), card("one", 1), card("joker", 13), card("two", 2)],
       2,
     ),
-    ["joker", "one"],
+    ["one", "two"],
   );
 });
 

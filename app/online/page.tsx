@@ -1521,8 +1521,12 @@ function EventOverlayView({
           </b>
           <span>
             {isGreatRevolution
-              ? "세금이 사라지고 곧 계급 전복이 시작됩니다"
-              : "이번 막의 세금 교환이 취소되었습니다 · 게임을 시작합니다"}
+              ? numberValue(data.round, 1) === 1
+                ? "대혁명으로 곧 계급 전복이 시작됩니다"
+                : "세금이 사라지고 곧 계급 전복이 시작됩니다"
+              : numberValue(data.round, 1) === 1
+                ? "제 1막은 세금 교환 없이 진행됩니다"
+                : "이번 막의 세금 교환이 취소되었습니다 · 게임을 시작합니다"}
           </span>
         </div>
       </div>
@@ -1548,15 +1552,28 @@ function EventOverlayView({
   if (type.includes("TAX") || type.includes("TRIBUTE")) {
     const isIntro = type.includes("INTRO");
     if (isIntro) {
+      const skipped = booleanValue(data.skipped);
       return (
         <div
-          className={`${styles.eventOverlay} ${styles.introOverlay} ${styles.phaseIntroOverlay} ${styles.taxIntroOverlay}`}
+          className={`${styles.eventOverlay} ${styles.introOverlay} ${styles.phaseIntroOverlay} ${
+            skipped ? styles.taxSkippedIntroOverlay : styles.taxIntroOverlay
+          }`}
           style={overlayStyle}
         >
           <div className={styles.eventCenterCopy}>
-            <small>TRIBUTE PHASE</small>
-            <strong>세금 교환</strong>
-            <span>계급에 따른 카드 교환을 시작합니다</span>
+            {skipped ? (
+              <>
+                <small>ACT I · NO TRIBUTE</small>
+                <strong>세금 교환 없음</strong>
+                <span>제 1막은 세금 교환 없이 진행됩니다</span>
+              </>
+            ) : (
+              <>
+                <small>TRIBUTE PHASE</small>
+                <strong>세금 교환</strong>
+                <span>계급에 따른 카드 교환을 시작합니다</span>
+              </>
+            )}
           </div>
         </div>
       );
@@ -4563,7 +4580,11 @@ export default function OnlinePage() {
                 >
                   <small>HAND REVEAL</small>
                   <strong>패를 확인하는 중</strong>
-                  <p>패 공개가 끝나면 세금 교환을 시작합니다</p>
+                  <p>
+                    {snapshot.round === 1
+                      ? "제 1막은 세금 교환 없이 진행됩니다"
+                      : "패 공개가 끝나면 세금 교환을 시작합니다"}
+                  </p>
                 </div>
               ) : visibleTable?.cards.length ? (
                 <>

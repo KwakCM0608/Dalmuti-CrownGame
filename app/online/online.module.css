@@ -4956,13 +4956,15 @@
 
 .dalmutiEffectOverlay > strong {
   position: absolute;
-  top: calc(var(--center-y) + 108px);
+  top: calc(var(--center-y) + 100px);
   left: 50%;
   color: #ffe4a0;
   font-family: Georgia, "Times New Roman", serif;
   font-size: clamp(38px, 6vw, 68px);
   font-weight: 500;
   letter-spacing: -0.05em;
+  line-height: 0.88;
+  white-space: nowrap;
   text-shadow:
     0 0 18px rgba(255, 218, 113, 0.55),
     0 0 48px rgba(227, 169, 36, 0.34),
@@ -4974,11 +4976,14 @@
 
 .dalmutiEffectOverlay > span {
   position: absolute;
-  top: calc(var(--center-y) + 174px);
+  top: calc(var(--center-y) + 178px);
   left: 50%;
+  width: min(520px, calc(100% - 32px));
   margin-top: 0;
   color: rgba(255, 255, 255, 0.68);
   font-size: 10px;
+  line-height: 1.45;
+  text-align: center;
   transform: translateX(-50%);
 }
 
@@ -5009,7 +5014,7 @@
 
 .dalmutiEffectOverlay > b {
   position: absolute;
-  top: calc(var(--center-y) + 199px);
+  top: calc(var(--center-y) + 216px);
   left: 50%;
   margin-top: 0;
   color: #e4bd66;
@@ -6916,6 +6921,33 @@
 
 .taxIntroOverlay .eventCenterCopy {
   animation-duration: 2.25s;
+}
+
+.taxSkippedIntroOverlay .eventCenterCopy {
+  animation-duration: 2.25s;
+}
+
+.taxSkippedIntroOverlay .eventCenterCopy::before {
+  border-color: rgba(231, 199, 108, 0.3);
+  background: radial-gradient(
+    ellipse,
+    rgba(50, 60, 23, 0.58),
+    rgba(28, 52, 35, 0.3) 58%,
+    transparent 72%
+  );
+}
+
+.taxSkippedIntroOverlay .eventCenterCopy::after {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(235, 207, 124, 0.82),
+    transparent
+  );
+}
+
+.taxSkippedIntroOverlay .eventCenterCopy small {
+  color: #f0cf78;
 }
 
 .revealOverlay .eventCenterCopy {

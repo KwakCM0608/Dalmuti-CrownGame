@@ -692,10 +692,11 @@ function selectPeonTaxCards(
   hand: OnlineCard[],
   count: number,
 ): OnlineCard[] {
-  return [...hand]
+  return hand
+    .filter((card) => card.rank !== 13)
     .sort(
       (left, right) =>
-        taxationPriority(left) - taxationPriority(right) ||
+        left.rank - right.rank ||
         left.id.localeCompare(right.id),
     )
     .slice(0, count);
@@ -894,11 +895,14 @@ function publicTaxRoutes(
 function enterTaxIntro(state: OnlineRoomState, at: number): void {
   state.revolutionHolderId = null;
   state.botActionAt = null;
-  state.taxExchanges = buildTaxExchanges(state);
+  const skipped = state.round === 1;
+  state.taxExchanges = skipped ? [] : buildTaxExchanges(state);
   state.phase = "tax-intro";
   state.phaseEndsAt = at + state.durations.taxIntroMs;
   appendEvent(state, "TAX_INTRO_STARTED", at, {
-    routes: publicTaxRoutes(state.taxExchanges),
+    skipped,
+    round: state.round,
+    routes: skipped ? [] : publicTaxRoutes(state.taxExchanges),
     endsAt: state.phaseEndsAt,
   });
 }
@@ -1286,15 +1290,25 @@ function advanceOneTimedPhase(
     case "revolution-intro":
       if (state.declaredRevolution?.kind === "great-revolution") {
         enterGreatRevolutionSwap(state, at);
+      } else if (state.round === 1) {
+        enterTaxIntro(state, at);
       } else {
         enterPlayIntro(state, at);
       }
       return;
     case "great-revolution-swap":
-      enterPlayIntro(state, at);
+      if (state.round === 1) {
+        enterTaxIntro(state, at);
+      } else {
+        enterPlayIntro(state, at);
+      }
       return;
     case "tax-intro":
-      enterTaxSelection(state, at);
+      if (state.round === 1) {
+        enterPlayIntro(state, at);
+      } else {
+        enterTaxSelection(state, at);
+      }
       return;
     case "tax-selection":
       autoSelectTaxReturns(state, at);
