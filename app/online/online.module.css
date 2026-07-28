@@ -122,6 +122,13 @@
   grid-template-columns: 1fr auto;
 }
 
+.entryActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .brand {
   display: inline-flex;
   width: fit-content;
@@ -198,6 +205,7 @@
 }
 
 .soloLink,
+.rulesButton,
 .headerActions > button {
   justify-self: end;
   padding: 9px 14px;
@@ -212,6 +220,7 @@
 }
 
 .soloLink:hover,
+.rulesButton:hover,
 .headerActions > button:hover {
   border-color: rgba(235, 203, 124, 0.6);
   background: rgba(235, 203, 124, 0.08);
@@ -1376,6 +1385,7 @@
 
 .boardColumn {
   position: relative;
+  isolation: isolate;
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -1384,6 +1394,40 @@
   transition:
     background 260ms ease,
     box-shadow 260ms ease;
+}
+
+.openingSequenceVeil {
+  position: absolute;
+  inset: 7px;
+  z-index: 4;
+  border: 1px solid rgba(230, 196, 111, 0);
+  border-radius: 24px;
+  background:
+    radial-gradient(
+      ellipse at 50% 45%,
+      rgba(31, 91, 67, 0.18),
+      rgba(10, 36, 27, 0.06) 48%,
+      transparent 74%
+    ),
+    linear-gradient(
+      115deg,
+      transparent 24%,
+      rgba(229, 194, 105, 0.022) 48%,
+      transparent 72%
+    );
+  box-shadow: inset 0 0 72px rgba(218, 177, 78, 0);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    border-color 360ms ease,
+    box-shadow 360ms ease,
+    opacity 360ms ease;
+}
+
+.openingSequenceVeilActive {
+  border-color: rgba(230, 196, 111, 0.1);
+  box-shadow: inset 0 0 72px rgba(218, 177, 78, 0.035);
+  opacity: 1;
 }
 
 .boardColumnMyTurn {
@@ -6621,7 +6665,7 @@
   isolation: isolate;
   opacity: 1;
   backdrop-filter: none;
-  animation: onlineRankConfirmation 2.5s
+  animation: onlineRankConfirmation 2.6s
     cubic-bezier(0.2, 0.78, 0.22, 1) both;
   animation-delay: calc(var(--phase-elapsed, 0ms) * -1);
 }
@@ -6669,7 +6713,7 @@
     0 14px 26px rgba(0, 0, 0, 0.38),
     0 0 0 4px rgba(240, 202, 92, 0.14);
   transform: rotate(-7deg);
-  animation: onlineRankConfirmationCard 2.5s
+  animation: onlineRankConfirmationCard 2.6s
     cubic-bezier(0.2, 0.78, 0.22, 1) both;
   animation-delay: calc(var(--phase-elapsed, 0ms) * -1);
 }
@@ -6867,7 +6911,7 @@
   min-height: 190px;
   padding: 26px 48px;
   isolation: isolate;
-  animation: onlinePhaseIntroReveal 2.25s
+  animation: onlinePhaseIntroReveal var(--event-duration, 2400ms)
     cubic-bezier(0.2, 0.76, 0.22, 1) both;
   animation-delay: calc(var(--event-elapsed, 0ms) * -1);
 }
@@ -6916,15 +6960,15 @@
 }
 
 .playIntroOverlay .eventCenterCopy {
-  animation-duration: 2.45s;
+  animation-duration: var(--event-duration, 2600ms);
 }
 
 .taxIntroOverlay .eventCenterCopy {
-  animation-duration: 2.25s;
+  animation-duration: var(--event-duration, 2400ms);
 }
 
 .taxSkippedIntroOverlay .eventCenterCopy {
-  animation-duration: 2.25s;
+  animation-duration: var(--event-duration, 2400ms);
 }
 
 .taxSkippedIntroOverlay .eventCenterCopy::before {
@@ -6954,7 +6998,7 @@
   width: min(520px, 88vw);
   min-height: 214px;
   padding: 102px 34px 25px;
-  animation: onlineHandRevealIntro 2.25s
+  animation: onlineHandRevealIntro var(--event-duration, 2400ms)
     cubic-bezier(0.2, 0.76, 0.22, 1) both;
   animation-delay: calc(var(--event-elapsed, 0ms) * -1);
 }

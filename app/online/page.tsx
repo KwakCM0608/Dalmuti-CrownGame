@@ -33,6 +33,10 @@ import {
   collectRemoteActionPresentations,
   isOnlineTableActionEvent as isTableActionEvent,
 } from "@/lib/online-action-presentation";
+import {
+  RULEBOOK_DIALOG_ID,
+  RulebookDialog,
+} from "@/app/components/RulebookDialog";
 import styles from "./online.module.css";
 
 type LooseRecord = Record<string, unknown>;
@@ -226,6 +230,9 @@ const PLAYING_POLL_INTERVAL_MS = 180;
 const TRANSITION_POLL_INTERVAL_MS = 240;
 const LOBBY_POLL_INTERVAL_MS = 420;
 const MAX_EVENT_CATCHUP_MS = 120;
+const HAND_REVEAL_PRESENTATION_MS = 1_400;
+const TRANSITION_DEADLINE_POLL_PADDING_MS = 24;
+const MIN_TRANSITION_POLL_INTERVAL_MS = 48;
 const REMOTE_ACTION_PRESENTATION_GRACE_MS = 300;
 const MAX_REMOTE_ACTION_QUEUE_LENGTH = 3;
 const TURN_DURATION_MS = 30_000;
@@ -2211,6 +2218,7 @@ export default function OnlinePage() {
   const [fatalError, setFatalError] = useState(false);
   const [copied, setCopied] = useState(false);
   const [entryBusy, setEntryBusy] = useState(false);
+  const [showRules, setShowRules] = useState(false);
   const [botDifficultyPickerSlot, setBotDifficultyPickerSlot] = useState<
     number | null
   >(null);
@@ -2241,6 +2249,7 @@ export default function OnlinePage() {
   const failureCountRef = useRef(0);
   const snapshotRef = useRef<SnapshotView | null>(null);
   const sessionRef = useRef<StoredSession | null>(null);
+  const serverOffsetRef = useRef(0);
   const remoteActionSeenIdsRef = useRef(new Set<string>());
   const latestChatSeqRef = useRef(0);
   const rankChoiceInFlightRef = useRef<number | null>(null);
@@ -2358,7 +2367,7 @@ export default function OnlinePage() {
         Math.max(
           0,
           Math.min(
-            MAX_EVENT_CATCHUP_MS,
+            HAND_REVEAL_PRESENTATION_MS,
             next.serverTime - (next.phaseEndsAt - 1_400),
           ),
         ),
@@ -2468,6 +2477,7 @@ export default function OnlinePage() {
       setOptimisticRankSlotIndex(null);
     }
     const nextServerOffset = next.serverTime - Date.now();
+    serverOffsetRef.current = nextServerOffset;
     setServerOffset(nextServerOffset);
     const declarationEvent = [...next.events]
       .reverse()
@@ -2707,10 +2717,22 @@ export default function OnlinePage() {
     let pollTimer: number | null = null;
 
     const intervalForCurrentPhase = () => {
-      const phase = snapshotRef.current?.phase;
+      const current = snapshotRef.current;
+      const phase = current?.phase;
       if (phase === "lobby") return LOBBY_POLL_INTERVAL_MS;
       if (phase === "playing") return PLAYING_POLL_INTERVAL_MS;
-      return TRANSITION_POLL_INTERVAL_MS;
+      if (current?.phaseEndsAt === null || current?.phaseEndsAt === undefined) {
+        return TRANSITION_POLL_INTERVAL_MS;
+      }
+      const estimatedServerNow = Date.now() + serverOffsetRef.current;
+      const deadlineDelay =
+        current.phaseEndsAt -
+        estimatedServerNow +
+        TRANSITION_DEADLINE_POLL_PADDING_MS;
+      return Math.min(
+        TRANSITION_POLL_INTERVAL_MS,
+        Math.max(MIN_TRANSITION_POLL_INTERVAL_MS, deadlineDelay),
+      );
     };
     const schedulePoll = (delayMs: number) => {
       if (stopped) return;
@@ -3277,7 +3299,7 @@ export default function OnlinePage() {
               )
             ) &&
             effectiveClock >= eventPresentationStartsAt(event) - 120 &&
-            effectiveClock <=
+            effectiveClock <
               eventPresentationStartsAt(event) + event.durationMs,
       );
     return (
@@ -3500,6 +3522,15 @@ export default function OnlinePage() {
   // canonical round declaration (or its observed reconnect fallback), not the
   // currently playing event overlay.
   const revolutionFieldActive = Boolean(declaredRevolution);
+  const openingSequenceActive =
+    snapshot?.round === 1 &&
+    [
+      "rank-confirm",
+      "reveal-intro",
+      "hand-reveal",
+      "tax-intro",
+      "play-intro",
+    ].includes(snapshot.phase);
   const sortedFinishers = useMemo(() => {
     if (!snapshot) return [];
     const ids = snapshot.finishOrder.length
@@ -3815,9 +3846,20 @@ export default function OnlinePage() {
         <div className={styles.grain} />
         <header className={styles.entryHeader}>
           <Brand />
-          <Link className={styles.soloLink} href="/">
-            혼자 하기
-          </Link>
+          <div className={styles.entryActions}>
+            <button
+              type="button"
+              className={styles.rulesButton}
+              aria-haspopup="dialog"
+              aria-controls={RULEBOOK_DIALOG_ID}
+              onClick={() => setShowRules(true)}
+            >
+              규칙
+            </button>
+            <Link className={styles.soloLink} href="/">
+              혼자 하기
+            </Link>
+          </div>
         </header>
 
         <section className={styles.entryHero}>
@@ -3928,6 +3970,10 @@ export default function OnlinePage() {
             </p>
           </form>
         </section>
+        <RulebookDialog
+          open={showRules}
+          onClose={() => setShowRules(false)}
+        />
       </main>
     );
   }
@@ -3952,6 +3998,14 @@ export default function OnlinePage() {
           </div>
           <div className={styles.headerActions}>
             <ConnectionPill state={connection} />
+            <button
+              type="button"
+              aria-haspopup="dialog"
+              aria-controls={RULEBOOK_DIALOG_ID}
+              onClick={() => setShowRules(true)}
+            >
+              규칙
+            </button>
             <button
               type="button"
               onClick={() => void exitRoom()}
@@ -4230,6 +4284,10 @@ export default function OnlinePage() {
             </div>
           </div>
         )}
+        <RulebookDialog
+          open={showRules}
+          onClose={() => setShowRules(false)}
+        />
       </main>
     );
   }
@@ -4249,6 +4307,14 @@ export default function OnlinePage() {
         </div>
         <div className={styles.headerActions}>
           <ConnectionPill state={connection} />
+          <button
+            type="button"
+            aria-haspopup="dialog"
+            aria-controls={RULEBOOK_DIALOG_ID}
+            onClick={() => setShowRules(true)}
+          >
+            규칙
+          </button>
           <button type="button" onClick={copyInvite}>
             {displayCode}
           </button>
@@ -4343,6 +4409,14 @@ export default function OnlinePage() {
             } as CSSProperties
           }
         >
+          <div
+            className={`${styles.openingSequenceVeil} ${
+              openingSequenceActive
+                ? styles.openingSequenceVeilActive
+                : ""
+            }`}
+            aria-hidden="true"
+          />
           {turnSecondsRemaining !== null && currentTurnPlayer && (
             <div
               className={`${styles.turnCountdown} ${
@@ -5089,6 +5163,11 @@ export default function OnlinePage() {
           <b>닫기</b>
         </button>
       )}
+      <RulebookDialog
+        open={showRules}
+        onClose={() => setShowRules(false)}
+        gameInProgress
+      />
     </main>
   );
 }

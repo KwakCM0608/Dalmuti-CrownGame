@@ -18,6 +18,10 @@ import {
   forceClaimedPlayerToLastRank,
   forceTwoJokersIntoHand,
 } from "@/lib/temporary-test-mode";
+import {
+  RULEBOOK_DIALOG_ID,
+  RulebookDialog,
+} from "@/app/components/RulebookDialog";
 
 type Role =
   | "great-dalmuti"
@@ -2965,7 +2969,12 @@ export default function Home() {
         </div>
 
         <nav className="top-actions" aria-label="게임 메뉴">
-          <button type="button" onClick={() => setShowRules(true)}>
+          <button
+            type="button"
+            aria-haspopup="dialog"
+            aria-controls={RULEBOOK_DIALOG_ID}
+            onClick={() => setShowRules(true)}
+          >
             규칙
           </button>
           <button type="button" onClick={startGame}>
@@ -4017,45 +4026,21 @@ export default function Home() {
         </div>
       )}
 
-      {showRules && (
-        <div className="modal-layer">
-          <section className="rules-card" role="dialog" aria-labelledby="rules-title">
-            <button
-              type="button"
-              className="close-button"
-              aria-label="규칙 닫기"
-              onClick={() => setShowRules(false)}
-            >
-              ×
-            </button>
-            <span className="eyebrow">HOW TO PLAY</span>
-            <h2 id="rules-title">세 가지만 기억하세요</h2>
-            <div className="rules-grid">
-              <article>
-                <span>01</span>
-                <h3>같은 숫자를 묶기</h3>
-                <p>한 장 또는 같은 숫자 여러 장을 한 번에 냅니다.</p>
-              </article>
-              <article>
-                <span>02</span>
-                <h3>낮은 숫자로 이기기</h3>
-                <p>앞사람과 같은 장수이면서 더 낮은 숫자만 낼 수 있습니다.</p>
-              </article>
-              <article>
-                <span>03</span>
-                <h3>가장 먼저 털기</h3>
-                <p>손패를 먼저 비울수록 다음 막의 계급이 높아집니다.</p>
-              </article>
-            </div>
-            <div className="rule-detail">
-              광대는 다른 카드와 함께 내면 그 숫자로 변하고, 단독으로는 가장 약한
-              13입니다. 세금을 낼 때 광대는 대상에서 제외하며, 하위 계급은 가지고
-              있는 일반 카드 중 숫자가 낮은 카드부터 바칩니다. 상위 계급이 돌려줄
-              카드는 직접 선택합니다.
-            </div>
-          </section>
-        </div>
-      )}
+      <RulebookDialog
+        open={showRules}
+        onClose={() => setShowRules(false)}
+        gameInProgress={Boolean(
+          game &&
+            ![
+              "ready",
+              "rank-intro",
+              "rank-selection",
+              "rank-reveal",
+              "rank-confirm",
+              "round-end",
+            ].includes(game.phase),
+        )}
+      />
     </main>
   );
 }

@@ -61,15 +61,24 @@ test("server-renders the online room entry surface", async () => {
   assert.match(html, /방 만들기/);
   assert.match(html, /코드로 참가/);
   assert.match(html, /4–8 PLAYERS/);
+  assert.match(html, />규칙</);
 });
 
 test("ships without the disposable starter preview", async () => {
-  const [page, layout, styles, packageJson, cardAssetBuilder] = await Promise.all([
+  const [
+    page,
+    layout,
+    styles,
+    packageJson,
+    cardAssetBuilder,
+    rulebookContent,
+  ] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
     readFile(new URL("../scripts/build_card_assets.py", import.meta.url), "utf8"),
+    readFile(new URL("../lib/rulebook-content.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /"use client"/);
@@ -82,7 +91,7 @@ test("ships without the disposable starter preview", async () => {
     page,
     /chooseBotTaxReturn\([\s\S]{0,240}sourceHands\[noble\.id\]/,
   );
-  assert.match(page, /세금을 낼 때 광대는 대상에서 제외/);
+  assert.match(rulebookContent, /조커를 제외한 일반 카드/);
   assert.match(page, /function chooseBotCards/);
   assert.match(page, /type TaxStage = "selection" \| "tribute" \| "return"/);
   assert.match(page, /\| "reveal-intro"/);
@@ -665,12 +674,13 @@ test("online phase locks and visual animation timing mirror quick match", async 
   for (const expected of [
     /animation: onlineOpeningRankCountdown 1\.05s/,
     /animation: rankCardReveal 1\.25s/,
-    /animation: onlineRankConfirmation 2\.5s/,
+    /animation: onlineRankConfirmation 2\.6s/,
     /animation: onlineHandCardReveal 1\.2s/,
     /animation: seatHandReveal 1\.15s/,
-    /animation: onlinePhaseIntroReveal 2\.25s/,
-    /\.playIntroOverlay \.eventCenterCopy\s*\{[^}]*animation-duration: 2\.45s;/s,
-    /animation: onlineHandRevealIntro 2\.25s/,
+    /animation: onlinePhaseIntroReveal var\(--event-duration, 2400ms\)/,
+    /\.playIntroOverlay \.eventCenterCopy\s*\{[^}]*animation-duration: var\(--event-duration, 2600ms\);/s,
+    /\.taxSkippedIntroOverlay \.eventCenterCopy\s*\{[^}]*animation-duration: var\(--event-duration, 2400ms\);/s,
+    /animation: onlineHandRevealIntro var\(--event-duration, 2400ms\)/,
     /animation: onlineRevealIntroCard 1\.8s/,
     /animation: onlineRevolutionAnnouncement 3\.1s/,
     /animation: onlinePublicCardPlay 2\.08s/,
@@ -695,6 +705,17 @@ test("online phase locks and visual animation timing mirror quick match", async 
   assert.match(onlinePage, /const PLAYING_POLL_INTERVAL_MS = 180/);
   assert.match(onlinePage, /const LOBBY_POLL_INTERVAL_MS = 420/);
   assert.match(onlinePage, /const MAX_EVENT_CATCHUP_MS = 120/);
+  assert.match(onlinePage, /const HAND_REVEAL_PRESENTATION_MS = 1_400/);
+  assert.match(onlinePage, /TRANSITION_DEADLINE_POLL_PADDING_MS = 24/);
+  assert.match(onlinePage, /MIN_TRANSITION_POLL_INTERVAL_MS = 48/);
+  assert.match(
+    onlinePage,
+    /effectiveClock <\s*eventPresentationStartsAt\(event\) \+ event\.durationMs/,
+  );
+  assert.match(
+    onlinePage,
+    /current\.phaseEndsAt -\s*estimatedServerNow \+\s*TRANSITION_DEADLINE_POLL_PADDING_MS/,
+  );
   assert.match(
     onlinePage,
     /REMOTE_ACTION_PRESENTATION_GRACE_MS = 300/,
@@ -712,7 +733,10 @@ test("online phase locks and visual animation timing mirror quick match", async 
     onlinePage,
     /Date\.now\(\) - event\.localPlaybackStartedAt/,
   );
-  assert.doesNotMatch(onlinePage, /serverOffsetRef/);
+  assert.match(
+    onlinePage,
+    /serverOffsetRef\.current = nextServerOffset/,
+  );
   assert.doesNotMatch(onlinePage, /suppressPresentation/);
   assert.match(
     onlineStyles,
@@ -735,6 +759,9 @@ test("online phase locks and visual animation timing mirror quick match", async 
   assert.match(onlinePage, /setHandRevealElapsedMs/);
   assert.match(onlinePage, /const \[phaseElapsed\] = useState/);
   assert.match(onlinePage, /styles\.greatRevolutionFieldEffect/);
+  assert.match(onlinePage, /const openingSequenceActive =/);
+  assert.match(onlinePage, /styles\.openingSequenceVeilActive/);
+  assert.match(onlineStyles, /\.openingSequenceVeilActive/);
   assert.match(onlinePage, /motionAnchorsEqual\(current, nextAnchors\)/);
   assert.match(onlinePage, /window\.requestAnimationFrame/);
   assert.match(onlinePage, /"--event-elapsed": `\$\{initialElapsed\}ms`/);

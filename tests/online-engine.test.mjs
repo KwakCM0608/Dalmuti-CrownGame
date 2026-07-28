@@ -615,6 +615,97 @@ test("normal online setup preserves the host's selected opening rank", () => {
   assert.equal(state.players.at(0).role, "great-dalmuti");
 });
 
+test("the first act presents hand reveal, no-tax notice, and game start on one exact timeline", () => {
+  const durations = {
+    revealIntroMs: 120,
+    handRevealMs: 140,
+    taxIntroMs: 240,
+    playIntroMs: 260,
+  };
+  let state = readyEveryone(createFourPlayerLobby());
+  state = startAndAssignJoinOrder(state, 180, durations);
+  state.hands = Object.fromEntries(
+    state.players.map((player, index) => [
+      player.id,
+      [
+        { id: `${player.id}-normal-a`, rank: index + 3 },
+        { id: `${player.id}-normal-b`, rank: index + 7 },
+      ],
+    ]),
+  );
+
+  const revealIntroEndsAt = state.phaseEndsAt;
+  assert.notEqual(revealIntroEndsAt, null);
+  state = advanceOnlineRoom(state, revealIntroEndsAt - 1, { durations });
+  assert.equal(state.phase, "reveal-intro");
+  state = advanceOnlineRoom(state, revealIntroEndsAt, { durations });
+  assert.equal(state.phase, "hand-reveal");
+
+  const handRevealEvent = state.events.findLast(
+    (event) => event.type === "HAND_REVEAL_STARTED",
+  );
+  const handsBeforeNoTax = structuredClone(state.hands);
+  const handRevealEndsAt = state.phaseEndsAt;
+  assert.equal(handRevealEvent?.payload.endsAt, handRevealEndsAt);
+
+  state = advanceOnlineRoom(state, handRevealEndsAt - 1, { durations });
+  assert.equal(state.phase, "hand-reveal");
+  state = advanceOnlineRoom(state, handRevealEndsAt, { durations });
+  assert.equal(state.phase, "tax-intro");
+  assert.deepEqual(state.taxExchanges, []);
+  assert.deepEqual(state.hands, handsBeforeNoTax);
+
+  const noTaxEvent = state.events.findLast(
+    (event) => event.type === "TAX_INTRO_STARTED",
+  );
+  assert.equal(noTaxEvent?.at, handRevealEndsAt);
+  assert.equal(noTaxEvent?.payload.skipped, true);
+  assert.equal(noTaxEvent?.payload.round, 1);
+  assert.deepEqual(noTaxEvent?.payload.routes, []);
+  assert.equal(
+    projectOnlineRoom(state, state.players.at(-1).id).events.findLast(
+      (event) => event.type === "TAX_INTRO_STARTED",
+    )?.payload.skipped,
+    true,
+  );
+
+  const noTaxEndsAt = state.phaseEndsAt;
+  assert.equal(noTaxEvent?.payload.endsAt, noTaxEndsAt);
+  state = advanceOnlineRoom(state, noTaxEndsAt - 1, { durations });
+  assert.equal(state.phase, "tax-intro");
+  state = advanceOnlineRoom(state, noTaxEndsAt, { durations });
+  assert.equal(state.phase, "play-intro");
+
+  const playIntroEvent = state.events.findLast(
+    (event) => event.type === "PLAY_INTRO_STARTED",
+  );
+  assert.equal(playIntroEvent?.at, noTaxEndsAt);
+  const playIntroEndsAt = state.phaseEndsAt;
+  assert.equal(playIntroEvent?.payload.endsAt, playIntroEndsAt);
+
+  state = advanceOnlineRoom(state, playIntroEndsAt - 1, { durations });
+  assert.equal(state.phase, "play-intro");
+  state = advanceOnlineRoom(state, playIntroEndsAt, { durations });
+  assert.equal(state.phase, "playing");
+  assert.equal(
+    state.events.findLast((event) => event.type === "TURN_STARTED")?.at,
+    playIntroEndsAt,
+  );
+  assert.equal(
+    state.events.some((event) =>
+      [
+        "TAX_SELECTION_STARTED",
+        "TAX_TRIBUTE_STARTED",
+        "TAX_TRIBUTE",
+        "TAX_RETURN_STARTED",
+        "TAX_RETURN",
+      ].includes(event.type),
+    ),
+    false,
+  );
+  assert.deepEqual(state.hands, handsBeforeNoTax);
+});
+
 test("the opening PLAY runs a hidden, server-authoritative rank choice before dealing", () => {
   let state = readyEveryone(createFourPlayerLobby());
 
