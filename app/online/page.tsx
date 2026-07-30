@@ -4,6 +4,8 @@ import type {
   CSSProperties,
   FormEvent,
   KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
 } from "react";
 import {
   memo,
@@ -1423,6 +1425,7 @@ function RankSelectionField({
       </div>
       <div
         className={styles.rankChoiceCards}
+        data-card-count={cards.length}
       >
         {cards.map((card, index) => {
           const optimisticMine =
@@ -1877,6 +1880,9 @@ function EventOverlayView({
                   "--pass-offset-x": `${
                     (playerIndex - (autoPassedIds.length - 1) / 2) * 104
                   }px`,
+                  "--pass-mobile-offset-x": `${
+                    (playerIndex - (autoPassedIds.length - 1) / 2) * 28
+                  }px`,
                   "--pass-delay": `${260 + playerIndex * 55}ms`,
                 } as CSSProperties
               }
@@ -2069,6 +2075,7 @@ function formatChatTime(timestamp: number): string {
 
 function OnlineChatPanel({
   className = "",
+  dragStorageKey,
   messages,
   viewerId,
   connected,
@@ -2076,6 +2083,7 @@ function OnlineChatPanel({
   onEmote,
 }: {
   className?: string;
+  dragStorageKey: "lobby" | "game";
   messages: ChatMessageView[];
   viewerId: string;
   connected: boolean;
@@ -2088,9 +2096,121 @@ function OnlineChatPanel({
   const [emotePickerOpen, setEmotePickerOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const panelRef = useRef<HTMLElement | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const emotePickerRef = useRef<HTMLDivElement | null>(null);
   const sendingRef = useRef(false);
+  const dragOffsetRef = useRef(dragOffset);
+  const dragStateRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    panelRect: DOMRect;
+  } | null>(null);
+  const dragPreferenceKey = `dalmuti.online.chat-position.${dragStorageKey}`;
+
+  const updateDragOffset = useCallback((next: { x: number; y: number }) => {
+    dragOffsetRef.current = next;
+    setDragOffset(next);
+  }, []);
+
+  const saveDragOffset = useCallback(() => {
+    try {
+      window.localStorage.setItem(
+        dragPreferenceKey,
+        JSON.stringify(dragOffsetRef.current),
+      );
+    } catch {
+      // The chat still remains draggable when storage is unavailable.
+    }
+  }, [dragPreferenceKey]);
+
+  const keepChatInsideViewport = useCallback(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const rect = panel.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const viewportLeft = viewport?.offsetLeft ?? 0;
+    const viewportTop = viewport?.offsetTop ?? 0;
+    const viewportRight = viewportLeft + (viewport?.width ?? window.innerWidth);
+    const viewportBottom =
+      viewportTop + (viewport?.height ?? window.innerHeight);
+    const margin = 8;
+    let correctionX = 0;
+    let correctionY = 0;
+
+    if (rect.left < viewportLeft + margin) {
+      correctionX = viewportLeft + margin - rect.left;
+    } else if (rect.right > viewportRight - margin) {
+      correctionX = viewportRight - margin - rect.right;
+    }
+    if (rect.top < viewportTop + margin) {
+      correctionY = viewportTop + margin - rect.top;
+    } else if (rect.bottom > viewportBottom - margin) {
+      correctionY = viewportBottom - margin - rect.bottom;
+    }
+
+    if (correctionX || correctionY) {
+      updateDragOffset({
+        x: dragOffsetRef.current.x + correctionX,
+        y: dragOffsetRef.current.y + correctionY,
+      });
+    }
+  }, [updateDragOffset]);
+
+  useEffect(() => {
+    let clampFrame = 0;
+    const loadFrame = window.requestAnimationFrame(() => {
+      try {
+        const stored = JSON.parse(
+          window.localStorage.getItem(dragPreferenceKey) ?? "null",
+        ) as { x?: unknown; y?: unknown } | null;
+        if (
+          stored &&
+          typeof stored.x === "number" &&
+          Number.isFinite(stored.x) &&
+          typeof stored.y === "number" &&
+          Number.isFinite(stored.y)
+        ) {
+          updateDragOffset({ x: stored.x, y: stored.y });
+        }
+      } catch {
+        // Keep the default position when preferences cannot be read.
+      }
+      clampFrame = window.requestAnimationFrame(keepChatInsideViewport);
+    });
+    return () => {
+      window.cancelAnimationFrame(loadFrame);
+      window.cancelAnimationFrame(clampFrame);
+    };
+  }, [dragPreferenceKey, keepChatInsideViewport, updateDragOffset]);
+
+  useEffect(() => {
+    const handleViewportChange = () => {
+      window.requestAnimationFrame(() => {
+        keepChatInsideViewport();
+        saveDragOffset();
+      });
+    };
+    window.addEventListener("resize", handleViewportChange);
+    window.visualViewport?.addEventListener("resize", handleViewportChange);
+    return () => {
+      window.removeEventListener("resize", handleViewportChange);
+      window.visualViewport?.removeEventListener(
+        "resize",
+        handleViewportChange,
+      );
+    };
+  }, [keepChatInsideViewport, saveDragOffset]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(keepChatInsideViewport);
+    return () => window.cancelAnimationFrame(frame);
+  }, [collapsed, keepChatInsideViewport]);
 
   useEffect(() => {
     const messageList = messageListRef.current;
@@ -2160,17 +2280,110 @@ function OnlineChatPanel({
     }
   };
 
+  const beginChatDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (
+      event.button !== 0 ||
+      (event.target instanceof Element &&
+        Boolean(event.target.closest("button, input, a")))
+    ) {
+      return;
+    }
+    const panel = panelRef.current;
+    if (!panel) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: dragOffsetRef.current.x,
+      originY: dragOffsetRef.current.y,
+      panelRect: panel.getBoundingClientRect(),
+    };
+    setDragging(true);
+  };
+
+  const moveChat = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const dragState = dragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+    const viewport = window.visualViewport;
+    const viewportLeft = viewport?.offsetLeft ?? 0;
+    const viewportTop = viewport?.offsetTop ?? 0;
+    const viewportRight = viewportLeft + (viewport?.width ?? window.innerWidth);
+    const viewportBottom =
+      viewportTop + (viewport?.height ?? window.innerHeight);
+    const margin = 8;
+    const requestedX = event.clientX - dragState.startX;
+    const requestedY = event.clientY - dragState.startY;
+    const deltaX = Math.min(
+      viewportRight - margin - dragState.panelRect.right,
+      Math.max(viewportLeft + margin - dragState.panelRect.left, requestedX),
+    );
+    const deltaY = Math.min(
+      viewportBottom - margin - dragState.panelRect.bottom,
+      Math.max(viewportTop + margin - dragState.panelRect.top, requestedY),
+    );
+    updateDragOffset({
+      x: dragState.originX + deltaX,
+      y: dragState.originY + deltaY,
+    });
+  };
+
+  const endChatDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const dragState = dragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+    dragStateRef.current = null;
+    setDragging(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    saveDragOffset();
+  };
+
+  const resetChatPosition = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (
+      event.target instanceof Element &&
+      event.target.closest("button, input, a")
+    ) {
+      return;
+    }
+    updateDragOffset({ x: 0, y: 0 });
+    try {
+      window.localStorage.removeItem(dragPreferenceKey);
+    } catch {
+      // The visual reset is still complete when storage is unavailable.
+    }
+  };
+
   return (
     <aside
+      ref={panelRef}
       className={`${styles.chatPanel} ${
         collapsed ? styles.chatPanelCollapsed : ""
-      } ${className}`}
+      } ${dragging ? styles.chatPanelDragging : ""} ${className}`}
+      style={
+        {
+          "--chat-drag-x": `${dragOffset.x}px`,
+          "--chat-drag-y": `${dragOffset.y}px`,
+        } as CSSProperties
+      }
       aria-label="플레이어 채팅"
     >
-      <div className={styles.chatHeading}>
+      <div
+        className={styles.chatHeading}
+        onPointerDown={beginChatDrag}
+        onPointerMove={moveChat}
+        onPointerUp={endChatDrag}
+        onPointerCancel={endChatDrag}
+        onDoubleClick={resetChatPosition}
+        title="드래그하여 이동 · 더블 클릭하여 원위치"
+      >
         <span>
           <i aria-hidden="true" />
           채팅
+          <small className={styles.chatDragHint} aria-hidden="true">
+            ⠿
+          </small>
         </span>
         <button
           type="button"
@@ -4000,7 +4213,7 @@ export default function OnlinePage() {
               규칙
             </button>
             <Link className={styles.soloLink} href="/">
-              혼자 하기
+              메인 화면
             </Link>
           </div>
         </header>
@@ -4190,6 +4403,7 @@ export default function OnlinePage() {
             {snapshot && (
               <OnlineChatPanel
                 className={styles.lobbyChatPanel}
+                dragStorageKey="lobby"
                 messages={chatMessages}
                 viewerId={snapshot.viewerId}
                 connected={connection === "online"}
@@ -4656,7 +4870,10 @@ export default function OnlinePage() {
                 ))}
               </div>
             )}
-            <div className={styles.seatRing}>
+            <div
+              className={styles.seatRing}
+              data-player-count={snapshot.players.length}
+            >
               {rankedOpponents.map(({ player, rankIndex }) => {
                 const displayedPlayer = activeTaxVisualOverride
                   ? {
@@ -5004,6 +5221,7 @@ export default function OnlinePage() {
             </div>
             <OnlineChatPanel
               className={styles.gameChatPanel}
+              dragStorageKey="game"
               messages={chatMessages}
               viewerId={snapshot.viewerId}
               connected={connection === "online"}

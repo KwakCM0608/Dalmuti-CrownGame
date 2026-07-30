@@ -30,9 +30,9 @@ import {
   RulebookDialog,
 } from "@/app/components/RulebookDialog";
 import {
-  SETTINGS_DIALOG_ID,
-  SettingsDialog,
-} from "@/app/components/SettingsDialog";
+  CREDITS_DIALOG_ID,
+  CreditsDialog,
+} from "@/app/components/CreditsDialog";
 
 type LandingView = "main" | "quick-setup";
 
@@ -1511,6 +1511,7 @@ function PublicTurnActionLayer({
             "--pass-to-x": `${to.x}px`,
             "--pass-to-y": `${to.y}px`,
             "--pass-offset-x": `${passOffset * 104}px`,
+            "--pass-offset-x-mobile": `${passOffset * 34}px`,
             "--pass-delay": `${
               fastForward
                 ? 55 + playerIndex * 14
@@ -1605,7 +1606,7 @@ export default function Home() {
     useState<BotDifficulty>("normal");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showRules, setShowRules] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
+  const [showCredits, setShowCredits] = useState(false);
   const [turnTimer, setTurnTimer] = useState<{
     playerId: string;
     deadline: number;
@@ -2613,14 +2614,14 @@ export default function Home() {
   const returnToModeSelection = () => {
     setSelectedIds([]);
     setShowRules(false);
-    setShowSettings(false);
+    setShowCredits(false);
     setLandingView("main");
     setRevealedRoundResultKey(null);
     setTaxAnchors({ players: {}, midpoint: null });
     setGame(null);
   };
 
-  const closeSettings = useCallback(() => setShowSettings(false), []);
+  const closeCredits = useCallback(() => setShowCredits(false), []);
 
   const beginHostedGame = () => {
     setSelectedIds([]);
@@ -3198,6 +3199,7 @@ export default function Home() {
               className={`opponent-row ${
                 isHandRevealing ? "is-revealing" : ""
               }`}
+              data-player-count={game?.players.length ?? quickPlayerCount}
             >
               {(orderedOpponents.length
                 ? orderedOpponents
@@ -3332,6 +3334,7 @@ export default function Home() {
                   <div
                     className="opening-rank-cards"
                     aria-label="계급 선택 카드"
+                    data-card-count={game.openingRankSelection.cards.length}
                     style={
                       {
                         "--opening-rank-columns": Math.min(
@@ -3598,7 +3601,7 @@ export default function Home() {
                                 ) * 0.9
                               }px`,
                               "--table-card-overlap": `${tableCardStep - 140}px`,
-                              "--table-card-overlap-mobile": `${mobileTableCardStep - 108}px`,
+                              "--table-card-overlap-mobile": `${mobileTableCardStep - 88}px`,
                             } as React.CSSProperties
                           }
                         >
@@ -3926,25 +3929,25 @@ export default function Home() {
                   type="button"
                   className="main-menu-option"
                   aria-haspopup="dialog"
-                  aria-controls={SETTINGS_DIALOG_ID}
-                  onClick={() => setShowSettings(true)}
+                  aria-controls={RULEBOOK_DIALOG_ID}
+                  onClick={() => setShowRules(true)}
                 >
-                  <small>PREFERENCES</small>
-                  <strong>환경설정</strong>
-                  <span>기기에 맞는 화면 연출 선택</span>
-                  <b>⚙</b>
+                  <small>HOW TO PLAY</small>
+                  <strong>게임 규칙</strong>
+                  <span>게임 흐름과 카드 규칙 확인</span>
+                  <b>?</b>
                 </button>
                 <button
                   type="button"
                   className="main-menu-option"
                   aria-haspopup="dialog"
-                  aria-controls={RULEBOOK_DIALOG_ID}
-                  onClick={() => setShowRules(true)}
+                  aria-controls={CREDITS_DIALOG_ID}
+                  onClick={() => setShowCredits(true)}
                 >
-                  <small>HOW TO PLAY</small>
-                  <strong>규칙</strong>
-                  <span>게임 흐름과 카드 규칙 확인</span>
-                  <b>?</b>
+                  <small>MADE BY DCLAB</small>
+                  <strong>크레딧</strong>
+                  <span>개발자와 프로젝트 정보</span>
+                  <b>＋</b>
                 </button>
               </div>
             </section>
@@ -4135,7 +4138,7 @@ export default function Home() {
             ].includes(game.phase),
         )}
       />
-      <SettingsDialog open={showSettings} onClose={closeSettings} />
+      <CreditsDialog open={showCredits} onClose={closeCredits} />
     </main>
   );
 }

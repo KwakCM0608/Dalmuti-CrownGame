@@ -5395,6 +5395,369 @@ button:focus-visible {
   }
 }
 
+/* Rank cards use a balanced four-over-three layout when seven players draw.
+ * Flexbox centres each wrapped line independently, including the three-card row. */
+.opening-rank-cards[data-card-count="7"] {
+  --balanced-rank-card-gap: clamp(7px, 1.4vw, 14px);
+
+  display: flex;
+  width: min(100%, 370px);
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--balanced-rank-card-gap);
+}
+
+.opening-rank-cards[data-card-count="7"] .opening-rank-card {
+  width: auto;
+  flex: 0 0 clamp(62px, 19vw, 82px);
+}
+
+@media (max-width: 800px),
+  (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
+  /* Keep the local-player badge on the table edge instead of over the hand. */
+  .game-shell .human-status,
+  .game-shell .human-zone.is-finished .human-status {
+    bottom: calc(100% - 18px);
+    left: calc(10px + env(safe-area-inset-left, 0px));
+    min-width: auto;
+    max-width: min(132px, 38vw);
+    gap: 5px;
+    padding: 5px 7px;
+  }
+
+  .game-shell .human-avatar {
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+    font-size: 9px;
+  }
+
+  .game-shell .human-status em {
+    padding: 3px 6px;
+    font-size: 7px;
+    white-space: nowrap;
+  }
+
+  .game-shell
+    .human-zone:not(.is-finished)
+    .hand-wrap {
+    padding-left: 0;
+  }
+
+  .game-shell .hand-wrap {
+    scroll-padding-inline:
+      calc(18px + env(safe-area-inset-left, 0px))
+      calc(18px + env(safe-area-inset-right, 0px));
+  }
+
+  /* Phone seats keep rank-based grid positions while taking much less felt. */
+  .game-shell .opponent-card-stack {
+    display: none;
+  }
+
+  .game-shell
+    .opponent-row:is(
+      [data-player-count="6"],
+      [data-player-count="7"],
+      [data-player-count="8"],
+      [data-player-count="9"],
+      [data-player-count="10"]
+    ) {
+    top: 9px;
+    row-gap: 3px;
+    grid-auto-rows: 43px;
+  }
+
+  .game-shell
+    .opponent-row:is(
+      [data-player-count="6"],
+      [data-player-count="7"],
+      [data-player-count="8"],
+      [data-player-count="9"],
+      [data-player-count="10"]
+    )
+    .player-seat {
+    display: grid;
+    min-height: 42px;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 3px;
+    padding: 3px 4px;
+    text-align: left;
+  }
+
+  .game-shell
+    .opponent-row:is(
+      [data-player-count="6"],
+      [data-player-count="7"],
+      [data-player-count="8"],
+      [data-player-count="9"],
+      [data-player-count="10"]
+    )
+    .player-avatar {
+    width: 22px;
+    height: 22px;
+    font-size: 8px;
+  }
+
+  .game-shell
+    .opponent-row:is(
+      [data-player-count="6"],
+      [data-player-count="7"],
+      [data-player-count="8"],
+      [data-player-count="9"],
+      [data-player-count="10"]
+    )
+    .player-avatar
+    i {
+    top: -6px;
+    right: -4px;
+    width: 14px;
+    height: 14px;
+    font-size: 7px;
+  }
+
+  .game-shell
+    .opponent-row:is(
+      [data-player-count="6"],
+      [data-player-count="7"],
+      [data-player-count="8"],
+      [data-player-count="9"],
+      [data-player-count="10"]
+    )
+    .player-copy
+    strong {
+    max-width: none;
+    font-size: 8px;
+  }
+
+  .game-shell
+    .opponent-row:is(
+      [data-player-count="6"],
+      [data-player-count="7"],
+      [data-player-count="8"],
+      [data-player-count="9"],
+      [data-player-count="10"]
+    )
+    .player-count
+    b {
+    font-size: 9px;
+  }
+
+  /* The selected rank card and rank name form one centred visual group. */
+  .game-shell .opening-rank-confirmation {
+    width: min(390px, 94vw);
+    padding-inline: 18px;
+  }
+
+  .game-shell .opening-rank-confirmation-body {
+    width: fit-content;
+    max-width: 88vw;
+    grid-template-columns: 50px max-content;
+    justify-content: center;
+    gap: 14px;
+    margin-inline: auto;
+  }
+
+  .game-shell .opening-rank-confirmation-copy {
+    text-align: center;
+  }
+
+  .game-shell .opening-rank-confirmation-copy em {
+    max-width: 190px;
+  }
+
+  /* A smaller settled pile leaves room for the turn copy on phone screens. */
+  .game-shell .table-cards {
+    min-height: 147px;
+  }
+
+  .game-shell .table-cards .playing-card {
+    width: 88px;
+    height: 135px;
+  }
+
+  /* Constrain the DALMUTI spectacle and its automatic passes to the phone felt. */
+  .game-shell .public-turn-action-layer {
+    overflow: hidden;
+    border-radius: 20px;
+  }
+
+  .game-shell .dalmuti-action-effects::before {
+    width: min(310px, 78vw);
+  }
+
+  .game-shell .dalmuti-action-effects::after {
+    width: min(190px, 48vw);
+  }
+
+  .game-shell .dalmuti-action-effects > i {
+    width: min(230px, 58vw);
+  }
+
+  .game-shell .dalmuti-action-effects > i:nth-of-type(2) {
+    width: min(280px, 70vw);
+  }
+
+  .game-shell .dalmuti-action-effects > span {
+    animation-name: quickDalmutiSparkMobile;
+  }
+
+  .game-shell .dalmuti-auto-pass-badge {
+    min-width: 68px;
+    padding: 5px 8px 6px;
+    animation: quickDalmutiAutoPassMobile 2.55s var(--pass-delay)
+      cubic-bezier(0.2, 0.72, 0.22, 1) both;
+  }
+
+  .game-shell .dalmuti-auto-pass-badge span {
+    max-width: 74px;
+    font-size: 7px;
+  }
+
+  .game-shell .dalmuti-auto-pass-badge strong {
+    font-size: 12px;
+  }
+
+  .game-shell .dalmuti-auto-pass-banner {
+    max-width: calc(100vw - 30px);
+    padding: 6px 11px;
+    font-size: 8px;
+    text-align: center;
+    white-space: nowrap;
+    animation-name: quickDalmutiAutoPassBannerMobile;
+  }
+}
+
+@media (display-mode: standalone) and (max-width: 800px),
+  (display-mode: fullscreen) and (max-width: 800px),
+  (display-mode: standalone) and (orientation: landscape) and (max-height: 500px) and (pointer: coarse),
+  (display-mode: fullscreen) and (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
+  .game-shell
+    .opponent-row:is(
+      [data-player-count="6"],
+      [data-player-count="7"],
+      [data-player-count="8"],
+      [data-player-count="9"],
+      [data-player-count="10"]
+    )
+    .player-copy
+    strong {
+    font-size: 7px;
+  }
+}
+
+@keyframes quickDalmutiSparkMobile {
+  0%,
+  18% {
+    opacity: 0;
+    transform:
+      translate(-50%, -50%)
+      rotate(var(--spark-angle))
+      translateX(14px)
+      rotate(45deg)
+      scale(0.25);
+  }
+  34% {
+    opacity: 1;
+  }
+  76% {
+    opacity: 0.86;
+  }
+  100% {
+    opacity: 0;
+    transform:
+      translate(-50%, -50%)
+      rotate(var(--spark-angle))
+      translateX(min(38vw, 138px))
+      rotate(185deg)
+      scale(0.92);
+  }
+}
+
+@keyframes quickDalmutiAutoPassMobile {
+  0% {
+    opacity: 0;
+    transform:
+      translate3d(
+        calc(var(--pass-from-x) - 50%),
+        calc(var(--pass-from-y) - 50%),
+        0
+      )
+      scale(0.52);
+  }
+  14%,
+  34% {
+    opacity: 1;
+    transform:
+      translate3d(
+        calc(var(--pass-from-x) - 50%),
+        calc(var(--pass-from-y) - 50%),
+        0
+      )
+      scale(0.88);
+  }
+  70% {
+    opacity: 1;
+    transform:
+      translate3d(
+        calc(
+          var(--pass-to-x) - 50% + var(--pass-offset-x-mobile, 0px)
+        ),
+        calc(var(--pass-to-y) - 50% - 58px),
+        0
+      )
+      scale(0.82);
+  }
+  100% {
+    opacity: 0;
+    transform:
+      translate3d(
+        calc(
+          var(--pass-to-x) - 50% + var(--pass-offset-x-mobile, 0px)
+        ),
+        calc(var(--pass-to-y) - 50% - 52px),
+        0
+      )
+      scale(0.68);
+  }
+}
+
+@keyframes quickDalmutiAutoPassBannerMobile {
+  0%,
+  12% {
+    opacity: 0;
+    transform:
+      translate3d(
+        calc(var(--to-x) - 50%),
+        calc(var(--to-y) - 50% - 78px),
+        0
+      )
+      scale(0.88);
+  }
+  24%,
+  76% {
+    opacity: 1;
+    transform:
+      translate3d(
+        calc(var(--to-x) - 50%),
+        calc(var(--to-y) - 50% - 88px),
+        0
+      )
+      scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform:
+      translate3d(
+        calc(var(--to-x) - 50%),
+        calc(var(--to-y) - 50% - 92px),
+        0
+      )
+      scale(0.96);
+  }
+}
+
 .rank-bulk-button {
   display: none;
 }
@@ -5549,29 +5912,6 @@ button:focus-visible {
 .game-shell .welcome-back-button:hover {
   border-color: rgba(235, 200, 113, 0.58);
   color: #f1d996;
-}
-
-/* The light preference keeps gameplay timing intact and only trims
- * decorative work that is expensive on low-power mobile GPUs. */
-:root[data-dalmuti-effects="light"] .paper-grain,
-:root[data-dalmuti-effects="light"] [class*="grain"] {
-  opacity: 0.1 !important;
-  mix-blend-mode: normal !important;
-}
-
-:root[data-dalmuti-effects="light"]
-  .great-revolution-field-effect
-  > span:nth-of-type(n + 5),
-:root[data-dalmuti-effects="light"]
-  .dalmuti-action-effects
-  > span:nth-of-type(n + 5),
-:root[data-dalmuti-effects="light"]
-  [class*="greatRevolutionFieldEffect"]
-  > span:nth-of-type(n + 5),
-:root[data-dalmuti-effects="light"]
-  [class*="dalmutiEffectOverlay"]
-  > span:nth-of-type(n + 5) {
-  display: none !important;
 }
 
 @media (max-width: 560px) {
@@ -7580,5 +7920,75 @@ input,
   .great-revolution-field-effect::after,
   .great-revolution-field-effect > i {
     animation: none !important;
+  }
+}
+
+/* Final phone overrides sit after the desktop and short-landscape systems so
+ * the compact mobile composition cannot be undone by their shared rules. */
+@media (max-width: 800px),
+  (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
+  .game-shell.game-shell .human-status,
+  .game-shell.game-shell .human-zone.is-finished .human-status {
+    bottom: calc(100% - 18px);
+    left: calc(10px + env(safe-area-inset-left, 0px));
+    min-width: auto;
+    max-width: min(132px, 38vw);
+    gap: 5px;
+    padding: 5px 7px;
+  }
+
+  .game-shell.game-shell .human-status div:nth-child(2) {
+    display: none;
+  }
+
+  .game-shell.game-shell
+    .human-zone:not(.is-finished)
+    .hand-wrap {
+    padding-left: 0;
+  }
+
+  .game-shell.game-shell .table-cards .playing-card {
+    width: 88px;
+    height: 135px;
+  }
+
+  .game-shell.game-shell .opponent-card-stack {
+    display: none;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
+  .game-shell.game-shell .human-status,
+  .game-shell.game-shell .human-zone.is-finished .human-status {
+    bottom: calc(100% - 14px);
+    max-width: 112px;
+    padding: 4px 6px;
+  }
+
+  .game-shell.game-shell .table-cards .playing-card {
+    width: 70px;
+    height: 108px;
+  }
+
+  .game-shell.game-shell .table-card-wrap:not(:first-child) {
+    margin-left: calc(var(--table-card-overlap-mobile, -56px) + 18px);
+  }
+}
+
+@media (display-mode: standalone) and (max-width: 800px),
+  (display-mode: fullscreen) and (max-width: 800px),
+  (display-mode: standalone) and (orientation: landscape) and (max-height: 500px) and (pointer: coarse),
+  (display-mode: fullscreen) and (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
+  .game-shell.game-shell
+    .opponent-row:is(
+      [data-player-count="6"],
+      [data-player-count="7"],
+      [data-player-count="8"],
+      [data-player-count="9"],
+      [data-player-count="10"]
+    )
+    .player-copy
+    strong {
+    font-size: 7px;
   }
 }

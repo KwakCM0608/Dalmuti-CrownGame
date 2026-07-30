@@ -49,17 +49,41 @@ test("updates are offered only on safe entry screens", () => {
   assert.match(layout, /viewportFit:\s*"cover"/);
   assert.match(layout, /appleWebApp/);
   assert.doesNotMatch(layout, /MobileSplash/);
-  assert.match(layout, /<PreferenceRuntime \/>/);
+  assert.doesNotMatch(layout, /PreferenceRuntime|SettingsDialog/);
   assert.match(layout, /<PwaLifecycle \/>/);
 });
 
-test("installed Android app uses one native crown splash screen", () => {
+test("installed Android app uses branded native splash and user rotation", () => {
   const wrapper = JSON.parse(read("android-twa/twa-manifest.json"));
+  const webManifest = read("app/manifest.ts");
+  const customizer = read("android-twa/apply-native-customizations.ps1");
+  const androidSplashTheme = read(
+    "android-twa/custom/res/values-v31/styles.xml",
+  );
 
   assert.match(wrapper.iconUrl, /icon-512\.png/);
   assert.equal(wrapper.backgroundColor, "#18070c");
   assert.equal(wrapper.splashScreenFadeOutDuration, 220);
-  assert.equal(wrapper.appVersionCode, 2);
+  assert.equal(wrapper.appVersionCode, 3);
+  assert.equal(wrapper.appVersion, "1.0.2");
+  assert.equal(wrapper.orientation, "default");
+  assert.doesNotMatch(webManifest, /orientation:\s*"any"/);
+  assert.match(customizer, /SCREEN_ORIENTATION_FULL_USER/);
+  assert.match(customizer, /android:screenOrientation="fullUser"/);
+  assert.match(customizer, /DalmutiLaunchTheme/);
+  assert.match(
+    androidSplashTheme,
+    /android:windowSplashScreenBrandingImage/,
+  );
+  assert.equal(
+    fs.existsSync(
+      path.join(
+        root,
+        "android-twa/custom/res/drawable-xxxhdpi/dalmuti_splash_branding.png",
+      ),
+    ),
+    true,
+  );
 });
 
 test("required offline and install assets exist", () => {

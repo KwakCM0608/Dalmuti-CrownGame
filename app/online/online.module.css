@@ -8606,3 +8606,484 @@
     padding: 27px 19px 20px;
   }
 }
+
+/* The online chat can be placed wherever it is easiest to read. The offset is
+ * clamped in script so both pointer and touch dragging stay inside the visible
+ * viewport. */
+.chatPanel {
+  transform: translate3d(
+    var(--chat-drag-x, 0px),
+    var(--chat-drag-y, 0px),
+    0
+  );
+  will-change: transform;
+}
+
+.chatPanelDragging {
+  user-select: none;
+  transition: none;
+}
+
+.chatHeading {
+  cursor: grab;
+  touch-action: none;
+}
+
+.chatPanelDragging .chatHeading {
+  cursor: grabbing;
+}
+
+.chatHeading button {
+  cursor: pointer;
+}
+
+.chatDragHint {
+  margin-left: 1px;
+  color: rgba(232, 205, 140, 0.45);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+/* Seven-player rank draws always use a balanced 4 + 3 arrangement. Other
+ * player counts retain their existing single-row/mobile-scroll behaviour. */
+.rankChoiceCards[data-card-count="7"] {
+  --seven-rank-gap: 9px;
+
+  display: flex;
+  width: min(100%, 358px);
+  max-width: 358px;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--seven-rank-gap);
+  overflow: visible;
+  padding: 5px 0 13px;
+  margin-inline: auto;
+}
+
+.rankChoiceCards[data-card-count="7"] > .rankChoiceSlot {
+  width: calc((100% - var(--seven-rank-gap) * 3) / 4);
+  max-width: 82px;
+  flex: 0 0 calc((100% - var(--seven-rank-gap) * 3) / 4);
+}
+
+@media (max-width: 820px) {
+
+  .lobbyLayout {
+    align-items: stretch;
+  }
+
+  .lobbyIntro,
+  .lobbyPlayers {
+    width: 100%;
+  }
+}
+
+/* Mobile tables keep rank order in the same four-column sequence, but use
+ * horizontal compact seats so opponents no longer occupy the play area. */
+@media (hover: none) and (pointer: coarse) and (max-width: 820px),
+  (hover: none) and (pointer: coarse) and (orientation: landscape) and
+    (max-height: 500px) {
+  .seatRing {
+    top: 7px;
+    right: calc(6px + env(safe-area-inset-right, 0px));
+    left: calc(6px + env(safe-area-inset-left, 0px));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 3px;
+  }
+
+  .seatRing .playerSeat,
+  .seatRing .playerSeat[data-rank-number="5"],
+  .seatRing .playerSeat[data-rank-number="6"],
+  .seatRing .playerSeat[data-rank-number="7"],
+  .seatRing .playerSeat[data-rank-number="8"] {
+    display: grid;
+    min-height: 39px;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 8px;
+    text-align: left;
+  }
+
+  .seatRing .playerSeat .avatar,
+  .seatRing .playerSeat[data-rank-number="5"] .avatar,
+  .seatRing .playerSeat[data-rank-number="6"] .avatar,
+  .seatRing .playerSeat[data-rank-number="7"] .avatar,
+  .seatRing .playerSeat[data-rank-number="8"] .avatar {
+    display: grid;
+    width: 21px;
+    height: 21px;
+    font-size: 7px;
+  }
+
+  .seatRing .playerSeat .avatar i {
+    top: -4px;
+    right: -4px;
+    width: 12px;
+    height: 12px;
+    font-size: 6px;
+  }
+
+  .seatRing .playerCopy strong {
+    max-width: none;
+    font-size: 8px;
+  }
+
+  .seatRing .playerCopy em,
+  .seatRing .handCount em {
+    display: none;
+  }
+
+  .seatRing .handCount b {
+    font-size: 8px;
+  }
+
+  .seatRing .seatRevealCards {
+    display: none;
+  }
+
+  .seatRing[data-player-count="6"],
+  .seatRing[data-player-count="7"],
+  .seatRing[data-player-count="8"] {
+    top: 5px;
+    gap: 2px;
+  }
+
+  .seatRing[data-player-count="6"] .playerSeat,
+  .seatRing[data-player-count="7"] .playerSeat,
+  .seatRing[data-player-count="8"] .playerSeat {
+    min-height: 32px;
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+    gap: 3px;
+    padding: 2px 3px;
+    border-radius: 7px;
+  }
+
+  .seatRing[data-player-count="6"] .playerSeat .avatar,
+  .seatRing[data-player-count="7"] .playerSeat .avatar,
+  .seatRing[data-player-count="8"] .playerSeat .avatar {
+    width: 17px;
+    height: 17px;
+    font-size: 6px;
+  }
+
+  .seatRing[data-player-count="6"] .playerCopy strong,
+  .seatRing[data-player-count="7"] .playerCopy strong,
+  .seatRing[data-player-count="8"] .playerCopy strong {
+    font-size: 7px;
+  }
+
+  .seatRing[data-player-count="6"] .handCount b,
+  .seatRing[data-player-count="7"] .handCount b,
+  .seatRing[data-player-count="8"] .handCount b {
+    font-size: 7px;
+  }
+
+  .lobbyLayout {
+    align-items: stretch;
+  }
+
+  .lobbyPlayers {
+    width: 100%;
+    align-self: stretch;
+  }
+}
+
+/* The installed mobile app gets one additional type-size step. */
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse) {
+  .seatRing .playerCopy strong {
+    font-size: 7px;
+  }
+
+  .seatRing[data-player-count="6"] .playerCopy strong,
+  .seatRing[data-player-count="7"] .playerCopy strong,
+  .seatRing[data-player-count="8"] .playerCopy strong {
+    font-size: 6px;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .lobbyLayout {
+    display: flex;
+    width: min(780px, calc(100% - 24px));
+    flex-direction: column;
+    align-items: stretch;
+    gap: 22px;
+  }
+
+  .lobbyIntro,
+  .lobbyPlayers {
+    width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  .rankChoiceCards[data-card-count="7"] {
+    --seven-rank-gap: 7px;
+
+    width: min(100%, 344px);
+    max-width: 344px;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) and (max-width: 820px),
+  (hover: none) and (pointer: coarse) and (orientation: landscape) and
+    (max-height: 500px) {
+  /* Reserve a real column for the local status instead of floating it over the
+   * first cards in the hand. */
+  .ownDock:not(.ownDockFinished) {
+    display: grid;
+    grid-template-columns: 118px minmax(0, 1fr);
+    align-items: end;
+    column-gap: 5px;
+  }
+
+  .ownDock:not(.ownDockFinished) > .playerSeatSelf {
+    position: relative;
+    top: auto;
+    bottom: auto;
+    left: auto;
+    width: 116px;
+    min-height: 39px;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    gap: 4px;
+    padding: 4px;
+  }
+
+  .ownDock:not(.ownDockFinished) > .playerSeatSelf .avatar {
+    width: 21px;
+    height: 21px;
+    font-size: 7px;
+  }
+
+  .ownDock:not(.ownDockFinished) > .playerSeatSelf .playerCopy strong {
+    max-width: none;
+    font-size: 8px;
+  }
+
+  .ownDock:not(.ownDockFinished) > .playerSeatSelf .playerCopy em,
+  .ownDock:not(.ownDockFinished) > .playerSeatSelf .handCount em {
+    display: none;
+  }
+
+  .ownDock:not(.ownDockFinished) > .playerSeatSelf .handCount b {
+    font-size: 8px;
+  }
+
+  .ownDock:not(.ownDockFinished) .handScroller {
+    padding-left: 0;
+    scroll-padding-left: 8px;
+  }
+
+  .ownDock:not(.ownDockFinished) .hand {
+    min-width: max-content;
+    padding-left: 5px;
+  }
+
+  /* The selected card and role are treated as one centred reveal on phones. */
+  .rankConfirmationBody {
+    width: min(300px, 86vw);
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: 9px;
+    margin-top: 9px;
+  }
+
+  .rankConfirmationCard {
+    width: 54px;
+  }
+
+  .rankConfirmationCopy {
+    justify-items: center;
+    text-align: center;
+  }
+
+  .rankConfirmationCopy strong {
+    font-size: clamp(31px, 10vw, 43px);
+  }
+
+  .rankConfirmationCopy em {
+    margin-top: 6px;
+  }
+
+  /* A slightly smaller field card leaves room for status copy and the timer. */
+  .tableCards {
+    --table-card-width: 82px;
+    --table-card-step: min(var(--table-card-step-small, 43px), 43px);
+
+    min-height: 126px;
+  }
+
+  .tableCards .card {
+    width: 82px;
+    height: 126px;
+    border-radius: 9px;
+  }
+
+  /* Keep every part of the royal effect inside the mobile table. */
+  .dalmutiEffectOverlay::before {
+    width: min(620px, 96vw, 92dvh);
+  }
+
+  .dalmutiEffectOverlay::after {
+    width: min(330px, 78vw, 70dvh);
+  }
+
+  .dalmutiEffectOverlay > small {
+    top: calc(var(--center-y) - 104px);
+  }
+
+  .dalmutiEffectOverlay.playOverlay .eventCardWrap {
+    --event-card-half-width: 41px;
+    --event-card-half-height: 63px;
+  }
+
+  .dalmutiEffectOverlay.playOverlay .eventCards .card {
+    width: 82px;
+    height: 126px;
+    border-radius: 9px;
+  }
+
+  .dalmutiEffectOverlay > strong {
+    top: calc(var(--center-y) + 70px);
+    max-width: calc(100% - 26px);
+    font-size: clamp(31px, 11vw, 44px);
+  }
+
+  .dalmutiEffectOverlay > span {
+    top: calc(var(--center-y) + 116px);
+    width: calc(100% - 30px);
+    font-size: 8px;
+  }
+
+  .dalmutiEffectOverlay > b {
+    top: calc(var(--center-y) + 151px);
+    max-width: calc(100% - 24px);
+    font-size: 8px;
+    white-space: nowrap;
+  }
+
+  .dalmutiEffectOverlay .autoPassPlayers i {
+    min-width: 70px;
+    padding: 5px 7px;
+    font-size: 6px;
+    animation-name: onlineDalmutiAutoPassMobile;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) and (orientation: landscape) and
+  (max-height: 500px) {
+  .tableCards {
+    --table-card-width: 70px;
+    --table-card-step: min(var(--table-card-step-small, 38px), 38px);
+
+    min-height: 108px;
+  }
+
+  .tableCards .card {
+    width: 70px;
+    height: 108px;
+  }
+
+  .rankConfirmation {
+    min-height: 190px;
+    padding-block: 12px;
+  }
+
+  .rankConfirmationBody {
+    width: min(280px, 76vw);
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: 6px;
+  }
+
+  .rankConfirmationCard {
+    width: 46px;
+  }
+
+  .rankConfirmationCopy {
+    justify-items: center;
+    text-align: center;
+  }
+
+  .rankConfirmationCopy strong {
+    font-size: clamp(27px, 8vh, 38px);
+  }
+
+  .dalmutiEffectOverlay > small {
+    top: calc(var(--center-y) - 82px);
+  }
+
+  .dalmutiEffectOverlay.playOverlay .eventCardWrap {
+    --event-card-half-width: 35px;
+    --event-card-half-height: 54px;
+  }
+
+  .dalmutiEffectOverlay.playOverlay .eventCards .card {
+    width: 70px;
+    height: 108px;
+  }
+
+  .dalmutiEffectOverlay > strong {
+    top: calc(var(--center-y) + 57px);
+    font-size: clamp(28px, 10vh, 40px);
+  }
+
+  .dalmutiEffectOverlay > span {
+    top: calc(var(--center-y) + 94px);
+  }
+
+  .dalmutiEffectOverlay > b {
+    top: calc(var(--center-y) + 119px);
+  }
+}
+
+@keyframes onlineDalmutiAutoPassMobile {
+  0% {
+    opacity: 0;
+    transform:
+      translate3d(
+        calc(var(--pass-x) - 35px),
+        calc(var(--pass-y) - 15px),
+        0
+      )
+      scale(0.58);
+  }
+  14%,
+  34% {
+    opacity: 1;
+    transform:
+      translate3d(
+        calc(var(--pass-x) - 35px),
+        calc(var(--pass-y) - 15px),
+        0
+      )
+      scale(0.9);
+  }
+  70% {
+    opacity: 1;
+    transform:
+      translate3d(
+        calc(
+          var(--center-x) - 35px + var(--pass-mobile-offset-x, 0px)
+        ),
+        calc(var(--center-y) - 86px),
+        0
+      )
+      scale(0.82);
+  }
+  100% {
+    opacity: 0;
+    transform:
+      translate3d(
+        calc(
+          var(--center-x) - 35px + var(--pass-mobile-offset-x, 0px)
+        ),
+        calc(var(--center-y) - 80px),
+        0
+      )
+      scale(0.7);
+  }
+}

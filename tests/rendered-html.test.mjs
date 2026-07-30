@@ -38,8 +38,9 @@ test("server-renders the playable Dalmuti prototype", async () => {
   assert.doesNotMatch(html, /네 명의 AI와(?: 함께)? 바로 한 판을 시작합니다/);
   assert.match(html, />빠른 대전</);
   assert.match(html, />온라인 모드</);
-  assert.match(html, />환경설정</);
-  assert.match(html, />규칙</);
+  assert.match(html, />게임 규칙</);
+  assert.match(html, />크레딧</);
+  assert.doesNotMatch(html, />환경설정</);
   assert.doesNotMatch(html, /빠른 대전 플레이 인원/);
   assert.match(html, /<link rel="icon" href="\/brand-dalmuti-crown\.png"\/>/);
   assert.match(html, /누적 점수/);
@@ -85,8 +86,10 @@ test("ships without the disposable starter preview", async () => {
   assert.doesNotMatch(page, /DCLab의 계급전/);
   assert.match(page, /type LandingView = "main" \| "quick-setup"/);
   assert.match(page, />온라인 모드</);
-  assert.match(page, />환경설정</);
-  assert.match(page, /SettingsDialog/);
+  assert.match(page, />게임 규칙</);
+  assert.match(page, />크레딧</);
+  assert.match(page, /CreditsDialog/);
+  assert.doesNotMatch(page, /SettingsDialog|환경설정/);
   assert.match(styles, /brand-dalmuti-crown\.png/);
   assert.match(page, /function createDeck/);
   assert.match(page, /function applyTax/);
