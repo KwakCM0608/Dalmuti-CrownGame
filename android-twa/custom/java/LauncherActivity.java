@@ -10,16 +10,9 @@ package lab.dclab.dalmuti;
 
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
-import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.provider.Settings;
-import android.view.View;
-import android.view.animation.DecelerateInterpolator;
-import android.widget.FrameLayout;
-import android.widget.ImageView;
 
 import androidx.browser.customtabs.CustomTabsCallback;
 import androidx.browser.trusted.ScreenOrientation;
@@ -33,20 +26,6 @@ import com.google.androidbrowserhelper.trusted.splashscreens.SplashScreenStrateg
 
 public class LauncherActivity
         extends com.google.androidbrowserhelper.trusted.LauncherActivity {
-
-    // Android 12's mandatory starting window is folded into the first black
-    // frame. The branded reveal then gets a settled beat before Chrome's
-    // 180 ms hand-off, for a single presentation of roughly 1.8 seconds.
-    private static final long SYSTEM_SPLASH_EXIT_DURATION_MS = 180L;
-    private static final long SPLASH_REVEAL_DELAY_MS = 120L;
-    private static final long SPLASH_REVEAL_DURATION_MS = 1150L;
-    private static final long SPLASH_GLOW_REVEAL_DELAY_MS = 60L;
-    private static final long SPLASH_GLOW_REVEAL_DURATION_MS = 1250L;
-    private static final long SPLASH_GLOW_SETTLE_DURATION_MS = 220L;
-    private static final long SPLASH_HANDOFF_AT_MS = 1600L;
-
-    private final Handler splashHandler = new Handler(Looper.getMainLooper());
-    private boolean nativeLaunchDispatched;
 
     private boolean isSystemAutoRotateEnabled() {
         try {
@@ -82,123 +61,9 @@ public class LauncherActivity
                 : currentTwaOrientation();
     }
 
-    private ImageView splashLayer(int drawableId) {
-        ImageView layer = new ImageView(this);
-        layer.setImageResource(drawableId);
-        layer.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        layer.setLayoutParams(
-                new FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.MATCH_PARENT
-                )
-        );
-        return layer;
-    }
-
-    private void configureSystemSplashExit() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            return;
-        }
-        getSplashScreen().setOnExitAnimationListener(
-                splashScreenView ->
-                        splashScreenView.animate()
-                                .alpha(0f)
-                                .setDuration(
-                                        SYSTEM_SPLASH_EXIT_DURATION_MS
-                                )
-                                .setInterpolator(
-                                        new DecelerateInterpolator(1.35f)
-                                )
-                                .withEndAction(splashScreenView::remove)
-                                .start()
-        );
-    }
-
-    private void showNativeSplash() {
-        getWindow().setStatusBarColor(Color.BLACK);
-        getWindow().setNavigationBarColor(Color.BLACK);
-        getWindow().setBackgroundDrawableResource(android.R.color.black);
-
-        FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(Color.BLACK);
-
-        ImageView glow = splashLayer(R.drawable.dalmuti_splash_glow_v4);
-        glow.setAlpha(0f);
-        glow.setScaleX(0.90f);
-        glow.setScaleY(0.90f);
-
-        ImageView artwork = splashLayer(R.drawable.dalmuti_splash_v4);
-        artwork.setAlpha(0f);
-        artwork.setScaleX(0.94f);
-        artwork.setScaleY(0.94f);
-
-        root.addView(glow);
-        root.addView(artwork);
-        setContentView(root);
-
-        glow.setLayerType(View.LAYER_TYPE_HARDWARE, null);
-        glow.animate()
-                .alpha(0.48f)
-                .scaleX(1.035f)
-                .scaleY(1.035f)
-                .setStartDelay(SPLASH_GLOW_REVEAL_DELAY_MS)
-                .setDuration(SPLASH_GLOW_REVEAL_DURATION_MS)
-                .setInterpolator(new DecelerateInterpolator(1.5f))
-                .withEndAction(
-                        () ->
-                                glow.animate()
-                                        .alpha(0f)
-                                        .scaleX(1f)
-                                        .scaleY(1f)
-                                        .setDuration(
-                                                SPLASH_GLOW_SETTLE_DURATION_MS
-                                        )
-                                        .setInterpolator(
-                                                new DecelerateInterpolator(
-                                                        1.35f
-                                                )
-                                        )
-                                        .withEndAction(
-                                                () ->
-                                                        glow.setLayerType(
-                                                                View.LAYER_TYPE_NONE,
-                                                                null
-                                                        )
-                                        )
-                                        .start()
-                )
-                .start();
-
-        artwork.setLayerType(View.LAYER_TYPE_HARDWARE, null);
-        artwork.animate()
-                .alpha(1f)
-                .scaleX(1f)
-                .scaleY(1f)
-                .setStartDelay(SPLASH_REVEAL_DELAY_MS)
-                .setDuration(SPLASH_REVEAL_DURATION_MS)
-                .setInterpolator(new DecelerateInterpolator(1.35f))
-                .withEndAction(
-                        () -> artwork.setLayerType(View.LAYER_TYPE_NONE, null)
-                )
-                .start();
-    }
-
-    private void launchTwaOnce() {
-        if (nativeLaunchDispatched || isFinishing()) {
-            return;
-        }
-        nativeLaunchDispatched = true;
-        launchTwa();
-    }
-
-    @Override
-    protected ImageView.ScaleType getSplashImageScaleType() {
-        return ImageView.ScaleType.FIT_CENTER;
-    }
-
     @Override
     protected boolean shouldLaunchImmediately() {
-        return false;
+        return true;
     }
 
     @Override
@@ -213,24 +78,6 @@ public class LauncherActivity
             );
         }
         super.onCreate(savedInstanceState);
-        configureSystemSplashExit();
-
-        // The superclass persists browser-launch completion and finishes a
-        // recreated activity only after that callback has actually fired.
-        // Keep this guard instance-local so recreation during provider binding
-        // cannot restore a premature "dispatched" state and stall the launch.
-        if (isFinishing()) {
-            return;
-        }
-
-        showNativeSplash();
-        splashHandler.postDelayed(this::launchTwaOnce, SPLASH_HANDOFF_AT_MS);
-    }
-
-    @Override
-    protected void onDestroy() {
-        splashHandler.removeCallbacksAndMessages(null);
-        super.onDestroy();
     }
 
     @Override
@@ -254,7 +101,7 @@ public class LauncherActivity
                 super.launch(
                         builder,
                         customTabsCallback,
-                        splashScreenStrategy,
+                        null,
                         completionCallback,
                         fallbackStrategy
                 );

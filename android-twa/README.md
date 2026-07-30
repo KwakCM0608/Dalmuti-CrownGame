@@ -14,28 +14,28 @@ PWA-only splash without changing game routing or state.
 
 After Bubblewrap generates or updates the Android project, run
 `apply-native-customizations.ps1` before building. It installs the versioned
-Android-only launcher icon, turns Android 12's mandatory first frame into the
-black opening frame of the animation, and reveals one complete DALMUTI splash
-from darkness before a seamless TWA hand-off. The opaque black system drawable
-prevents Android from substituting the launcher icon, while the controlled exit
-fade makes the native reveal feel continuous. The controlled native-to-Chrome
-transition is about 1.8 seconds; a slow browser bind or web load can keep the
-same final splash frame visible longer without replaying the branding.
-The custom launcher reads
+Android-only launcher icon and removes Browser Helper's branded splash
+metadata. Android 12+ still requires a platform-owned starting window, so its
+background and 1 dp placeholder icon are both opaque black; the wrapper adds
+no artwork, animation, or delay. Android 8 through 11 use the same black window
+background while Browser Helper opens the TWA immediately. A slow browser bind
+can therefore leave a plain black frame visible briefly, but no custom splash
+image is packaged or shown. The custom launcher reads
 the system auto-rotate preference on every launch: sensor rotation is enabled
 only when the device setting is enabled, otherwise the current portrait or
 landscape orientation is locked in both the wrapper and the launched TWA.
 
 The approved source artwork lives in `android-twa/assets`. Regenerate the
-committed density-specific icon and splash resources with
-`scripts/build_android_splash_assets.py` after replacing a versioned source.
+committed density-specific launcher icons with
+`scripts/build_android_splash_assets.py` after replacing the versioned icon
+source. The historical splash source remains unreferenced and is not packaged.
 
-The current test package is version `1.0.7` (`versionCode` 8), signed with the
+The current test package is version `1.0.8` (`versionCode` 9), signed with the
 same local test key so it can update the previous test APK in place.
 After building, run `verify-built-apk.ps1 -ApkPath <path-to-apk>`. It requires
-the v8 customization proof and the versioned icon v3, splash v4, and glow
-resources
-inside the APK, and rejects the previous resource names.
+the v9 customization proof, the versioned icon v3, and the black Android 12+
+placeholder. It also rejects Browser Helper splash metadata and branded splash
+or glow resources.
 
 This build is intended for private device testing. Public app-store
 distribution requires separate rights clearance for the game name, artwork,

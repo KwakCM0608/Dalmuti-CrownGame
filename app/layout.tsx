@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
-import { InstalledPwaSplash } from "@/app/components/InstalledPwaSplash";
 import { PwaLifecycle } from "@/app/components/PwaLifecycle";
 import "./globals.css";
 
@@ -72,9 +71,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko" suppressHydrationWarning>
+    <html lang="ko">
       <body>
-        <InstalledPwaSplash />
         {children}
         <PwaLifecycle />
       </body>

@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Android 12+ always owns the first launch frame. An opaque black drawable
-     prevents the platform from substituting the launcher icon, making that
-     frame the beginning of the custom black-to-logo reveal instead of a
-     separate branded splash. -->
+<!-- Android 12+ always owns the first launch frame. This opaque black drawable
+     prevents the platform from substituting branded launcher artwork while
+     Browser Helper immediately opens the TWA. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <solid android:color="@android:color/black" />

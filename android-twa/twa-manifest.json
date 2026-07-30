@@ -15,13 +15,13 @@
   "startUrl": "/?source=android-twa",
   "iconUrl": "https://dalmuti-crown-game.byj010608.chatgpt.site/pwa/icon-512.png",
   "maskableIconUrl": "https://dalmuti-crown-game.byj010608.chatgpt.site/pwa/icon-maskable-512.png",
-  "splashScreenFadeOutDuration": 180,
+  "splashScreenFadeOutDuration": 0,
   "signingKey": {
     "path": "../.android-tools/signing/dalmuti-local-test.jks",
     "alias": "dalmuti"
   },
-  "appVersionCode": 8,
-  "appVersion": "1.0.7",
+  "appVersionCode": 9,
+  "appVersion": "1.0.8",
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
   "webManifestUrl": "https://dalmuti-crown-game.byj010608.chatgpt.site/manifest.webmanifest",

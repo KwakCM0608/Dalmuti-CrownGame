@@ -55,10 +55,10 @@ $badging = $badgingLines -join "`n"
 if (
     $badging -notmatch (
         "package: name='lab\.dclab\.dalmuti' " +
-        "versionCode='8' versionName='1\.0\.7'"
+        "versionCode='9' versionName='1\.0\.8'"
     )
 ) {
-    throw "APK package or version does not match DALMUTI Android 1.0.7 (8)."
+    throw "APK package or version does not match DALMUTI Android 1.0.8 (9)."
 }
 
 $resourceTableLines = @(& $resolvedAapt dump resources $resolvedApk 2>&1)
@@ -99,12 +99,12 @@ try {
     $proofEntries = @(
         $entries |
             Where-Object {
-                $_.FullName -eq "assets/dalmuti-native-assets-v8.json"
+                $_.FullName -eq "assets/dalmuti-native-assets-v9.json"
             }
     )
     if ($proofEntries.Count -ne 1) {
         throw (
-            "APK does not contain exactly one DALMUTI v8 packaging proof. " +
+            "APK does not contain exactly one DALMUTI v9 packaging proof. " +
             "Run apply-native-customizations.ps1 before building."
         )
     }
@@ -121,13 +121,15 @@ try {
     }
 
     $expectedProof = [ordered]@{
+        schemaVersion = 2
         packageId = "lab.dclab.dalmuti"
-        appVersion = "1.0.7"
-        versionCode = 8
+        appVersion = "1.0.8"
+        versionCode = 9
         launcherIconResource = "@mipmap/dalmuti_app_icon_v3"
-        splashResource = "@drawable/dalmuti_splash_v4"
+        systemSplashResource = "@drawable/dalmuti_splash_os_black_v4"
+        browserHelperSplashDisabled = $true
         iconSourceSha256 = "5c953737fb31f5a8ed8e2d7f53a75681e5b37a0fcf8db55a743206260f6d7946"
-        splashSourceSha256 = "13fadbea989e85980994d185b44f4a4215f3df59e075d1bdf6056a820756631f"
+        launcherSourceSha256 = "8b5f1f17d5fb3c97f750af951fa5bfd13a3543921b50611bc472362ee45142f3"
     }
     foreach ($entry in $expectedProof.GetEnumerator()) {
         if ([string]$proof.($entry.Key) -ne [string]$entry.Value) {
@@ -144,8 +146,6 @@ try {
     $expectedResourceCounts = [ordered]@{
         "lab.dclab.dalmuti:mipmap/dalmuti_app_icon_v3" = 7
         "lab.dclab.dalmuti:mipmap/dalmuti_app_icon_maskable_v3" = 6
-        "lab.dclab.dalmuti:drawable/dalmuti_splash_v4" = 6
-        "lab.dclab.dalmuti:drawable/dalmuti_splash_glow_v4" = 6
         "lab.dclab.dalmuti:drawable/dalmuti_splash_os_black_v4" = 2
     }
     foreach ($entry in $expectedResourceCounts.GetEnumerator()) {
@@ -171,21 +171,21 @@ try {
         "spec resource (0x[0-9a-f]+) " +
             "lab\.dclab\.dalmuti:drawable/dalmuti_splash_os_black_v4"
     )
-    $brandedSplashSpec = [regex]::Match(
+    $backgroundColorSpec = [regex]::Match(
         $resourceTable,
         "spec resource (0x[0-9a-f]+) " +
-            "lab\.dclab\.dalmuti:drawable/dalmuti_splash_v4"
+            "lab\.dclab\.dalmuti:color/backgroundColor"
     )
     if (
         -not $themeSpec.Success -or
         -not $osBlackSpec.Success -or
-        -not $brandedSplashSpec.Success
+        -not $backgroundColorSpec.Success
     ) {
-        throw "APK resource IDs for the launch theme or splash are missing."
+        throw "APK resource IDs for the black launch theme are missing."
     }
     $themeId = $themeSpec.Groups[1].Value
     $osBlackId = $osBlackSpec.Groups[1].Value
-    $brandedSplashId = $brandedSplashSpec.Groups[1].Value
+    $backgroundColorId = $backgroundColorSpec.Groups[1].Value
 
     $launcherThemePattern = (
         "(?s)E: activity.*?" +
@@ -195,19 +195,25 @@ try {
     if ($manifestTree -notmatch $launcherThemePattern) {
         throw "Compiled LauncherActivity does not use DalmutiLaunchTheme."
     }
-    $browserSplashPattern = (
-        "(?s)SPLASH_IMAGE_DRAWABLE.*?" +
-        "A: android:resource[^`n]*=@$brandedSplashId"
-    )
-    if ($manifestTree -notmatch $browserSplashPattern) {
-        throw "Compiled Browser Helper metadata does not use splash v4."
+    foreach ($metadataName in @(
+        "SPLASH_IMAGE_DRAWABLE",
+        "SPLASH_SCREEN_BACKGROUND_COLOR",
+        "SPLASH_SCREEN_FADE_OUT_DURATION"
+    )) {
+        if ($manifestTree.Contains($metadataName)) {
+            throw (
+                "Compiled manifest still enables Browser Helper splash: " +
+                $metadataName
+            )
+        }
     }
     $v31BlackThemePattern = (
         "(?s)resource $themeId " +
-        "lab\.dclab\.dalmuti:style/DalmutiLaunchTheme: <bag>.*?" +
+            "lab\.dclab\.dalmuti:style/DalmutiLaunchTheme: <bag>.*?" +
+        "Key=0x0101062c[^`n]*$backgroundColorId.*?" +
         "Key=0x0101062d[^`n]*$osBlackId.*?" +
         "Key=0x0101062e[^`n]*0x00000000.*?" +
-        "Key=0x01010630"
+        "Key=0x01010630[^`n]*0x0106000c"
     )
     if ($resourceValues -notmatch $v31BlackThemePattern) {
         throw (
@@ -221,6 +227,8 @@ try {
         "mipmap/ic_maskable",
         "drawable/splash",
         "drawable/splash_glow",
+        "drawable/dalmuti_splash_v4",
+        "drawable/dalmuti_splash_glow_v4",
         "drawable/dalmuti_splash_transparent",
         "drawable/dalmuti_splash_transparent_v4"
     )) {
@@ -238,8 +246,8 @@ try {
     }
 
     Write-Output (
-        "Verified DALMUTI Android 1.0.7 (8): versioned icon, splash, " +
-        "glow, and customization proof are packaged."
+        "Verified DALMUTI Android 1.0.8 (9): immediate unbranded launch, " +
+        "black Android 12+ system frame, and customization proof."
     )
 } finally {
     $archive.Dispose()

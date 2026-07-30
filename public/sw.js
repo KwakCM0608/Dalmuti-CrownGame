@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "dalmuti-pwa";
-const CACHE_VERSION = "2026-07-30-pwa-brand-v2";
+const CACHE_VERSION = "2026-07-31-pwa-no-web-splash-v3";
 const PRECACHE = `${CACHE_PREFIX}-precache-${CACHE_VERSION}`;
 const RUNTIME = `${CACHE_PREFIX}-runtime-${CACHE_VERSION}`;
 const OFFLINE_URL = "/offline.html";
@@ -16,7 +16,6 @@ const PRECACHE_URLS = [
   "/pwa/icon-v2-1024.png",
   "/pwa/icon-maskable-v2-512.png",
   "/pwa/apple-touch-icon-v2.png",
-  "/pwa/installed-splash-v2.webp",
   "/cards/back.webp",
 ];
 

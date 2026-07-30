@@ -18,8 +18,8 @@ $launcherPath = Join-Path `
     $generatedRoot `
     "app\src\main\java\lab\dclab\dalmuti\LauncherActivity.java"
 $launcherIconResource = "@mipmap/dalmuti_app_icon_v3"
-$splashResource = "@drawable/dalmuti_splash_v4"
-$nativeProofFileName = "dalmuti-native-assets-v8.json"
+$systemSplashResource = "@drawable/dalmuti_splash_os_black_v4"
+$nativeProofFileName = "dalmuti-native-assets-v9.json"
 
 foreach ($requiredPath in @(
     $resourceSource,
@@ -40,6 +40,8 @@ $obsoleteResourceNames = @(
     "ic_launcher.xml",
     "splash.png",
     "splash_glow.png",
+    "dalmuti_splash_v4.png",
+    "dalmuti_splash_glow_v4.png",
     "dalmuti_splash_transparent.xml",
     "dalmuti_splash_transparent_v4.xml"
 )
@@ -57,6 +59,30 @@ Copy-Item `
     -LiteralPath $launcherTemplatePath `
     -Destination $launcherPath `
     -Force
+$launcherSourceRawHash = (
+    Get-FileHash -Algorithm SHA256 -LiteralPath $launcherTemplatePath
+).Hash.ToLowerInvariant()
+$launcherTargetRawHash = (
+    Get-FileHash -Algorithm SHA256 -LiteralPath $launcherPath
+).Hash.ToLowerInvariant()
+if ($launcherSourceRawHash -ne $launcherTargetRawHash) {
+    throw "Native LauncherActivity hash mismatch after copy."
+}
+$launcherCanonicalText = (
+    [System.IO.File]::ReadAllText($launcherTemplatePath)
+).Replace("`r`n", "`n").Replace("`r", "`n")
+$launcherHashAlgorithm = [System.Security.Cryptography.SHA256]::Create()
+try {
+    $launcherSourceHash = (
+        [System.BitConverter]::ToString(
+            $launcherHashAlgorithm.ComputeHash(
+                $utf8NoBom.GetBytes($launcherCanonicalText)
+            )
+        )
+    ).Replace("-", "").ToLowerInvariant()
+} finally {
+    $launcherHashAlgorithm.Dispose()
+}
 
 $manifestSource = Get-Content -LiteralPath $manifestPath -Raw
 $launcherActivityPattern = '(?s)<activity\s+android:name="LauncherActivity".*?>'
@@ -133,19 +159,23 @@ $manifestSource = $manifestSource.Replace(
     $applicationTag
 )
 
-$splashMetadataPattern = (
-    '(?s)(<meta-data\b(?=[^>]*android:name="' +
-    'android\.support\.customtabs\.trusted\.SPLASH_IMAGE_DRAWABLE"' +
-    ')[^>]*android:resource=")[^"]+(")'
+$browserHelperSplashMetadataNames = @(
+    "android.support.customtabs.trusted.SPLASH_IMAGE_DRAWABLE",
+    "android.support.customtabs.trusted.SPLASH_SCREEN_BACKGROUND_COLOR",
+    "android.support.customtabs.trusted.SPLASH_SCREEN_FADE_OUT_DURATION"
 )
-if (-not [regex]::IsMatch($manifestSource, $splashMetadataPattern)) {
-    throw "Could not find Browser Helper's splash resource metadata."
+foreach ($metadataName in $browserHelperSplashMetadataNames) {
+    $metadataPattern = (
+        '(?s)\s*<meta-data\b(?=[^>]*android:name="' +
+        [regex]::Escape($metadataName) +
+        '")[^>]*/>'
+    )
+    $manifestSource = [regex]::Replace(
+        $manifestSource,
+        $metadataPattern,
+        ""
+    )
 }
-$manifestSource = [regex]::Replace(
-    $manifestSource,
-    $splashMetadataPattern,
-    "`${1}$splashResource`${2}"
-)
 
 if (
     -not $manifestSource.Contains(
@@ -153,12 +183,14 @@ if (
     ) -or
     -not $manifestSource.Contains(
         "android:roundIcon=`"$launcherIconResource`""
-    ) -or
-    -not $manifestSource.Contains(
-        "android:resource=`"$splashResource`""
     )
 ) {
-    throw "Versioned DALMUTI icon or splash references were not installed."
+    throw "Versioned DALMUTI launcher icon references were not installed."
+}
+foreach ($metadataName in $browserHelperSplashMetadataNames) {
+    if ($manifestSource.Contains($metadataName)) {
+        throw "Browser Helper splash metadata was not removed: $metadataName"
+    }
 }
 [System.IO.File]::WriteAllText($manifestPath, $manifestSource, $utf8NoBom)
 
@@ -224,14 +256,15 @@ Get-ChildItem `
     -ErrorAction SilentlyContinue |
     Remove-Item -Force
 $nativeProof = [ordered]@{
-    schemaVersion = 1
+    schemaVersion = 2
     packageId = "lab.dclab.dalmuti"
-    appVersion = "1.0.7"
-    versionCode = 8
+    appVersion = "1.0.8"
+    versionCode = 9
     launcherIconResource = $launcherIconResource
-    splashResource = $splashResource
+    systemSplashResource = $systemSplashResource
+    browserHelperSplashDisabled = $true
     iconSourceSha256 = "5c953737fb31f5a8ed8e2d7f53a75681e5b37a0fcf8db55a743206260f6d7946"
-    splashSourceSha256 = "13fadbea989e85980994d185b44f4a4215f3df59e075d1bdf6056a820756631f"
+    launcherSourceSha256 = $launcherSourceHash
     resourceTreeSha256 = $resourceTreeHash
 }
 $nativeProofPath = Join-Path $assetTarget $nativeProofFileName
@@ -242,6 +275,6 @@ $nativeProofPath = Join-Path $assetTarget $nativeProofFileName
 )
 
 Write-Output (
-    "Applied DALMUTI Android assets v8 and wrote packaging proof: " +
+    "Applied DALMUTI Android assets v9 with Browser Helper splash disabled: " +
     $nativeProofPath
 )

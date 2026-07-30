@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Android 12+ always draws a system-owned first frame. Use an opaque
-         black-on-black drawable so the platform cannot substitute the
-         launcher icon. LauncherActivity fades this frame directly into the
-         one complete DALMUTI reveal. -->
+    <!-- Android 12+ always draws a system-owned starting window. Keep that
+         mandatory frame black-on-black and animation-free, then let Browser
+         Helper launch the TWA immediately. -->
     <style name="DalmutiLaunchTheme" parent="@android:style/Theme.Translucent.NoTitleBar">
         <item name="android:windowSplashScreenBackground">@color/backgroundColor</item>
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/dalmuti_splash_os_black_v4</item>
