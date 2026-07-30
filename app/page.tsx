@@ -12,6 +12,7 @@ import { selectPeonTaxCards } from "@/lib/taxation";
 import { rankedDealCounts } from "@/lib/dealing";
 import { resolveQuickDalmutiAutoPass } from "@/lib/quick-dalmuti";
 import { scoreChipCount } from "@/lib/score-chips";
+import { roundChipAward } from "@/lib/round-score";
 import { toggleWholeRankSelection } from "@/lib/selection";
 import {
   BOT_DIFFICULTIES,
@@ -286,12 +287,21 @@ function seatPosition(rankIndex: number, total: number): React.CSSProperties {
   const angle =
     total <= 1 ? 270 : 150 + (240 * rankIndex) / Math.max(1, total - 1);
   const radians = (angle * Math.PI) / 180;
-  const compactColumns = Math.min(5, total);
+  const compactColumns =
+    total >= 9 ? 5 : total >= 7 ? 4 : total >= 6 ? 3 : total;
+  const bottomCount = Math.max(0, total - compactColumns);
+  const isBottomRow = bottomCount > 0 && rankIndex >= compactColumns;
+  const compactColumnStart = isBottomRow
+    ? compactColumns -
+      bottomCount +
+      (rankIndex - compactColumns) * 2 +
+      1
+    : rankIndex * 2 + 1;
   return {
     "--seat-x": `${50 + Math.cos(radians) * 42}%`,
     "--seat-y": `${46 + Math.sin(radians) * 34}%`,
-    "--seat-grid-column": (rankIndex % compactColumns) + 1,
-    "--seat-grid-row": Math.floor(rankIndex / compactColumns) + 1,
+    "--seat-grid-column": `${compactColumnStart} / span 2`,
+    "--seat-grid-row": isBottomRow ? 3 : 1,
   } as React.CSSProperties;
 }
 
@@ -846,7 +856,10 @@ function playCards(state: GameState, playerId: string, cardIds: string[]): GameS
 
   if (hands[playerId].length === 0) {
     finishOrder.push(playerId);
-    scores[playerId] += state.players.length - finishOrder.length;
+    scores[playerId] += roundChipAward(
+      finishOrder.length,
+      state.players.length,
+    );
     log.unshift(
       `${subjectLabel(current.name)} ${finishOrder.length}위로 계급 경쟁을 마쳤습니다.`,
     );
@@ -1127,6 +1140,7 @@ function PlayerSeat({
   rankSeat,
   totalPlayers,
   isDalmutiHighlighted,
+  isHuman,
   seatRef,
 }: {
   player: Player;
@@ -1144,6 +1158,7 @@ function PlayerSeat({
   rankSeat: number;
   totalPlayers: number;
   isDalmutiHighlighted: boolean;
+  isHuman: boolean;
   seatRef?: (node: HTMLElement | null) => void;
 }) {
   const visibleRoleLabel = rankSelectionLabel ?? ROLE_LABELS[player.role];
@@ -1156,9 +1171,10 @@ function PlayerSeat({
       } ${taxDirection ? `is-tax-${taxDirection}` : ""} ${
         isFocusedTaxParty ? "is-focused-tax-party" : ""
       } ${isDalmutiHighlighted ? "is-dalmuti-highlighted" : ""
-      }`}
+      } ${isHuman ? "is-human-seat" : ""}`}
       style={seatPosition(rankSeat - 1, totalPlayers)}
       data-rank-seat={rankSeat}
+      data-player-kind={isHuman ? "human" : "opponent"}
       aria-label={`${player.name}, ${visibleRoleLabel}, ${
         isFinished && finishRank
           ? `${finishRank}위로 마침`
@@ -1175,7 +1191,7 @@ function PlayerSeat({
       </div>
       <div className="player-count">
         <b>{isFinished && finishRank ? `${finishRank}위` : handCount}</b>
-        <span>{isFinished ? `${score}점` : "장"}</span>
+        <span>{isFinished ? `${score}칩` : "장"}</span>
       </div>
       {showHandBacks && !isFinished && (
         <div
@@ -1607,6 +1623,8 @@ export default function Home() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showRules, setShowRules] = useState(false);
   const [showCredits, setShowCredits] = useState(false);
+  const [mobileRankDrawerOpen, setMobileRankDrawerOpen] = useState(false);
+  const [screenTransitioning, setScreenTransitioning] = useState(false);
   const [turnTimer, setTurnTimer] = useState<{
     playerId: string;
     deadline: number;
@@ -1622,9 +1640,64 @@ export default function Home() {
   const tableColumnRef = useRef<HTMLDivElement | null>(null);
   const feltCenterRef = useRef<HTMLDivElement | null>(null);
   const humanAnchorRef = useRef<HTMLDivElement | null>(null);
+  const mobileRankDrawerRef = useRef<HTMLElement | null>(null);
+  const mobileRankToggleRef = useRef<HTMLButtonElement | null>(null);
+  const mobileRankDrawerWasOpenRef = useRef(false);
   const seatRefs = useRef<Record<string, HTMLElement | null>>({});
   const previousSeatRectsRef = useRef<Record<string, DOMRect>>({});
   const previousRankSeatOrderRef = useRef("");
+  const screenTransitionTimersRef = useRef<number[]>([]);
+
+  const runScreenTransition = useCallback((
+    action: () => void,
+    actionDelay = 95,
+  ) => {
+    for (const timer of screenTransitionTimersRef.current) {
+      window.clearTimeout(timer);
+    }
+    screenTransitionTimersRef.current = [];
+    setScreenTransitioning(false);
+
+    const flashTimer = window.setTimeout(() => {
+      setScreenTransitioning(true);
+      screenTransitionTimersRef.current = [
+        window.setTimeout(action, actionDelay),
+        window.setTimeout(() => setScreenTransitioning(false), 310),
+      ];
+    }, 0);
+    screenTransitionTimersRef.current = [flashTimer];
+  }, []);
+
+  useEffect(
+    () => () => {
+      for (const timer of screenTransitionTimersRef.current) {
+        window.clearTimeout(timer);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!mobileRankDrawerOpen) {
+      if (mobileRankDrawerWasOpenRef.current) {
+        mobileRankDrawerWasOpenRef.current = false;
+        mobileRankToggleRef.current?.focus();
+      }
+      return;
+    }
+    mobileRankDrawerWasOpenRef.current = true;
+    const focusFrame = window.requestAnimationFrame(() => {
+      mobileRankDrawerRef.current?.focus();
+    });
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileRankDrawerOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [mobileRankDrawerOpen]);
 
   const previewPlayers = useMemo(
     () => assignRoles(BASE_PLAYERS.slice(0, quickPlayerCount)),
@@ -1797,10 +1870,6 @@ export default function Home() {
     }
     return game.players;
   }, [game, previewPlayers]);
-  const orderedOpponents = useMemo(
-    () => visibleRankPlayers.filter((player) => !player.isHuman),
-    [visibleRankPlayers],
-  );
   const rankSeatOrder = visibleRankPlayers
     .map((player) => player.id)
     .join("|");
@@ -1870,9 +1939,11 @@ export default function Home() {
     const previousRects = previousSeatRectsRef.current;
     const previousOrder = previousRankSeatOrderRef.current;
     const nextRects: Record<string, DOMRect> = {};
-    for (const player of orderedOpponents) {
+    for (const player of visibleRankPlayers) {
       const seat = seatRefs.current[player.id];
-      if (seat) nextRects[player.id] = seat.getBoundingClientRect();
+      if (seat && seat.offsetParent !== null) {
+        nextRects[player.id] = seat.getBoundingClientRect();
+      }
     }
     previousSeatRectsRef.current = nextRects;
     previousRankSeatOrderRef.current = rankSeatOrder;
@@ -1885,7 +1956,7 @@ export default function Home() {
       return;
     }
 
-    for (const player of orderedOpponents) {
+    for (const player of visibleRankPlayers) {
       const seat = seatRefs.current[player.id];
       const previousRect = previousRects[player.id];
       const nextRect = nextRects[player.id];
@@ -1897,7 +1968,7 @@ export default function Home() {
 
       const distance = Math.max(1, Math.hypot(deltaX, deltaY));
       const direction =
-        orderedOpponents.findIndex((candidate) => candidate.id === player.id) %
+        visibleRankPlayers.findIndex((candidate) => candidate.id === player.id) %
           2 ===
         0
           ? 1
@@ -1947,7 +2018,7 @@ export default function Home() {
         .catch(() => undefined)
         .finally(() => seat.classList.remove("is-changing-rank"));
     }
-  }, [rankSeatOrder, orderedOpponents]);
+  }, [rankSeatOrder, visibleRankPlayers]);
 
   useLayoutEffect(() => {
     if (!game) return;
@@ -1971,12 +2042,20 @@ export default function Home() {
         };
       }
 
-      const humanAnchor = humanAnchorRef.current;
+      const mobileHumanSeat = seatRefs.current[HUMAN_ID];
+      const humanAnchor =
+        mobileHumanSeat && mobileHumanSeat.offsetParent !== null
+          ? mobileHumanSeat
+          : humanAnchorRef.current;
       if (humanAnchor) {
         const rect = humanAnchor.getBoundingClientRect();
         players[HUMAN_ID] = {
           x: Math.round(rect.left + rect.width / 2 - rootRect.left),
-          y: Math.round(rect.top - rootRect.top + 42),
+          y: Math.round(
+            mobileHumanSeat === humanAnchor
+              ? rect.top + rect.height / 2 - rootRect.top
+              : rect.top - rootRect.top + 42,
+          ),
         };
       }
 
@@ -2615,6 +2694,7 @@ export default function Home() {
     setSelectedIds([]);
     setShowRules(false);
     setShowCredits(false);
+    setMobileRankDrawerOpen(false);
     setLandingView("main");
     setRevealedRoundResultKey(null);
     setTaxAnchors({ players: {}, midpoint: null });
@@ -2978,17 +3058,41 @@ export default function Home() {
   return (
     <main className="game-shell">
       <div className="paper-grain" aria-hidden="true" />
+      {screenTransitioning && (
+        <div className="screen-transition-flash" aria-hidden="true" />
+      )}
 
       <header className="topbar">
-        <button
-          type="button"
-          className="brand brand-button"
-          onClick={returnToModeSelection}
-          aria-label="초기 모드 선택 화면으로 돌아가기"
-        >
-          <span className="brand-seal" aria-hidden="true" />
-          <strong>DALMUTI</strong>
-        </button>
+        <div className="topbar-brand-group">
+          {game && (
+            <button
+              ref={mobileRankToggleRef}
+              type="button"
+              className="mobile-rail-toggle"
+              aria-label={
+                mobileRankDrawerOpen
+                  ? "서열과 누적 칩 닫기"
+                  : "서열과 누적 칩 열기"
+              }
+              aria-controls="quick-score-rail"
+              aria-expanded={mobileRankDrawerOpen}
+              onClick={() => setMobileRankDrawerOpen((open) => !open)}
+            >
+              <i aria-hidden="true" />
+              <i aria-hidden="true" />
+              <i aria-hidden="true" />
+            </button>
+          )}
+          <button
+            type="button"
+            className="brand brand-button"
+            onClick={() => runScreenTransition(returnToModeSelection)}
+            aria-label="초기 모드 선택 화면으로 돌아가기"
+          >
+            <span className="brand-seal" aria-hidden="true" />
+            <strong>DALMUTI</strong>
+          </button>
+        </div>
 
         {game && (
           <div className="round-chip" aria-label="게임 정보">
@@ -2998,8 +3102,21 @@ export default function Home() {
           </div>
         )}
 
+        {game && (
+          <span className="mobile-act-chip" aria-label={`현재 제 ${game.round}막`}>
+            ACT {game.round}
+          </span>
+        )}
+
         {(game || landingView === "quick-setup") && (
-          <nav className="top-actions" aria-label="게임 메뉴">
+          <nav
+            className={`top-actions ${
+              !game && landingView === "quick-setup"
+                ? "is-quick-setup"
+                : ""
+            }`}
+            aria-label="게임 메뉴"
+          >
             <button
               type="button"
               aria-haspopup="dialog"
@@ -3018,10 +3135,18 @@ export default function Home() {
       </header>
 
       <section className="game-stage" aria-label="달무티 게임 테이블">
-        <aside className="score-rail">
+        <aside
+          ref={mobileRankDrawerRef}
+          id="quick-score-rail"
+          className={`score-rail ${
+            mobileRankDrawerOpen ? "is-mobile-open" : ""
+          }`}
+          tabIndex={-1}
+          aria-label="서열과 누적 칩"
+        >
           <div className="rail-heading">
             <span>서열</span>
-            <small>누적 점수</small>
+            <small>누적 칩</small>
           </div>
           <ol>
             {scoreRailPlayers.map((player) => {
@@ -3045,7 +3170,7 @@ export default function Home() {
                   </div>
                   <em
                     className="score-display"
-                    aria-label={`${player.name} 누적 점수 ${score}점`}
+                    aria-label={`${player.name} 누적 칩 ${score}개`}
                   >
                     <span className="score-chip-stack" aria-hidden="true">
                       {Array.from({ length: chipCount }, (_, chipIndex) => (
@@ -3070,6 +3195,15 @@ export default function Home() {
             <p>숫자가 낮을수록 강합니다. 더 강하게 맞서세요.</p>
           </div>
         </aside>
+
+        {game && mobileRankDrawerOpen && (
+          <button
+            type="button"
+            className="mobile-rail-scrim"
+            aria-label="서열과 누적 칩 닫기"
+            onClick={() => setMobileRankDrawerOpen(false)}
+          />
+        )}
 
         <div
           className={`table-column ${isHumanTurn ? "is-human-turn" : ""} ${
@@ -3201,10 +3335,7 @@ export default function Home() {
               }`}
               data-player-count={game?.players.length ?? quickPlayerCount}
             >
-              {(orderedOpponents.length
-                ? orderedOpponents
-                : visibleRankPlayers.filter((player) => !player.isHuman)
-              ).map((player) => {
+              {visibleRankPlayers.map((player) => {
                 const rankSeat =
                   visibleRankPlayers.findIndex(
                     (candidate) => candidate.id === player.id,
@@ -3247,7 +3378,7 @@ export default function Home() {
                     finishRank={finishIndex >= 0 ? finishIndex + 1 : null}
                     taxDirection={taxDirection}
                     isFocusedTaxParty={Boolean(route?.reveal)}
-                    showHandBacks={hasDealtHands}
+                    showHandBacks={hasDealtHands && !player.isHuman}
                     isHandRevealing={isHandRevealing}
                     rankSelectionLabel={rankSelectionLabel}
                     rankSelectionMark={rankSelectionMark}
@@ -3256,6 +3387,7 @@ export default function Home() {
                     isDalmutiHighlighted={
                       dalmutiHighlightPlayerId === player.id
                     }
+                    isHuman={player.isHuman}
                     seatRef={(node) => {
                       seatRefs.current[player.id] = node;
                     }}
@@ -3912,14 +4044,26 @@ export default function Home() {
                 <button
                   type="button"
                   className="main-menu-option is-primary"
-                  onClick={() => setLandingView("quick-setup")}
+                  onClick={() =>
+                    runScreenTransition(() => setLandingView("quick-setup"))
+                  }
                 >
                   <small>QUICK MATCH</small>
                   <strong>빠른 대전</strong>
                   <span>인원과 난이도를 선택해 봇과 플레이</span>
                   <b>→</b>
                 </button>
-                <a className="main-menu-option" href="/online">
+                <a
+                  className="main-menu-option"
+                  href="/online"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    runScreenTransition(
+                      () => window.location.assign("/online"),
+                      145,
+                    );
+                  }}
+                >
                   <small>ONLINE</small>
                   <strong>온라인 모드</strong>
                   <span>초대 코드로 친구들과 실시간 플레이</span>
@@ -3960,7 +4104,9 @@ export default function Home() {
               <button
                 type="button"
                 className="welcome-back-button"
-                onClick={() => setLandingView("main")}
+                onClick={() =>
+                  runScreenTransition(() => setLandingView("main"))
+                }
               >
                 ← 메인 화면
               </button>
@@ -4017,7 +4163,11 @@ export default function Home() {
                   </div>
                 </fieldset>
               </div>
-              <button type="button" className="start-button" onClick={startGame}>
+              <button
+                type="button"
+                className="start-button"
+                onClick={() => runScreenTransition(startGame)}
+              >
                 <span>빠른 대전({quickPlayerCount}인)</span>
                 <i>
                   {BOT_DIFFICULTY_LABELS[quickBotDifficulty]} 난이도로 게임 시작
@@ -4109,7 +4259,7 @@ export default function Home() {
                             : "서열 유지"}
                       </small>
                     </div>
-                    <em>{game.scores[id]}점</em>
+                    <em>{game.scores[id]}칩</em>
                   </li>
                 );
               })}

@@ -64,22 +64,32 @@ test("installed Android app uses branded native splash and user rotation", () =>
   assert.match(wrapper.iconUrl, /icon-512\.png/);
   assert.equal(wrapper.backgroundColor, "#18070c");
   assert.equal(wrapper.splashScreenFadeOutDuration, 220);
-  assert.equal(wrapper.appVersionCode, 3);
-  assert.equal(wrapper.appVersion, "1.0.2");
+  assert.equal(wrapper.appVersionCode, 4);
+  assert.equal(wrapper.appVersion, "1.0.3");
   assert.equal(wrapper.orientation, "default");
   assert.doesNotMatch(webManifest, /orientation:\s*"any"/);
-  assert.match(customizer, /SCREEN_ORIENTATION_FULL_USER/);
-  assert.match(customizer, /android:screenOrientation="fullUser"/);
+  assert.match(customizer, /SCREEN_ORIENTATION_USER/);
+  assert.match(customizer, /android:screenOrientation="user"/);
   assert.match(customizer, /DalmutiLaunchTheme/);
   assert.match(
     androidSplashTheme,
-    /android:windowSplashScreenBrandingImage/,
+    /android:windowSplashScreenAnimatedIcon[^]*dalmuti_splash_transparent/,
   );
   assert.equal(
     fs.existsSync(
       path.join(
         root,
-        "android-twa/custom/res/drawable-xxxhdpi/dalmuti_splash_branding.png",
+        "android-twa/custom/res/drawable-xxxhdpi/splash.png",
+      ),
+    ),
+    true,
+  );
+  assert.doesNotMatch(androidSplashTheme, /windowSplashScreenBrandingImage/);
+  assert.equal(
+    fs.existsSync(
+      path.join(
+        root,
+        "android-twa/custom/res/drawable/dalmuti_splash_transparent.xml",
       ),
     ),
     true,

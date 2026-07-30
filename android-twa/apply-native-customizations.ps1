@@ -37,7 +37,11 @@ Copy-Item `
 $launcherSource = Get-Content -LiteralPath $launcherPath -Raw
 $launcherSource = $launcherSource.Replace(
     "ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED",
-    "ActivityInfo.SCREEN_ORIENTATION_FULL_USER"
+    "ActivityInfo.SCREEN_ORIENTATION_USER"
+)
+$launcherSource = $launcherSource.Replace(
+    "ActivityInfo.SCREEN_ORIENTATION_FULL_USER",
+    "ActivityInfo.SCREEN_ORIENTATION_USER"
 )
 [System.IO.File]::WriteAllText($launcherPath, $launcherSource, $utf8NoBom)
 
@@ -45,15 +49,23 @@ $manifestSource = Get-Content -LiteralPath $manifestPath -Raw
 $plainActivity = '<activity android:name="LauncherActivity"'
 $brandedActivity = @'
 <activity android:name="LauncherActivity"
-            android:screenOrientation="fullUser"
+            android:screenOrientation="user"
             android:theme="@style/DalmutiLaunchTheme"
 '@
 
 if (
-    $manifestSource.Contains('android:screenOrientation="fullUser"') -and
+    $manifestSource.Contains('android:screenOrientation="user"') -and
     $manifestSource.Contains('android:theme="@style/DalmutiLaunchTheme"')
 ) {
     # Already customized.
+} elseif (
+    $manifestSource.Contains('android:screenOrientation="fullUser"') -and
+    $manifestSource.Contains('android:theme="@style/DalmutiLaunchTheme"')
+) {
+    $manifestSource = $manifestSource.Replace(
+        'android:screenOrientation="fullUser"',
+        'android:screenOrientation="user"'
+    )
 } elseif ($manifestSource.Contains($plainActivity)) {
     $manifestSource = $manifestSource.Replace($plainActivity, $brandedActivity)
 } else {
@@ -73,4 +85,4 @@ $buildGradleSource = $buildGradleSource.Replace(
     $utf8NoBom
 )
 
-Write-Output "Applied DALMUTI splash branding and user-controlled rotation."
+Write-Output "Applied the single DALMUTI hand-off splash and rotation-lock policy."

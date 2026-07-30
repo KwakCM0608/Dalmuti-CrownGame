@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Android 12+ always owns the first launch frame.  Give that system
-         surface the same crown, colours, and wordmark as the former web
-         splash so the hand-off reads as one continuous DALMUTI splash. -->
+    <!-- Android 12+ always draws a system-owned first frame. Keep that frame
+         to the same base colour but make its icon transparent, then let the
+         Browser Helper render the one complete DALMUTI splash drawable. This
+         avoids an icon-only screen followed by a second branded screen. -->
     <style name="DalmutiLaunchTheme" parent="@android:style/Theme.Translucent.NoTitleBar">
         <item name="android:windowSplashScreenBackground">@color/backgroundColor</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/dalmuti_splash_transparent</item>
         <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
-        <item name="android:windowSplashScreenBrandingImage">@drawable/dalmuti_splash_branding</item>
         <item name="android:windowNoTitle">true</item>
     </style>
 </resources>

@@ -9,6 +9,9 @@ const {
 const { scoreChipCount } = await import(
   new URL("../lib/score-chips.ts", import.meta.url)
 );
+const { roundChipAward } = await import(
+  new URL("../lib/round-score.ts", import.meta.url)
+);
 const {
   ONLINE_EMOTES,
   ONLINE_EMOTE_DURATION_MS,
@@ -57,6 +60,23 @@ test("score chips stay compact while preserving relative score comparison", () =
   assert.equal(scoreChipCount(6, 12), 3);
   assert.equal(scoreChipCount(12, 12), 5);
   assert.equal(scoreChipCount(100, 100, 4), 4);
+});
+
+test("each act awards the same fixed chip curve for 4 to 10 players", () => {
+  assert.deepEqual(
+    Array.from({ length: 4 }, (_, index) => roundChipAward(index + 1, 4)),
+    [4, 3, 1, 0],
+  );
+  assert.deepEqual(
+    Array.from({ length: 5 }, (_, index) => roundChipAward(index + 1, 5)),
+    [4, 3, 2, 1, 0],
+  );
+  assert.deepEqual(
+    Array.from({ length: 10 }, (_, index) => roundChipAward(index + 1, 10)),
+    [4, 3, 2, 2, 2, 2, 2, 2, 1, 0],
+  );
+  assert.throws(() => roundChipAward(1, 3), RangeError);
+  assert.throws(() => roundChipAward(11, 10), RangeError);
 });
 
 test("online emotes use a fixed safe whitelist and a short display window", () => {

@@ -54,8 +54,9 @@ export const RULEBOOK_SECTIONS = [
       "한 막에서 카드를 먼저 모두 낼수록 높은 순위를 얻고, 그 순서가 다음 막의 계급이 됩니다.",
     points: [
       "1위부터 완주 순서대로 다음 막의 계급이 정해집니다.",
-      "N인 게임에서 1위는 N-1점, 2위는 N-2점, 마지막은 0점을 얻습니다.",
-      "게임은 여러 막 이어지며 왼쪽의 누적 점수로 전체 성적을 비교합니다.",
+      "매 막 1위는 4칩, 2위는 3칩, 뒤에서 2위는 1칩, 꼴찌는 0칩을 얻습니다.",
+      "그 밖의 모든 플레이어는 순위와 관계없이 2칩을 얻습니다.",
+      "게임은 여러 막 이어지며 왼쪽의 누적 칩으로 전체 성적을 비교합니다.",
     ],
   },
   {
@@ -168,4 +169,3 @@ export const RULEBOOK_SECTIONS = [
 ] as const;
 
 export type RulebookSectionId = (typeof RULEBOOK_SECTIONS)[number]["id"];
-

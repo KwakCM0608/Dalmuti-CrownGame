@@ -43,7 +43,7 @@ test("server-renders the playable Dalmuti prototype", async () => {
   assert.doesNotMatch(html, />환경설정</);
   assert.doesNotMatch(html, /빠른 대전 플레이 인원/);
   assert.match(html, /<link rel="icon" href="\/brand-dalmuti-crown\.png"\/>/);
-  assert.match(html, /누적 점수/);
+  assert.match(html, /누적 칩/);
   assert.match(html, />기록</);
   assert.doesNotMatch(html, /궁정 서열|궁정 기록|5인 궁정|CROWN/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);
@@ -232,7 +232,21 @@ test("ships without the disposable starter preview", async () => {
     page,
     /style=\{seatPosition\(rankSeat - 1, totalPlayers\)\}/,
   );
-  assert.match(page, /"--seat-grid-column": \(rankIndex % compactColumns\) \+ 1/);
+  assert.match(
+    page,
+    /total >= 9 \? 5 : total >= 7 \? 4 : total >= 6 \? 3 : total/,
+  );
+  assert.match(
+    page,
+    /"--seat-grid-column": `\$\{compactColumnStart\} \/ span 2`/,
+  );
+  assert.match(page, /isHuman=\{player\.isHuman\}/);
+  assert.match(
+    styles,
+    /\.opening-rank-cards\[data-card-count="7"\][\s\S]{0,260}grid-template-columns: repeat\(4,/,
+  );
+  assert.match(styles, /\.mobile-rail-toggle/);
+  assert.match(styles, /\.mobile-act-chip/);
   assert.match(page, /className="human-status" ref=\{humanAnchorRef\}/);
   assert.doesNotMatch(page, /className="hand-wrap" ref=\{humanAnchorRef\}/);
   assert.match(page, /isDalmutiHighlighted/);
@@ -836,10 +850,10 @@ test("quick and online modes use the official player rank labels", async () => {
     exposedCopy,
     /대 달무티|소 달무티|대 농노|소 농노|현재 계급/,
   );
-  assert.match(quickPage, /<span>서열<\/span>\s*<small>누적 점수<\/small>/);
+  assert.match(quickPage, /<span>서열<\/span>\s*<small>누적 칩<\/small>/);
   assert.match(
     onlinePage,
-    /<span>서열<\/span>\s*<small>누적 점수<\/small>/,
+    /<span>서열<\/span>\s*<small>누적 칩<\/small>/,
   );
   assert.match(quickPage, /className="revolution-joker-pair"/);
   assert.match(quickStyles, /@keyframes revolutionJokerEnterLeft/);
@@ -1045,4 +1059,31 @@ test("online bot seats and quick finished-player acceleration stay wired to the 
   );
   assert.match(quickPage, /onClick=\{skipRemainingPlayers\}/);
   assert.match(quickPage, /className="skip-round-button"/);
+});
+
+test("quick and online modes share fixed chips and balanced mobile rank rows", async () => {
+  const [quickPage, quickStyles, onlinePage, onlineStyles] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/online/page.tsx", import.meta.url), "utf8"),
+    readFile(
+      new URL("../app/online/online.module.css", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(quickPage, /roundChipAward\(\s*finishOrder\.length,/);
+  assert.match(onlinePage, /data-mobile-layout=\{mobileGameLayout \|\| undefined\}/);
+  assert.match(
+    onlinePage,
+    /total <= 5 \? total : Math\.min\(5, Math\.ceil\(total \/ 2\)\)/,
+  );
+  assert.match(
+    quickStyles,
+    /\.opening-rank-cards\[data-card-count="6"\][^}]*grid-template-columns: repeat\(3,/s,
+  );
+  assert.match(
+    onlineStyles,
+    /\.rankChoiceCards\[data-card-count="6"\][^}]*--mobile-rank-basis: calc\(33\.333% - 4px\)/s,
+  );
 });

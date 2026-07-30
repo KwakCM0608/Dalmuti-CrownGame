@@ -15,6 +15,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -950,6 +951,15 @@ function seatPosition(rankIndex: number, total: number): CSSProperties {
   const angle =
     total <= 1 ? 270 : 150 + (240 * rankIndex) / Math.max(1, total - 1);
   const radians = (angle * Math.PI) / 180;
+  const mobileTopCount =
+    total <= 5 ? total : Math.min(5, Math.ceil(total / 2));
+  const mobileTopRow = rankIndex < mobileTopCount;
+  const mobileRowIndex = mobileTopRow
+    ? rankIndex
+    : rankIndex - mobileTopCount;
+  const mobileRowCount = mobileTopRow
+    ? mobileTopCount
+    : Math.max(1, total - mobileTopCount);
   return {
     "--seat-x": `${50 + Math.cos(radians) * 42}%`,
     "--seat-y": `${46 + Math.sin(radians) * 34}%`,
@@ -957,7 +967,36 @@ function seatPosition(rankIndex: number, total: number): CSSProperties {
     "--seat-grid-column":
       total <= 5 ? rankIndex + 1 : (rankIndex % 4) + 1,
     "--seat-grid-row": total <= 5 ? 1 : Math.floor(rankIndex / 4) + 1,
+    "--mobile-seat-column": mobileRowIndex,
+    "--mobile-seat-columns": mobileRowCount,
+    "--mobile-seat-x": `${((mobileRowIndex + 0.5) / mobileRowCount) * 100}%`,
+    "--mobile-seat-width": `calc(${100 / mobileRowCount}% - 5px)`,
+    "--mobile-seat-y": mobileTopRow ? "7px" : "calc(100% - 7px)",
+    "--mobile-seat-translate-y": mobileTopRow ? "0%" : "-100%",
   } as CSSProperties;
+}
+
+const MOBILE_GAME_LAYOUT_QUERY =
+  "(hover: none) and (pointer: coarse) and (max-width: 820px), " +
+  "(hover: none) and (pointer: coarse) and (orientation: landscape) and " +
+  "(max-height: 500px)";
+
+function subscribeMobileGameLayout(onStoreChange: () => void): () => void {
+  if (typeof window === "undefined") return () => undefined;
+  const mediaQuery = window.matchMedia(MOBILE_GAME_LAYOUT_QUERY);
+  mediaQuery.addEventListener("change", onStoreChange);
+  return () => mediaQuery.removeEventListener("change", onStoreChange);
+}
+
+function mobileGameLayoutSnapshot(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia(MOBILE_GAME_LAYOUT_QUERY).matches
+  );
+}
+
+function mobileGameLayoutServerSnapshot(): boolean {
+  return false;
 }
 
 function formatRank(rank: number): string {
@@ -1221,7 +1260,7 @@ function PlayerSeat({
             ? `${player.finishedPlace}위`
             : `${player.handCount}장`}
         </b>
-        <em>{player.score}점</em>
+        <em>{player.score}칩</em>
       </span>
       {isHost && <span className={styles.hostMark}>방장</span>}
       {isCurrent && <span className={styles.turnMark}>차례</span>}
@@ -2490,6 +2529,11 @@ function OnlineChatPanel({
 
 export default function OnlinePage() {
   const router = useRouter();
+  const mobileGameLayout = useSyncExternalStore(
+    subscribeMobileGameLayout,
+    mobileGameLayoutSnapshot,
+    mobileGameLayoutServerSnapshot,
+  );
   const [screen, setScreen] = useState<"entry" | "room">("entry");
   const [entryMode, setEntryMode] = useState<"create" | "join">("create");
   const [nickname, setNickname] = useState("");
@@ -2515,6 +2559,7 @@ export default function OnlinePage() {
   const [copied, setCopied] = useState(false);
   const [entryBusy, setEntryBusy] = useState(false);
   const [showRules, setShowRules] = useState(false);
+  const [showMobileRankDrawer, setShowMobileRankDrawer] = useState(false);
   const [roomExitIntent, setRoomExitIntent] =
     useState<RoomExitIntent | null>(null);
   const [botDifficultyPickerSlot, setBotDifficultyPickerSlot] = useState<
@@ -2576,6 +2621,17 @@ export default function OnlinePage() {
     },
     [],
   );
+
+  useEffect(() => {
+    if (!showMobileRankDrawer) return;
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setShowMobileRankDrawer(false);
+      }
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [showMobileRankDrawer]);
 
   const stopRankMoveRuntime = useCallback(() => {
     rankMoveRunRef.current += 1;
@@ -3906,8 +3962,10 @@ export default function OnlinePage() {
     () =>
       tableRankedPlayers
         .map((player, rankIndex) => ({ player, rankIndex }))
-        .filter(({ player }) => player.id !== me?.id),
-    [me?.id, tableRankedPlayers],
+        .filter(
+          ({ player }) => mobileGameLayout || player.id !== me?.id,
+        ),
+    [me?.id, mobileGameLayout, tableRankedPlayers],
   );
 
   useEffect(() => {
@@ -4667,10 +4725,30 @@ export default function OnlinePage() {
     <main className={styles.gameShell}>
       <div className={styles.grain} />
       <header className={styles.roomHeader}>
-        <Brand
-          onActivate={() => requestExitRoom(true)}
-          disabled={busy}
-        />
+        <div className={styles.mobileBrandGroup}>
+          <button
+            type="button"
+            className={styles.mobileRankToggle}
+            onClick={() =>
+              setShowMobileRankDrawer((current) => !current)
+            }
+            aria-controls="mobile-online-rank-drawer"
+            aria-expanded={showMobileRankDrawer}
+            aria-label={
+              showMobileRankDrawer
+                ? "서열과 누적 칩 닫기"
+                : "서열과 누적 칩 보기"
+            }
+          >
+            <i />
+            <i />
+            <i />
+          </button>
+          <Brand
+            onActivate={() => requestExitRoom(true)}
+            disabled={busy}
+          />
+        </div>
         <div className={styles.roundInfo}>
           <span>제 {snapshot.round}막</span>
           <i />
@@ -4700,11 +4778,101 @@ export default function OnlinePage() {
         </div>
       </header>
 
+      <button
+        type="button"
+        className={`${styles.mobileRankDrawerBackdrop} ${
+          showMobileRankDrawer
+            ? styles.mobileRankDrawerBackdropOpen
+            : ""
+        }`}
+        onClick={() => setShowMobileRankDrawer(false)}
+        aria-label="서열 화면 닫기"
+        tabIndex={showMobileRankDrawer ? 0 : -1}
+      />
+      <aside
+        id="mobile-online-rank-drawer"
+        className={`${styles.mobileRankDrawer} ${
+          showMobileRankDrawer ? styles.mobileRankDrawerOpen : ""
+        }`}
+        aria-hidden={!showMobileRankDrawer}
+      >
+        <div className={styles.mobileRankDrawerHeading}>
+          <div>
+            <small>TABLE ORDER</small>
+            <strong>서열</strong>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowMobileRankDrawer(false)}
+            tabIndex={showMobileRankDrawer ? 0 : -1}
+            aria-label="서열과 누적 칩 닫기"
+          >
+            ×
+          </button>
+        </div>
+        <div className={styles.mobileRankDrawerColumns}>
+          <span>서열</span>
+          <span>누적 칩</span>
+        </div>
+        <ol>
+          {tableRankedPlayers.map((player) => {
+            const chipCount = scoreChipCount(
+              player.score,
+              highestScore,
+            );
+            return (
+              <li
+                key={player.id}
+                className={
+                  player.id === me?.id ? styles.mobileRankDrawerSelf : ""
+                }
+              >
+                <span>
+                  {isRankSelectionPhase ? "·" : roleMark(player.role)}
+                </span>
+                <p>
+                  <strong>{player.name}</strong>
+                  <small>
+                    {isRankSelectionPhase
+                      ? "계급 미정"
+                      : roleLabel(player.role)}
+                  </small>
+                </p>
+                <em
+                  className={styles.scoreDisplay}
+                  aria-label={`${player.name} 누적 칩 ${player.score}개`}
+                >
+                  <span
+                    className={styles.scoreChipStack}
+                    aria-hidden="true"
+                  >
+                    {Array.from(
+                      { length: chipCount },
+                      (_, chipIndex) => (
+                        <i
+                          key={chipIndex}
+                          style={
+                            {
+                              "--score-chip-index": chipIndex,
+                            } as CSSProperties
+                          }
+                        />
+                      ),
+                    )}
+                  </span>
+                  <span>{player.score}</span>
+                </em>
+              </li>
+            );
+          })}
+        </ol>
+      </aside>
+
       <section className={styles.gameLayout}>
         <aside className={styles.rankRail}>
           <div className={styles.railHeading}>
             <span>서열</span>
-            <small>누적 점수</small>
+            <small>누적 칩</small>
           </div>
           <ol>
             {snapshot.players.map((player) => {
@@ -4730,7 +4898,7 @@ export default function OnlinePage() {
                   </p>
                   <em
                     className={styles.scoreDisplay}
-                    aria-label={`${player.name} 누적 점수 ${player.score}점`}
+                    aria-label={`${player.name} 누적 칩 ${player.score}개`}
                   >
                     <span
                       className={styles.scoreChipStack}
@@ -4780,6 +4948,12 @@ export default function OnlinePage() {
             } as CSSProperties
           }
         >
+          <span
+            className={styles.mobileRoundBadge}
+            aria-label={`현재 제 ${snapshot.round}막`}
+          >
+            제 {snapshot.round}막
+          </span>
           <div
             className={`${styles.openingSequenceVeil} ${
               openingSequenceActive
@@ -4873,6 +5047,7 @@ export default function OnlinePage() {
             <div
               className={styles.seatRing}
               data-player-count={snapshot.players.length}
+              data-mobile-layout={mobileGameLayout || undefined}
             >
               {rankedOpponents.map(({ player, rankIndex }) => {
                 const displayedPlayer = activeTaxVisualOverride
@@ -4900,6 +5075,7 @@ export default function OnlinePage() {
                   <PlayerSeat
                     key={player.id}
                     player={displayedPlayer}
+                    isSelf={player.id === me?.id}
                     isHost={player.id === snapshot.hostId}
                     isCurrent={
                       turnPresentationReady &&
@@ -5111,7 +5287,7 @@ export default function OnlinePage() {
                 : ""
             }`}
           >
-            {me && (
+            {me && !mobileGameLayout && (
               <PlayerSeat
                 player={displayedMe ?? me}
                 isSelf
@@ -5466,7 +5642,7 @@ export default function OnlinePage() {
                           ? styles.resultSecond
                           : ""
                     }`}
-                    aria-label={`${index + 1}위 ${player.name}, ${previousRole}에서 ${nextRole}, ${player.score}점`}
+                    aria-label={`${index + 1}위 ${player.name}, ${previousRole}에서 ${nextRole}, 누적 ${player.score}칩`}
                   >
                     <span>{index + 1}</span>
                     <p>
@@ -5485,7 +5661,7 @@ export default function OnlinePage() {
                         {nextRole}
                       </small>
                     </p>
-                    <em>{player.score}점</em>
+                    <em>{player.score}칩</em>
                   </li>
                 );
               })}

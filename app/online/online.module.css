@@ -9087,3 +9087,429 @@
       scale(0.7);
   }
 }
+
+/* Mobile-only in-game navigation. Desktop keeps the existing three-column
+ * hierarchy rail and header exactly as-is. */
+.mobileBrandGroup {
+  display: contents;
+}
+
+.mobileRankToggle,
+.mobileRankDrawerBackdrop,
+.mobileRankDrawer,
+.mobileRoundBadge {
+  display: none;
+}
+
+@media (hover: none) and (pointer: coarse) and (max-width: 820px),
+  (hover: none) and (pointer: coarse) and (orientation: landscape) and
+    (max-height: 500px) {
+  .mobileBrandGroup {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .mobileRankToggle {
+    display: grid;
+    width: 40px;
+    height: 40px;
+    flex: 0 0 40px;
+    place-content: center;
+    gap: 4px;
+    padding: 0;
+    border: 1px solid rgba(224, 197, 134, 0.24);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.035);
+    color: #e7d5ad;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  .mobileRankToggle i {
+    display: block;
+    width: 17px;
+    height: 2px;
+    border-radius: 999px;
+    background: currentColor;
+    box-shadow: 0 0 7px rgba(230, 196, 113, 0.14);
+  }
+
+  .mobileRankToggle[aria-expanded="true"] {
+    border-color: rgba(234, 198, 109, 0.68);
+    background: rgba(210, 162, 54, 0.13);
+    color: #ffe09a;
+  }
+
+  .mobileRankDrawerBackdrop {
+    position: fixed;
+    inset: var(--app-header-block) 0 0;
+    z-index: 88;
+    display: block;
+    padding: 0;
+    border: 0;
+    background: rgba(6, 2, 4, 0.54);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 240ms ease;
+  }
+
+  .mobileRankDrawerBackdropOpen {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .mobileRankDrawer {
+    position: fixed;
+    top: var(--app-header-block);
+    bottom: 0;
+    left: 0;
+    z-index: 89;
+    display: flex;
+    width: min(300px, 84vw);
+    flex-direction: column;
+    padding:
+      19px 14px
+      calc(18px + env(safe-area-inset-bottom, 0px))
+      calc(14px + env(safe-area-inset-left, 0px));
+    border-right: 1px solid rgba(228, 192, 107, 0.26);
+    background:
+      radial-gradient(circle at 0 0, rgba(126, 43, 60, 0.2), transparent 42%),
+      linear-gradient(160deg, rgba(43, 13, 22, 0.985), rgba(18, 6, 11, 0.99));
+    box-shadow: 20px 0 50px rgba(0, 0, 0, 0.46);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    transform: translate3d(-105%, 0, 0);
+    transition:
+      visibility 0s linear 280ms,
+      transform 280ms cubic-bezier(0.2, 0.72, 0.18, 1);
+    visibility: hidden;
+  }
+
+  .mobileRankDrawerOpen {
+    transform: translate3d(0, 0, 0);
+    transition-delay: 0s;
+    visibility: visible;
+  }
+
+  .mobileRankDrawerHeading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 2px 13px;
+    border-bottom: 1px solid rgba(226, 190, 105, 0.16);
+  }
+
+  .mobileRankDrawerHeading div {
+    display: grid;
+    gap: 3px;
+  }
+
+  .mobileRankDrawerHeading small {
+    color: #aa8947;
+    font-size: 7px;
+    font-weight: 900;
+    letter-spacing: 0.18em;
+  }
+
+  .mobileRankDrawerHeading strong {
+    color: #f0dfbb;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 22px;
+  }
+
+  .mobileRankDrawerHeading button {
+    display: grid;
+    width: 38px;
+    height: 38px;
+    place-items: center;
+    padding: 0;
+    border: 1px solid rgba(224, 197, 134, 0.2);
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.035);
+    color: #d8c8a7;
+    font: inherit;
+    font-size: 21px;
+  }
+
+  .mobileRankDrawerColumns {
+    display: flex;
+    justify-content: space-between;
+    padding: 11px 6px 3px 34px;
+    color: #a78544;
+    font-size: 7px;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+  }
+
+  .mobileRankDrawer ol {
+    display: grid;
+    gap: 3px;
+    margin: 0;
+    padding: 5px 0 0;
+    list-style: none;
+  }
+
+  .mobileRankDrawer li {
+    display: grid;
+    min-height: 48px;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 6px;
+    border: 1px solid transparent;
+    border-bottom-color: rgba(224, 191, 112, 0.08);
+    border-radius: 8px;
+  }
+
+  .mobileRankDrawer li > span {
+    color: #ad8b45;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 15px;
+    text-align: center;
+  }
+
+  .mobileRankDrawer li p {
+    min-width: 0;
+    margin: 0;
+  }
+
+  .mobileRankDrawer li p strong,
+  .mobileRankDrawer li p small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobileRankDrawer li p strong {
+    color: #e7dac2;
+    font-size: 10px;
+  }
+
+  .mobileRankDrawer li p small {
+    margin-top: 2px;
+    color: #8d7c6a;
+    font-size: 7px;
+  }
+
+  .mobileRankDrawer .scoreDisplay {
+    display: grid;
+    min-width: 44px;
+    grid-template-columns: 25px auto;
+    align-items: center;
+    justify-content: end;
+    gap: 4px;
+    color: #dec57f;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 10px;
+    font-style: normal;
+  }
+
+  .mobileRankDrawerSelf {
+    border-color: rgba(226, 188, 94, 0.38) !important;
+    background:
+      linear-gradient(90deg, rgba(199, 145, 39, 0.16), transparent),
+      rgba(255, 255, 255, 0.025);
+    box-shadow: inset 3px 0 #d2a64b;
+  }
+
+  .mobileRoundBadge {
+    position: absolute;
+    top: 56px;
+    left: 50%;
+    z-index: 18;
+    display: inline-flex;
+    min-height: 22px;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 9px;
+    border: 1px solid rgba(227, 193, 108, 0.28);
+    border-radius: 999px;
+    background: rgba(17, 31, 26, 0.82);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.24);
+    color: #d8ba70;
+    font-size: 7px;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    pointer-events: none;
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+
+  /* Every mobile rank draw fits in the table. Flex wrapping keeps an
+   * incomplete final row centered (7 players becomes exactly 4 + 3). */
+  .rankChoiceCards[data-card-count] {
+    --mobile-rank-columns: 4;
+    --mobile-rank-gap: 6px;
+    --mobile-rank-basis: calc(25% - 4.5px);
+
+    display: flex;
+    width: min(100%, 374px);
+    max-width: 374px;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px var(--mobile-rank-gap);
+    margin-inline: auto;
+    padding: 4px 0 8px;
+    overflow: visible;
+    overscroll-behavior: auto;
+    touch-action: manipulation;
+  }
+
+  .rankChoiceCards[data-card-count="5"],
+  .rankChoiceCards[data-card-count="9"],
+  .rankChoiceCards[data-card-count="10"] {
+    --mobile-rank-columns: 5;
+    --mobile-rank-gap: 4px;
+    --mobile-rank-basis: calc(20% - 3.2px);
+  }
+
+  .rankChoiceCards[data-card-count="6"] {
+    --mobile-rank-columns: 3;
+    --mobile-rank-gap: 6px;
+    --mobile-rank-basis: calc(33.333% - 4px);
+    max-width: 270px;
+  }
+
+  .rankChoiceCards[data-card-count] > .rankChoiceSlot,
+  .rankChoiceCards[data-card-count="7"] > .rankChoiceSlot {
+    width: var(--mobile-rank-basis);
+    max-width: 82px;
+    flex: 0 0 var(--mobile-rank-basis);
+  }
+
+  .rankChoiceCards[data-card-count] .rankChoiceCard {
+    width: 100%;
+    max-width: none;
+  }
+
+  /* All players, including the viewer, occupy their real rank position on
+   * mobile. For 6–10 players rows are 4+2, 4+3, 4+4, 5+4 and 5+5. */
+  .seatRing[data-mobile-layout="true"] {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: auto;
+    height: auto;
+    pointer-events: none;
+  }
+
+  .seatRing[data-mobile-layout="true"] .playerSeat,
+  .seatRing[data-mobile-layout="true"] .playerSeatSelf,
+  .seatRing[data-mobile-layout="true"]
+    .playerSeat[data-rank-number="5"],
+  .seatRing[data-mobile-layout="true"]
+    .playerSeat[data-rank-number="6"],
+  .seatRing[data-mobile-layout="true"]
+    .playerSeat[data-rank-number="7"],
+  .seatRing[data-mobile-layout="true"]
+    .playerSeat[data-rank-number="8"],
+  .seatRing[data-mobile-layout="true"]
+    .playerSeat[data-rank-number="9"],
+  .seatRing[data-mobile-layout="true"]
+    .playerSeat[data-rank-number="10"] {
+    position: absolute;
+    top: var(--mobile-seat-y);
+    left: var(--mobile-seat-x);
+    display: grid;
+    width: min(94px, var(--mobile-seat-width));
+    min-width: 0;
+    min-height: 34px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 3px;
+    padding: 4px 5px;
+    border-radius: 8px;
+    text-align: left;
+    transform: translate(-50%, var(--mobile-seat-translate-y));
+    pointer-events: auto;
+  }
+
+  .seatRing[data-mobile-layout="true"] .playerSeat .avatar,
+  .seatRing[data-mobile-layout="true"] .playerSeat .playerCopy em,
+  .seatRing[data-mobile-layout="true"] .playerSeat .playerCopy strong small,
+  .seatRing[data-mobile-layout="true"] .playerSeat .handCount em,
+  .seatRing[data-mobile-layout="true"] .playerSeat .seatRevealCards {
+    display: none;
+  }
+
+  .seatRing[data-mobile-layout="true"] .playerCopy strong {
+    max-width: none;
+    color: #ded1bb;
+    font-size: 8px;
+    line-height: 1.2;
+  }
+
+  .seatRing[data-mobile-layout="true"] .handCount b {
+    font-size: 8px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .seatRing[data-mobile-layout="true"] .playerSeatSelf {
+    border-color: rgba(239, 199, 101, 0.8);
+    background:
+      linear-gradient(120deg, rgba(212, 163, 57, 0.22), transparent 70%),
+      #3e1620;
+    box-shadow:
+      0 0 0 2px rgba(221, 177, 73, 0.13),
+      0 8px 20px rgba(0, 0, 0, 0.3);
+  }
+
+  .seatRing[data-mobile-layout="true"] .playerSeatSelf::after {
+    position: absolute;
+    top: -7px;
+    left: 7px;
+    padding: 1px 4px;
+    border: 1px solid rgba(245, 210, 124, 0.58);
+    border-radius: 999px;
+    background: #6b481a;
+    color: #ffe19a;
+    content: "나";
+    font-size: 5px;
+    font-weight: 900;
+  }
+
+  .seatRing[data-mobile-layout="true"] .playerSeatDalmuti::after {
+    top: auto;
+    bottom: -9px;
+    left: 50%;
+    content: "DALMUTI";
+  }
+
+  .ownDock:not(.ownDockFinished) {
+    display: block;
+  }
+
+  .ownDock:not(.ownDockFinished) .handScroller {
+    padding-left: 0;
+    scroll-padding-left: calc(12px + env(safe-area-inset-left, 0px));
+  }
+
+  .ownDock:not(.ownDockFinished) .hand {
+    min-width: 100%;
+    justify-content: center;
+    padding-left: calc(10px + env(safe-area-inset-left, 0px));
+  }
+}
+
+@media (hover: none) and (pointer: coarse) and (orientation: landscape) and
+  (max-height: 500px) {
+  .mobileRoundBadge {
+    top: 43px;
+  }
+
+  .seatRing[data-mobile-layout="true"] .playerSeat,
+  .seatRing[data-mobile-layout="true"] .playerSeatSelf {
+    min-height: 29px;
+    padding: 2px 4px;
+  }
+
+  .rankChoiceCards[data-card-count] {
+    width: min(100%, 410px);
+    max-width: 410px;
+    gap-block: 5px;
+  }
+}

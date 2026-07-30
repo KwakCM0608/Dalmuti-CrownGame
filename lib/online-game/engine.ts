@@ -25,6 +25,7 @@ import {
   forceClaimedPlayerToLastRank,
   forceTwoJokersIntoHand,
 } from "../temporary-test-mode.ts";
+import { roundChipAward } from "../round-score.ts";
 
 const MIN_PLAYERS = 4;
 const MAX_PLAYERS = 8;
@@ -1460,7 +1461,7 @@ function handlePlayCards(
   if (state.hands[actorId].length === 0) {
     state.finishOrder.push(actorId);
     const place = state.finishOrder.length;
-    const awardedScore = state.players.length - place;
+    const awardedScore = roundChipAward(place, state.players.length);
     state.players = state.players.map((player) =>
       player.id === actorId
         ? { ...player, score: player.score + awardedScore }

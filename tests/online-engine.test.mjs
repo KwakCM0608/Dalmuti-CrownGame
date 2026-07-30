@@ -1345,6 +1345,50 @@ test("round end and room reset clear the playing turn deadline", () => {
   assert.equal(state.turnDeadline, null);
 });
 
+test("online finishes award the fixed 4/3/2/1/0 chip curve", () => {
+  let state = readyEveryone(createFourPlayerLobby());
+  state.phase = "playing";
+  state.phaseEndsAt = null;
+  state.turnDeadline = 30_000;
+  state.currentIndex = 0;
+  state.actionLockUntil = null;
+  state.table = null;
+  state.lastPlayedId = null;
+  state.finishOrder = [];
+  state.hands = {
+    p1: [{ id: "p1-finish", rank: 12 }],
+    p2: [{ id: "p2-finish", rank: 11 }],
+    p3: [{ id: "p3-wait", rank: 10 }],
+    p4: [{ id: "p4-wait", rank: 9 }],
+  };
+
+  state = command(
+    state,
+    "p1",
+    "PLAY_CARDS",
+    { cardIds: ["p1-finish"] },
+    100,
+  );
+  assert.equal(state.players.find((player) => player.id === "p1")?.score, 4);
+  assert.equal(
+    state.events.findLast((event) => event.type === "PLAYER_FINISHED")?.payload
+      .awardedScore,
+    4,
+  );
+
+  state.table = null;
+  state.currentIndex = state.players.findIndex((player) => player.id === "p2");
+  state.actionLockUntil = null;
+  state = command(
+    state,
+    "p2",
+    "PLAY_CARDS",
+    { cardIds: ["p2-finish"] },
+    101,
+  );
+  assert.equal(state.players.find((player) => player.id === "p2")?.score, 3);
+});
+
 test("unknown and malformed online commands cannot corrupt room state", () => {
   const state = createFourPlayerLobby();
 

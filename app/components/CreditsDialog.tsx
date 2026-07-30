@@ -26,6 +26,21 @@ const CREDIT_ITEMS = [
     value: "GPT-5.6 Sol",
     detail: "Built with OpenAI GPT-5.6 Sol",
   },
+  {
+    label: "ORIGINAL GAME DESIGN",
+    value: "Richard Garfield",
+    detail: "The Great Dalmuti",
+  },
+  {
+    label: "ORIGINAL CARD ILLUSTRATIONS",
+    value: "Margaret Organ-Kean",
+    detail: "Original tabletop artwork",
+  },
+  {
+    label: "ORIGINAL EDITION",
+    value: "Wizards of the Coast, Inc.",
+    detail: "Original 1995 edition © 1995 Wizards of the Coast, Inc.",
+  },
 ] as const;
 
 export function CreditsDialog({
@@ -110,9 +125,11 @@ export function CreditsDialog({
         </dl>
 
         <p className={styles.notice}>
-          This is an independent digital implementation. Referenced game
-          artwork and trademarks remain the property of their respective
-          rights holders.
+          This is an independent, non-commercial fan implementation and is
+          not affiliated with, endorsed by, or sponsored by Wizards of the
+          Coast. The Great Dalmuti and Wizards names and logos are trademarks
+          of Wizards of the Coast. All referenced game artwork, trademarks,
+          and other rights remain with their respective owners.
         </p>
 
         <button type="button" className={styles.done} onClick={onClose}>

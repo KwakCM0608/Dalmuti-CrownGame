@@ -5647,6 +5647,420 @@ button:focus-visible {
   }
 }
 
+/* Quick-match navigation and phone table controls. */
+.game-shell .topbar-brand-group {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.game-shell .mobile-rail-toggle,
+.game-shell .mobile-act-chip,
+.game-shell .mobile-rail-scrim {
+  display: none;
+}
+
+.game-shell .player-seat.is-human-seat {
+  display: none;
+}
+
+.screen-transition-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background:
+    radial-gradient(circle at 50% 48%, rgba(240, 197, 92, 0.28), transparent 34%),
+    linear-gradient(135deg, #25080f, #6b1e2d 52%, #1c070c);
+  pointer-events: none;
+  animation: quickScreenFlash 310ms cubic-bezier(0.36, 0.04, 0.2, 1) both;
+}
+
+@keyframes quickScreenFlash {
+  0% {
+    opacity: 0;
+  }
+  40% {
+    opacity: 0.82;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Four cards above and three cards exactly centred below. */
+.game-shell .opening-rank-cards[data-card-count="7"] {
+  --balanced-rank-card-gap: clamp(7px, 1.4vw, 14px);
+
+  display: grid;
+  width: min(100%, 370px);
+  grid-template-columns: repeat(4, minmax(0, 82px));
+  justify-content: center;
+  gap: var(--balanced-rank-card-gap);
+  overflow: visible;
+}
+
+.game-shell
+  .opening-rank-cards[data-card-count="7"]
+  .opening-rank-card {
+  width: 100%;
+  min-width: 0;
+  transform: none;
+}
+
+.game-shell
+  .opening-rank-cards[data-card-count="7"]
+  .opening-rank-card:nth-child(n + 5) {
+  transform: translateX(calc(50% + clamp(3.5px, 0.7vw, 7px)));
+}
+
+@media (min-width: 801px) {
+  .game-shell .top-actions.is-quick-setup {
+    grid-column: 3;
+    justify-self: end;
+  }
+}
+
+@media (max-width: 800px),
+  (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
+  .game-shell .topbar {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+
+  .game-shell .topbar-brand-group {
+    min-width: 0;
+    gap: 6px;
+  }
+
+  .game-shell .mobile-rail-toggle {
+    display: grid;
+    width: 36px;
+    height: 40px;
+    flex: 0 0 36px;
+    place-content: center;
+    gap: 4px;
+    padding: 0;
+    border: 1px solid rgba(223, 185, 96, 0.28);
+    border-radius: 11px;
+    background: rgba(255, 255, 255, 0.035);
+    color: #ead49a;
+    cursor: pointer;
+  }
+
+  .game-shell .mobile-rail-toggle i {
+    display: block;
+    width: 16px;
+    height: 2px;
+    border-radius: 99px;
+    background: currentColor;
+    transition: transform 180ms ease, opacity 180ms ease;
+  }
+
+  .game-shell .mobile-rail-toggle[aria-expanded="true"] i:first-child {
+    transform: translateY(6px) rotate(45deg);
+  }
+
+  .game-shell .mobile-rail-toggle[aria-expanded="true"] i:nth-child(2) {
+    opacity: 0;
+  }
+
+  .game-shell .mobile-rail-toggle[aria-expanded="true"] i:last-child {
+    transform: translateY(-6px) rotate(-45deg);
+  }
+
+  .game-shell .mobile-act-chip {
+    display: inline-grid;
+    min-width: 44px;
+    min-height: 25px;
+    place-items: center;
+    padding: 4px 8px;
+    border: 1px solid rgba(222, 185, 92, 0.26);
+    border-radius: 999px;
+    background: rgba(79, 29, 38, 0.62);
+    color: #e5c66e;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 8px;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+  }
+
+  .game-shell .score-rail {
+    position: fixed;
+    top: var(--app-header-block);
+    bottom: 0;
+    left: 0;
+    z-index: 82;
+    display: block;
+    width: min(286px, 84vw);
+    max-height: none;
+    padding:
+      22px
+      15px
+      calc(20px + env(safe-area-inset-bottom, 0px))
+      calc(15px + env(safe-area-inset-left, 0px));
+    overflow-y: auto;
+    border-right: 1px solid rgba(227, 190, 100, 0.28);
+    background:
+      radial-gradient(circle at 0 0, rgba(164, 71, 88, 0.18), transparent 42%),
+      rgba(24, 8, 13, 0.98);
+    box-shadow: 18px 0 38px rgba(0, 0, 0, 0.42);
+    visibility: hidden;
+    transform: translate3d(-105%, 0, 0);
+    transition:
+      transform 240ms cubic-bezier(0.2, 0.78, 0.22, 1),
+      visibility 0s linear 240ms;
+    overscroll-behavior: contain;
+  }
+
+  .game-shell .score-rail.is-mobile-open {
+    visibility: visible;
+    transform: translate3d(0, 0, 0);
+    transition-delay: 0s;
+  }
+
+  .game-shell .score-rail ol {
+    max-height: none;
+  }
+
+  .game-shell .mobile-rail-scrim {
+    position: fixed;
+    inset: var(--app-header-block) 0 0;
+    z-index: 81;
+    display: block;
+    padding: 0;
+    border: 0;
+    background: rgba(5, 1, 3, 0.58);
+    cursor: pointer;
+    animation: mobileRailScrimIn 180ms ease both;
+  }
+
+  @keyframes mobileRailScrimIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  .game-shell .opening-rank-board {
+    max-width: calc(100vw - 28px);
+    overflow-x: clip;
+  }
+
+  .game-shell
+    .opening-rank-cards:is(
+      [data-card-count="6"],
+      [data-card-count="7"],
+      [data-card-count="8"],
+      [data-card-count="9"],
+      [data-card-count="10"]
+    ) {
+    width: min(100%, 330px);
+    max-width: calc(100vw - 32px);
+    display: grid;
+    gap: var(--balanced-rank-card-gap, clamp(7px, 1.4vw, 14px));
+    touch-action: manipulation;
+  }
+
+  .game-shell .opening-rank-cards[data-card-count="6"] {
+    width: min(100%, 274px);
+    grid-template-columns: repeat(3, minmax(0, 82px));
+  }
+
+  .game-shell
+    .opening-rank-cards:is(
+      [data-card-count="7"],
+      [data-card-count="8"]
+    ) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .game-shell
+    .opening-rank-cards:is(
+      [data-card-count="9"],
+      [data-card-count="10"]
+    ) {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .game-shell
+    .opening-rank-cards:is(
+      [data-card-count="6"],
+      [data-card-count="7"],
+      [data-card-count="8"],
+      [data-card-count="9"],
+      [data-card-count="10"]
+    )
+    .opening-rank-card {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .game-shell
+    .opening-rank-cards[data-card-count="9"]
+    .opening-rank-card:nth-child(n + 6) {
+    transform: translateX(calc(50% + clamp(3.5px, 0.7vw, 7px)));
+  }
+
+  /* All seats, including the local player, follow rank order on the felt. */
+  .game-shell .opponent-row {
+    inset: 8px 7px 10px;
+    display: grid;
+    width: auto;
+    height: auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 4px 3px;
+  }
+
+  .game-shell .opponent-row[data-player-count="4"],
+  .game-shell .opponent-row[data-player-count="7"],
+  .game-shell .opponent-row[data-player-count="8"] {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+
+  .game-shell .opponent-row[data-player-count="6"] {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .game-shell .opponent-row[data-player-count="5"],
+  .game-shell .opponent-row[data-player-count="9"],
+  .game-shell .opponent-row[data-player-count="10"] {
+    grid-template-columns: repeat(10, minmax(0, 1fr));
+  }
+
+  .game-shell .opponent-row .player-seat,
+  .game-shell .opponent-row .player-seat.is-human-seat {
+    position: relative;
+    top: auto;
+    left: auto;
+    display: grid;
+    width: auto;
+    min-width: 0;
+    min-height: 42px;
+    grid-column: var(--seat-grid-column);
+    grid-row: var(--seat-grid-row);
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-self: start;
+    align-items: center;
+    gap: 3px;
+    padding: 4px;
+    text-align: left;
+    translate: none;
+  }
+
+  .game-shell
+    .opponent-row[data-player-count="6"]
+    .player-seat:nth-child(n + 4),
+  .game-shell
+    .opponent-row:is(
+      [data-player-count="7"],
+      [data-player-count="8"]
+    )
+    .player-seat:nth-child(n + 5),
+  .game-shell
+    .opponent-row:is(
+      [data-player-count="9"],
+      [data-player-count="10"]
+    )
+    .player-seat:nth-child(n + 6) {
+    align-self: end;
+  }
+
+  .game-shell .opponent-row .player-seat.is-human-seat {
+    border-color: rgba(244, 203, 105, 0.86);
+    background:
+      linear-gradient(135deg, rgba(116, 64, 27, 0.42), rgba(47, 17, 23, 0.96)),
+      rgba(25, 12, 14, 0.94);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 229, 154, 0.12),
+      0 0 0 2px rgba(221, 176, 72, 0.13),
+      0 7px 16px rgba(0, 0, 0, 0.28);
+  }
+
+  .game-shell .opponent-row .player-seat.is-human-seat .player-avatar {
+    background: #d1a447;
+    color: #2a150b;
+  }
+
+  .game-shell .opponent-row .player-avatar,
+  .game-shell .opponent-row .player-copy span {
+    display: none;
+  }
+
+  .game-shell .opponent-row .player-copy strong {
+    max-width: none;
+    color: #f0e1c5;
+    font-size: 8px;
+  }
+
+  .game-shell .opponent-row .player-count {
+    display: flex;
+    align-items: baseline;
+    gap: 1px;
+    white-space: nowrap;
+  }
+
+  .game-shell .opponent-row .player-count b,
+  .game-shell .opponent-row .player-count span {
+    display: inline;
+  }
+
+  .game-shell .opponent-row .player-count b {
+    font-size: 9px;
+  }
+
+  .game-shell .opponent-row .player-count span {
+    color: #978772;
+    font-size: 6px;
+  }
+
+  .game-shell
+    .opponent-row:is(
+      [data-player-count="6"],
+      [data-player-count="7"],
+      [data-player-count="8"],
+      [data-player-count="9"],
+      [data-player-count="10"]
+    )
+    .player-seat {
+    min-height: 35px;
+    padding: 3px 4px;
+  }
+
+  .game-shell .human-status,
+  .game-shell .human-zone.is-finished .human-status {
+    display: none;
+  }
+
+  .game-shell
+    .table-column:has(
+      .player-seat[data-rank-seat="6"],
+      .player-seat[data-rank-seat="7"],
+      .player-seat[data-rank-seat="8"],
+      .player-seat[data-rank-seat="9"],
+      .player-seat[data-rank-seat="10"]
+    )
+    > .turn-countdown {
+    top: 50%;
+    right: calc(8px + env(safe-area-inset-right, 0px));
+    bottom: auto;
+    transform: translateY(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .screen-transition-flash {
+    animation-duration: 1ms;
+  }
+
+  .game-shell .score-rail {
+    transition-duration: 1ms;
+  }
+}
+
 @keyframes quickDalmutiSparkMobile {
   0%,
   18% {
@@ -7990,5 +8404,24 @@ input,
     .player-copy
     strong {
     font-size: 7px;
+  }
+}
+
+/* Keep the rank-ordered top/bottom seat grid as the terminal phone layout. */
+@media (max-width: 800px),
+  (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
+  .game-shell.game-shell .opponent-row {
+    inset: 8px 7px 10px;
+    display: grid;
+    width: auto;
+    height: auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 4px 3px;
+  }
+
+  .game-shell.game-shell .human-status,
+  .game-shell.game-shell .human-zone.is-finished .human-status {
+    display: none;
   }
 }
