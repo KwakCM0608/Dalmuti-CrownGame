@@ -13,12 +13,30 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<InstallChoice>;
 }
 
+type NavigatorWithUserAgentData = Navigator & {
+  userAgentData?: {
+    mobile?: boolean;
+  };
+};
+
 function isStandalone() {
   if (typeof window === "undefined") return false;
   return (
     window.matchMedia("(display-mode: standalone)").matches ||
     ("standalone" in navigator &&
       Boolean((navigator as Navigator & { standalone?: boolean }).standalone))
+  );
+}
+
+function isMobileWeb() {
+  if (typeof window === "undefined") return false;
+  const navigatorWithData = navigator as NavigatorWithUserAgentData;
+  if (typeof navigatorWithData.userAgentData?.mobile === "boolean") {
+    return navigatorWithData.userAgentData.mobile;
+  }
+  return (
+    /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
+    (/Macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1)
   );
 }
 
@@ -37,6 +55,7 @@ export function PwaLifecycle() {
     useState<BeforeInstallPromptEvent | null>(null);
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
   const [safeScreen, setSafeScreen] = useState(false);
+  const [mobileWeb] = useState(() => isMobileWeb());
   const [installing, setInstalling] = useState(false);
   const [updating, setUpdating] = useState(false);
 
@@ -63,6 +82,7 @@ export function PwaLifecycle() {
   useEffect(() => {
     const handleInstallPrompt = (event: Event) => {
       event.preventDefault();
+      if (!isMobileWeb()) return;
       setInstallPrompt(event as BeforeInstallPromptEvent);
     };
     const handleInstalled = () => {
@@ -171,7 +191,7 @@ export function PwaLifecycle() {
   };
 
   if (!safeScreen || isStandalone()) return null;
-  if (!installPrompt && !waitingWorker) return null;
+  if (!waitingWorker && !(mobileWeb && installPrompt)) return null;
 
   return (
     <aside

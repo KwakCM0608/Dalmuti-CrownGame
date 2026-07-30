@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
-import { MobileSplash } from "@/app/components/MobileSplash";
 import { PwaLifecycle } from "@/app/components/PwaLifecycle";
+import { PreferenceRuntime } from "@/app/components/SettingsDialog";
 import "./globals.css";
 
 export const viewport: Viewport = {
@@ -70,7 +70,7 @@ export default function RootLayout({
   return (
     <html lang="ko">
       <body>
-        <MobileSplash />
+        <PreferenceRuntime />
         {children}
         <PwaLifecycle />
       </body>

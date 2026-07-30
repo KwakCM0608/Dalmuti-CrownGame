@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { selectPeonTaxCards } from "@/lib/taxation";
 import { rankedDealCounts } from "@/lib/dealing";
 import { resolveQuickDalmutiAutoPass } from "@/lib/quick-dalmuti";
@@ -22,6 +29,12 @@ import {
   RULEBOOK_DIALOG_ID,
   RulebookDialog,
 } from "@/app/components/RulebookDialog";
+import {
+  SETTINGS_DIALOG_ID,
+  SettingsDialog,
+} from "@/app/components/SettingsDialog";
+
+type LandingView = "main" | "quick-setup";
 
 type Role =
   | "great-dalmuti"
@@ -1586,11 +1599,13 @@ function PublicTurnActionLayer({
 
 export default function Home() {
   const [game, setGame] = useState<GameState | null>(null);
+  const [landingView, setLandingView] = useState<LandingView>("main");
   const [quickPlayerCount, setQuickPlayerCount] = useState(5);
   const [quickBotDifficulty, setQuickBotDifficulty] =
     useState<BotDifficulty>("normal");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showRules, setShowRules] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [turnTimer, setTurnTimer] = useState<{
     playerId: string;
     deadline: number;
@@ -2598,10 +2613,14 @@ export default function Home() {
   const returnToModeSelection = () => {
     setSelectedIds([]);
     setShowRules(false);
+    setShowSettings(false);
+    setLandingView("main");
     setRevealedRoundResultKey(null);
     setTaxAnchors({ players: {}, midpoint: null });
     setGame(null);
   };
+
+  const closeSettings = useCallback(() => setShowSettings(false), []);
 
   const beginHostedGame = () => {
     setSelectedIds([]);
@@ -2970,25 +2989,31 @@ export default function Home() {
           <strong>DALMUTI</strong>
         </button>
 
-        <div className="round-chip" aria-label="게임 정보">
-          <span>제 {game?.round ?? 1}막</span>
-          <i />
-          <span>{game?.players.length ?? quickPlayerCount}인</span>
-        </div>
+        {game && (
+          <div className="round-chip" aria-label="게임 정보">
+            <span>제 {game.round}막</span>
+            <i />
+            <span>{game.players.length}인</span>
+          </div>
+        )}
 
-        <nav className="top-actions" aria-label="게임 메뉴">
-          <button
-            type="button"
-            aria-haspopup="dialog"
-            aria-controls={RULEBOOK_DIALOG_ID}
-            onClick={() => setShowRules(true)}
-          >
-            규칙
-          </button>
-          <button type="button" onClick={startGame}>
-            새 게임
-          </button>
-        </nav>
+        {(game || landingView === "quick-setup") && (
+          <nav className="top-actions" aria-label="게임 메뉴">
+            <button
+              type="button"
+              aria-haspopup="dialog"
+              aria-controls={RULEBOOK_DIALOG_ID}
+              onClick={() => setShowRules(true)}
+            >
+              규칙
+            </button>
+            {game && (
+              <button type="button" onClick={startGame}>
+                새 게임
+              </button>
+            )}
+          </nav>
+        )}
       </header>
 
       <section className="game-stage" aria-label="달무티 게임 테이블">
@@ -3871,83 +3896,133 @@ export default function Home() {
 
       {!game && (
         <div className="welcome-layer">
-          <section className="welcome-card" role="dialog" aria-labelledby="welcome-title">
-            <span className="welcome-crown" aria-hidden="true" />
-            <span className="eyebrow">QUICK MATCH · 4–10 PLAYERS</span>
-            <h1 id="welcome-title">DALMUTI</h1>
-            <p>
-              약한 패부터 영리하게 털어내고, 계급을 뒤집으세요.
-            </p>
-            <div className="welcome-features">
-              <span>80장 정식 덱</span>
-              <span>세금과 혁명</span>
-              <span>연속 라운드</span>
-            </div>
-            <div className="quick-match-config">
-              <fieldset>
-                <legend>
-                  <span>빠른 대전 플레이 인원</span>
-                  <strong>{quickPlayerCount}인</strong>
-                </legend>
-                <div className="quick-player-count-options">
-                  {Array.from({ length: 7 }, (_, index) => index + 4).map(
-                    (playerCount) => (
+          {landingView === "main" ? (
+            <section
+              className="welcome-card main-menu-card"
+              role="dialog"
+              aria-labelledby="main-menu-title"
+            >
+              <span className="welcome-crown" aria-hidden="true" />
+              <span className="eyebrow">CHOOSE YOUR TABLE</span>
+              <h1 id="main-menu-title">DALMUTI</h1>
+              <div className="main-menu-grid" aria-label="메인 메뉴">
+                <button
+                  type="button"
+                  className="main-menu-option is-primary"
+                  onClick={() => setLandingView("quick-setup")}
+                >
+                  <small>QUICK MATCH</small>
+                  <strong>빠른 대전</strong>
+                  <span>인원과 난이도를 선택해 봇과 플레이</span>
+                  <b>→</b>
+                </button>
+                <a className="main-menu-option" href="/online">
+                  <small>ONLINE</small>
+                  <strong>온라인 모드</strong>
+                  <span>초대 코드로 친구들과 실시간 플레이</span>
+                  <b>↗</b>
+                </a>
+                <button
+                  type="button"
+                  className="main-menu-option"
+                  aria-haspopup="dialog"
+                  aria-controls={SETTINGS_DIALOG_ID}
+                  onClick={() => setShowSettings(true)}
+                >
+                  <small>PREFERENCES</small>
+                  <strong>환경설정</strong>
+                  <span>기기에 맞는 화면 연출 선택</span>
+                  <b>⚙</b>
+                </button>
+                <button
+                  type="button"
+                  className="main-menu-option"
+                  aria-haspopup="dialog"
+                  aria-controls={RULEBOOK_DIALOG_ID}
+                  onClick={() => setShowRules(true)}
+                >
+                  <small>HOW TO PLAY</small>
+                  <strong>규칙</strong>
+                  <span>게임 흐름과 카드 규칙 확인</span>
+                  <b>?</b>
+                </button>
+              </div>
+            </section>
+          ) : (
+            <section
+              className="welcome-card quick-setup-card"
+              role="dialog"
+              aria-labelledby="quick-setup-title"
+            >
+              <button
+                type="button"
+                className="welcome-back-button"
+                onClick={() => setLandingView("main")}
+              >
+                ← 메인 화면
+              </button>
+              <span className="welcome-crown" aria-hidden="true" />
+              <span className="eyebrow">QUICK MATCH · 4–10 PLAYERS</span>
+              <h1 id="quick-setup-title">빠른 대전</h1>
+              <p>플레이 인원과 봇 난이도를 정한 뒤 게임을 시작하세요.</p>
+              <div className="quick-match-config">
+                <fieldset>
+                  <legend>
+                    <span>빠른 대전 플레이 인원</span>
+                    <strong>{quickPlayerCount}인</strong>
+                  </legend>
+                  <div className="quick-player-count-options">
+                    {Array.from({ length: 7 }, (_, index) => index + 4).map(
+                      (playerCount) => (
+                        <button
+                          key={playerCount}
+                          type="button"
+                          className={
+                            quickPlayerCount === playerCount ? "is-selected" : ""
+                          }
+                          aria-pressed={quickPlayerCount === playerCount}
+                          onClick={() => setQuickPlayerCount(playerCount)}
+                        >
+                          {playerCount}
+                        </button>
+                      ),
+                    )}
+                  </div>
+                </fieldset>
+                <fieldset>
+                  <legend>
+                    <span>봇 난이도</span>
+                    <strong>
+                      {BOT_DIFFICULTY_LABELS[quickBotDifficulty]}
+                    </strong>
+                  </legend>
+                  <div className="quick-difficulty-options">
+                    {BOT_DIFFICULTIES.map((difficulty) => (
                       <button
-                        key={playerCount}
+                        key={difficulty}
                         type="button"
                         className={
-                          quickPlayerCount === playerCount ? "is-selected" : ""
+                          quickBotDifficulty === difficulty ? "is-selected" : ""
                         }
-                        aria-pressed={quickPlayerCount === playerCount}
-                        onClick={() => setQuickPlayerCount(playerCount)}
+                        aria-pressed={quickBotDifficulty === difficulty}
+                        onClick={() => setQuickBotDifficulty(difficulty)}
                       >
-                        {playerCount}
+                        <span>{BOT_DIFFICULTY_LABELS[difficulty]}</span>
+                        <small>{BOT_DIFFICULTY_DESCRIPTIONS[difficulty]}</small>
                       </button>
-                    ),
-                  )}
-                </div>
-              </fieldset>
-              <fieldset>
-                <legend>
-                  <span>봇 난이도</span>
-                  <strong>
-                    {BOT_DIFFICULTY_LABELS[quickBotDifficulty]}
-                  </strong>
-                </legend>
-                <div className="quick-difficulty-options">
-                  {BOT_DIFFICULTIES.map((difficulty) => (
-                    <button
-                      key={difficulty}
-                      type="button"
-                      className={
-                        quickBotDifficulty === difficulty ? "is-selected" : ""
-                      }
-                      aria-pressed={quickBotDifficulty === difficulty}
-                      onClick={() => setQuickBotDifficulty(difficulty)}
-                    >
-                      <span>{BOT_DIFFICULTY_LABELS[difficulty]}</span>
-                      <small>{BOT_DIFFICULTY_DESCRIPTIONS[difficulty]}</small>
-                    </button>
-                  ))}
-                </div>
-              </fieldset>
-            </div>
-            <button type="button" className="start-button" onClick={startGame}>
-              <span>빠른 대전({quickPlayerCount}인)</span>
-              <i>
-                {BOT_DIFFICULTY_LABELS[quickBotDifficulty]} 난이도로 게임 시작
-              </i>
-              <b>→</b>
-            </button>
-            <a className="online-start-link" href="/online">
-              <span>친구들과 온라인</span>
-              <i>초대 코드로 4~8인 방 만들기</i>
-              <b>↗</b>
-            </a>
-            <small className="welcome-note">
-              혼자 연습하거나, 온라인 방을 만들어 함께 플레이하세요.
-            </small>
-          </section>
+                    ))}
+                  </div>
+                </fieldset>
+              </div>
+              <button type="button" className="start-button" onClick={startGame}>
+                <span>빠른 대전({quickPlayerCount}인)</span>
+                <i>
+                  {BOT_DIFFICULTY_LABELS[quickBotDifficulty]} 난이도로 게임 시작
+                </i>
+                <b>→</b>
+              </button>
+            </section>
+          )}
         </div>
       )}
 
@@ -4060,6 +4135,7 @@ export default function Home() {
             ].includes(game.phase),
         )}
       />
+      <SettingsDialog open={showSettings} onClose={closeSettings} />
     </main>
   );
 }

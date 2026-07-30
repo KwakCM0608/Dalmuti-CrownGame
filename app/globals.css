@@ -5432,6 +5432,204 @@ button:focus-visible {
   }
 }
 
+/* Main navigation and quick-match setup now have separate, focused surfaces. */
+.game-shell .main-menu-card {
+  width: min(650px, 100%);
+  padding: 42px 44px 38px;
+}
+
+.game-shell .main-menu-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 26px;
+}
+
+.game-shell .main-menu-option {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 112px;
+  align-content: center;
+  gap: 5px;
+  padding: 17px 44px 17px 18px;
+  border: 1px solid rgba(222, 188, 110, 0.2);
+  border-radius: 13px;
+  background:
+    linear-gradient(135deg, rgba(216, 171, 68, 0.065), transparent 60%),
+    rgba(255, 255, 255, 0.03);
+  color: #eadcc4;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.game-shell .main-menu-option:hover,
+.game-shell .main-menu-option:focus-visible {
+  border-color: rgba(235, 200, 113, 0.72);
+  background:
+    linear-gradient(135deg, rgba(216, 171, 68, 0.14), transparent 62%),
+    rgba(255, 255, 255, 0.055);
+  transform: translateY(-2px);
+}
+
+.game-shell .main-menu-option.is-primary {
+  border-color: rgba(228, 190, 98, 0.56);
+  background:
+    radial-gradient(circle at 100% 0, rgba(230, 190, 92, 0.15), transparent 42%),
+    linear-gradient(140deg, rgba(116, 39, 56, 0.78), rgba(54, 16, 26, 0.94));
+}
+
+.game-shell .main-menu-option small,
+.game-shell .main-menu-option strong,
+.game-shell .main-menu-option span {
+  display: block;
+  min-width: 0;
+}
+
+.game-shell .main-menu-option small {
+  color: #b28d40;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+}
+
+.game-shell .main-menu-option strong {
+  color: #f4e5c8;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 18px;
+}
+
+.game-shell .main-menu-option span {
+  overflow: hidden;
+  color: #918575;
+  font-size: 8px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-shell .main-menu-option b {
+  position: absolute;
+  top: 50%;
+  right: 17px;
+  color: var(--gold-400);
+  font-size: 20px;
+  transform: translateY(-50%);
+}
+
+.game-shell .quick-setup-card {
+  padding-top: 36px;
+}
+
+.game-shell .quick-setup-card h1 {
+  font-size: clamp(34px, 5vw, 46px);
+}
+
+.game-shell .welcome-back-button {
+  position: absolute;
+  top: 18px;
+  left: 20px;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid rgba(222, 188, 110, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.035);
+  color: #b9aa92;
+  cursor: pointer;
+  font-size: 8px;
+  font-weight: 900;
+}
+
+.game-shell .welcome-back-button:hover {
+  border-color: rgba(235, 200, 113, 0.58);
+  color: #f1d996;
+}
+
+/* The light preference keeps gameplay timing intact and only trims
+ * decorative work that is expensive on low-power mobile GPUs. */
+:root[data-dalmuti-effects="light"] .paper-grain,
+:root[data-dalmuti-effects="light"] [class*="grain"] {
+  opacity: 0.1 !important;
+  mix-blend-mode: normal !important;
+}
+
+:root[data-dalmuti-effects="light"]
+  .great-revolution-field-effect
+  > span:nth-of-type(n + 5),
+:root[data-dalmuti-effects="light"]
+  .dalmuti-action-effects
+  > span:nth-of-type(n + 5),
+:root[data-dalmuti-effects="light"]
+  [class*="greatRevolutionFieldEffect"]
+  > span:nth-of-type(n + 5),
+:root[data-dalmuti-effects="light"]
+  [class*="dalmutiEffectOverlay"]
+  > span:nth-of-type(n + 5) {
+  display: none !important;
+}
+
+@media (max-width: 560px) {
+  .game-shell .main-menu-card {
+    padding: 32px 20px 24px;
+  }
+
+  .game-shell .main-menu-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    margin-top: 20px;
+  }
+
+  .game-shell .main-menu-option {
+    min-height: 80px;
+    padding-block: 13px;
+  }
+
+  .game-shell .main-menu-option strong {
+    font-size: 16px;
+  }
+
+  .game-shell .quick-setup-card {
+    padding: 54px 19px 23px;
+  }
+
+  .game-shell .welcome-back-button {
+    min-height: 40px;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .game-shell .main-menu-card {
+    width: min(690px, calc(100% - 18px));
+    padding: 18px 28px;
+  }
+
+  .game-shell .main-menu-card .welcome-crown {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 8px;
+  }
+
+  .game-shell .main-menu-card h1 {
+    margin-block: 7px 9px;
+    font-size: 30px;
+  }
+
+  .game-shell .main-menu-grid {
+    margin-top: 12px;
+  }
+
+  .game-shell .main-menu-option {
+    min-height: 70px;
+    padding-block: 10px;
+  }
+}
+
 /* Mobile viewport and touch hardening.
  * Keep the desktop composition intact while making the game board follow the
  * actually visible browser viewport on phones and installed web apps. */

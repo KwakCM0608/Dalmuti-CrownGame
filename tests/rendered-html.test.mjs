@@ -36,15 +36,12 @@ test("server-renders the playable Dalmuti prototype", async () => {
   assert.match(html, /DALMUTI/);
   assert.doesNotMatch(html, /왕관은/);
   assert.doesNotMatch(html, /네 명의 AI와(?: 함께)? 바로 한 판을 시작합니다/);
-  assert.match(html, /빠른 대전\(/);
-  assert.match(html, /QUICK MATCH · 4–10 PLAYERS/);
-  assert.match(html, /플레이 인원/);
-  assert.match(html, /봇 난이도/);
-  assert.match(html, /쉬움/);
-  assert.match(html, /보통/);
-  assert.match(html, /어려움/);
+  assert.match(html, />빠른 대전</);
+  assert.match(html, />온라인 모드</);
+  assert.match(html, />환경설정</);
+  assert.match(html, />규칙</);
+  assert.doesNotMatch(html, /빠른 대전 플레이 인원/);
   assert.match(html, /<link rel="icon" href="\/brand-dalmuti-crown\.png"\/>/);
-  assert.match(html, /친구들과 온라인/);
   assert.match(html, /누적 점수/);
   assert.match(html, />기록</);
   assert.doesNotMatch(html, /궁정 서열|궁정 기록|5인 궁정|CROWN/);
@@ -86,6 +83,10 @@ test("ships without the disposable starter preview", async () => {
 
   assert.match(page, /"use client"/);
   assert.doesNotMatch(page, /DCLab의 계급전/);
+  assert.match(page, /type LandingView = "main" \| "quick-setup"/);
+  assert.match(page, />온라인 모드</);
+  assert.match(page, />환경설정</);
+  assert.match(page, /SettingsDialog/);
   assert.match(styles, /brand-dalmuti-crown\.png/);
   assert.match(page, /function createDeck/);
   assert.match(page, /function applyTax/);
@@ -758,7 +759,10 @@ test("online phase locks and visual animation timing mirror quick match", async 
   assert.match(onlinePage, /stageRankMovement\("round-end"/);
   assert.match(onlinePage, /stageRankMovement\("great-revolution"/);
   assert.match(onlinePage, /player\.id === snapshot\.hostId \|\|/);
-  assert.match(onlinePage, /방장 · 준비 불필요/);
+  assert.match(onlinePage, /방장 · 준비 완료/);
+  assert.match(onlinePage, /달무티에 참가하기/);
+  assert.doesNotMatch(onlinePage, /window\.confirm/);
+  assert.match(onlinePage, /function RoomExitDialog/);
   assert.match(onlinePage, /setHandRevealElapsedMs/);
   assert.match(onlinePage, /const \[phaseElapsed\] = useState/);
   assert.match(onlinePage, /styles\.greatRevolutionFieldEffect/);

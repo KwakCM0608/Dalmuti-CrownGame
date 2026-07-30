@@ -218,6 +218,10 @@ type StoredSession = {
   nickname: string;
 };
 
+type RoomExitIntent = {
+  goHome: boolean;
+};
+
 type TaxVisualOverride = {
   phase: "tax-tribute" | "tax-return";
   expiresAt: number;
@@ -1053,6 +1057,80 @@ function ConnectionPill({
       <i />
       {copy[state]}
     </span>
+  );
+}
+
+function RoomExitDialog({
+  isHost,
+  goHome,
+  busy,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  isHost: boolean;
+  goHome: boolean;
+  busy: boolean;
+  error: string | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  useEffect(() => {
+    if (busy) return;
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [busy, onCancel]);
+
+  return (
+    <div
+      className={styles.roomExitLayer}
+      role="presentation"
+      onMouseDown={(event) => {
+        if (!busy && event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <section
+        className={styles.roomExitDialog}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="room-exit-title"
+        aria-describedby="room-exit-description"
+      >
+        <small>{isHost ? "RESET THE ROOM" : "LEAVE THE ROOM"}</small>
+        <h2 id="room-exit-title">
+          {isHost ? "방을 초기화할까요?" : "방에서 나갈까요?"}
+        </h2>
+        <p id="room-exit-description">
+          {isHost
+            ? "현재 방과 모든 참가자의 접속 정보가 삭제됩니다."
+            : "현재 방에서 나가면 진행 중인 막은 대기실로 초기화됩니다."}
+          {goHome && " 완료 후 메인 화면으로 돌아갑니다."}
+        </p>
+        {error && <p className={styles.roomExitError}>{error}</p>}
+        <div>
+          <button
+            type="button"
+            className={styles.roomExitCancel}
+            disabled={busy}
+            onClick={onCancel}
+            autoFocus
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            className={styles.roomExitConfirm}
+            disabled={busy}
+            onClick={onConfirm}
+          >
+            {busy ? "처리 중" : isHost ? "방 초기화" : "방 나가기"}
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -2224,6 +2302,8 @@ export default function OnlinePage() {
   const [copied, setCopied] = useState(false);
   const [entryBusy, setEntryBusy] = useState(false);
   const [showRules, setShowRules] = useState(false);
+  const [roomExitIntent, setRoomExitIntent] =
+    useState<RoomExitIntent | null>(null);
   const [botDifficultyPickerSlot, setBotDifficultyPickerSlot] = useState<
     number | null
   >(null);
@@ -3821,13 +3901,14 @@ export default function OnlinePage() {
     setFatalError(false);
     setError(null);
     setBusy(false);
+    setRoomExitIntent(null);
     failureCountRef.current = 0;
     setEntryMode("create");
     setRoomCodeInput("");
     window.history.replaceState(null, "", "/online");
   };
 
-  const exitRoom = async (goHome = false) => {
+  const requestExitRoom = (goHome = false) => {
     const activeSession = sessionRef.current;
     const current = snapshotRef.current;
     if (!activeSession || !current || fatalError) {
@@ -3835,12 +3916,20 @@ export default function OnlinePage() {
       if (goHome) router.push("/");
       return;
     }
-    const confirmed = window.confirm(
-      isHost
-        ? "방을 초기화하면 현재 방과 모든 참가자의 접속 정보가 삭제됩니다. 계속할까요?"
-        : "현재 방에서 나가면 진행 중인 막은 대기실로 초기화됩니다. 계속할까요?",
-    );
-    if (!confirmed) return;
+    setError(null);
+    setRoomExitIntent({ goHome });
+  };
+
+  const closeRoomExitDialog = useCallback(() => {
+    if (!busy) setRoomExitIntent(null);
+  }, [busy]);
+
+  const performExitRoom = async () => {
+    const intent = roomExitIntent;
+    const activeSession = sessionRef.current;
+    const current = snapshotRef.current;
+    if (!intent || !activeSession || !current || fatalError) return;
+    const { goHome } = intent;
 
     setBusy(true);
     setError(null);
@@ -3997,7 +4086,7 @@ export default function OnlinePage() {
             {error && <p className={styles.formError}>{error}</p>}
             <button
               type="submit"
-              className={styles.primaryButton}
+              className={`${styles.primaryButton} ${styles.entrySubmitButton}`}
               disabled={entryBusy}
             >
               <span>
@@ -4005,7 +4094,7 @@ export default function OnlinePage() {
                   ? "입장 정보를 확인하는 중"
                   : entryMode === "create"
                     ? "온라인 방 만들기"
-                    : "계급전에 참가하기"}
+                    : "달무티에 참가하기"}
               </span>
               <b>{entryBusy ? "···" : "→"}</b>
             </button>
@@ -4044,7 +4133,7 @@ export default function OnlinePage() {
         <div className={styles.grain} />
         <header className={styles.roomHeader}>
           <Brand
-            onActivate={() => void exitRoom(true)}
+            onActivate={() => requestExitRoom(true)}
             disabled={busy || !snapshot}
           />
           <div className={styles.headerRoom}>
@@ -4066,7 +4155,7 @@ export default function OnlinePage() {
             </button>
             <button
               type="button"
-              onClick={() => void exitRoom()}
+              onClick={() => requestExitRoom()}
               disabled={busy}
               aria-label={isHost ? "방 초기화 후 나가기" : "방 나가기"}
             >
@@ -4193,7 +4282,7 @@ export default function OnlinePage() {
                         }
                       >
                         {player.id === snapshot.hostId
-                          ? "방장 · 준비 불필요"
+                          ? "방장 · 준비 완료"
                           : player.isBot
                           ? `BOT · ${
                               BOT_DIFFICULTY_LABELS[
@@ -4334,13 +4423,23 @@ export default function OnlinePage() {
               <button
                 type="button"
                 onClick={() =>
-                  fatalError ? finishLocalExit() : void exitRoom()
+                  fatalError ? finishLocalExit() : requestExitRoom()
                 }
               >
                 입장 화면으로
               </button>
             </div>
           </div>
+        )}
+        {roomExitIntent && (
+          <RoomExitDialog
+            isHost={isHost}
+            goHome={roomExitIntent.goHome}
+            busy={busy}
+            error={error}
+            onCancel={closeRoomExitDialog}
+            onConfirm={() => void performExitRoom()}
+          />
         )}
         <RulebookDialog
           open={showRules}
@@ -4355,7 +4454,7 @@ export default function OnlinePage() {
       <div className={styles.grain} />
       <header className={styles.roomHeader}>
         <Brand
-          onActivate={() => void exitRoom(true)}
+          onActivate={() => requestExitRoom(true)}
           disabled={busy}
         />
         <div className={styles.roundInfo}>
@@ -4378,7 +4477,7 @@ export default function OnlinePage() {
           </button>
           <button
             type="button"
-            onClick={() => void exitRoom()}
+            onClick={() => requestExitRoom()}
             disabled={busy}
             aria-label={isHost ? "방 초기화 후 나가기" : "방 나가기"}
           >
@@ -5213,13 +5312,24 @@ export default function OnlinePage() {
             <button
               type="button"
               onClick={() =>
-                fatalError ? finishLocalExit() : void exitRoom()
+                fatalError ? finishLocalExit() : requestExitRoom()
               }
             >
               입장 화면으로
             </button>
           </div>
         </div>
+      )}
+
+      {roomExitIntent && (
+        <RoomExitDialog
+          isHost={isHost}
+          goHome={roomExitIntent.goHome}
+          busy={busy}
+          error={error}
+          onCancel={closeRoomExitDialog}
+          onConfirm={() => void performExitRoom()}
+        />
       )}
 
       {error && connection === "online" && (

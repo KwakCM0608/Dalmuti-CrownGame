@@ -42,21 +42,24 @@ test("updates are offered only on safe entry screens", () => {
   assert.match(lifecycle, /entryShell/);
   assert.match(lifecycle, /waitingWorker\.postMessage\(\{ type: "SKIP_WAITING" \}\)/);
   assert.match(lifecycle, /beforeinstallprompt/);
+  assert.match(lifecycle, /function isMobileWeb/);
+  assert.match(lifecycle, /userAgentData\?\.mobile/);
+  assert.match(lifecycle, /Android\|iPhone\|iPad\|iPod\|Mobile/);
+  assert.match(lifecycle, /mobileWeb && installPrompt/);
   assert.match(layout, /viewportFit:\s*"cover"/);
   assert.match(layout, /appleWebApp/);
-  assert.match(layout, /<MobileSplash \/>/);
+  assert.doesNotMatch(layout, /MobileSplash/);
+  assert.match(layout, /<PreferenceRuntime \/>/);
   assert.match(layout, /<PwaLifecycle \/>/);
 });
 
-test("installed mobile app opens with the crown splash screen", () => {
-  const splash = read("app/components/MobileSplash.tsx");
-  const styles = read("app/components/MobileSplash.module.css");
+test("installed Android app uses one native crown splash screen", () => {
   const wrapper = JSON.parse(read("android-twa/twa-manifest.json"));
 
-  assert.match(splash, /brand-dalmuti-crown\.png|styles\.crown/);
-  assert.match(styles, /@media \(display-mode: standalone\)/);
-  assert.match(styles, /brand-dalmuti-crown\.png/);
-  assert.equal(wrapper.splashScreenFadeOutDuration, 420);
+  assert.match(wrapper.iconUrl, /icon-512\.png/);
+  assert.equal(wrapper.backgroundColor, "#18070c");
+  assert.equal(wrapper.splashScreenFadeOutDuration, 220);
+  assert.equal(wrapper.appVersionCode, 2);
 });
 
 test("required offline and install assets exist", () => {
