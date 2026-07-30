@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
 const root = process.cwd();
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
+const sha256 = (file) =>
+  createHash("sha256")
+    .update(fs.readFileSync(path.join(root, file)))
+    .digest("hex");
 
 test("manifest exposes a standalone install surface and both game shortcuts", () => {
   const manifest = read("app/manifest.ts");
@@ -66,10 +71,10 @@ test("installed Android app uses one branded splash and system-aware rotation", 
   );
 
   assert.match(wrapper.iconUrl, /icon-512\.png/);
-  assert.equal(wrapper.backgroundColor, "#18070c");
-  assert.equal(wrapper.splashScreenFadeOutDuration, 220);
-  assert.equal(wrapper.appVersionCode, 5);
-  assert.equal(wrapper.appVersion, "1.0.4");
+  assert.equal(wrapper.backgroundColor, "#000000");
+  assert.equal(wrapper.splashScreenFadeOutDuration, 180);
+  assert.equal(wrapper.appVersionCode, 6);
+  assert.equal(wrapper.appVersion, "1.0.5");
   assert.equal(wrapper.orientation, "default");
   assert.doesNotMatch(webManifest, /orientation:\s*"any"/);
   assert.match(customizer, /customRoot "java\\LauncherActivity\.java"/);
@@ -86,6 +91,48 @@ test("installed Android app uses one branded splash and system-aware rotation", 
     /builder\.setScreenOrientation\(launchOrientation\)/,
   );
   assert.match(
+    nativeLauncher,
+    /protected boolean shouldLaunchImmediately\(\) \{\s*return false;/,
+  );
+  assert.match(nativeLauncher, /FrameLayout root = new FrameLayout\(this\)/);
+  assert.match(nativeLauncher, /R\.drawable\.splash_glow/);
+  assert.match(nativeLauncher, /artwork\.setAlpha\(0f\)/);
+  assert.match(nativeLauncher, /artwork\.setScaleX\(0\.94f\)/);
+  assert.match(nativeLauncher, /new DecelerateInterpolator\(1\.35f\)/);
+  assert.match(nativeLauncher, /ImageView\.ScaleType\.FIT_CENTER/);
+  assert.match(
+    nativeLauncher,
+    /splashHandler\.postDelayed\(this::launchTwaOnce, SPLASH_HANDOFF_AT_MS\)/,
+  );
+  assert.match(
+    nativeLauncher,
+    /if \(nativeLaunchDispatched \|\| isFinishing\(\)\)/,
+  );
+  assert.match(nativeLauncher, /NATIVE_LAUNCH_DISPATCHED_KEY/);
+  const nativeTiming = Object.fromEntries(
+    [
+      "SPLASH_REVEAL_DELAY_MS",
+      "SPLASH_REVEAL_DURATION_MS",
+      "SPLASH_HANDOFF_AT_MS",
+    ].map((name) => {
+      const match = nativeLauncher.match(
+        new RegExp(`${name} = (\\d+)L`),
+      );
+      assert.ok(match, `${name} must be declared`);
+      return [name, Number(match[1])];
+    }),
+  );
+  assert.ok(
+    nativeTiming.SPLASH_REVEAL_DELAY_MS +
+      nativeTiming.SPLASH_REVEAL_DURATION_MS <=
+      nativeTiming.SPLASH_HANDOFF_AT_MS,
+  );
+  assert.ok(
+    nativeTiming.SPLASH_HANDOFF_AT_MS +
+      wrapper.splashScreenFadeOutDuration <=
+      1_500,
+  );
+  assert.match(
     androidSplashTheme,
     /android:windowSplashScreenAnimatedIcon[^]*dalmuti_splash_transparent/,
   );
@@ -100,13 +147,22 @@ test("installed Android app uses one branded splash and system-aware rotation", 
   );
   assert.equal(
     fs.existsSync(
-      path.join(root, "android-twa/assets/dalmuti-app-icon-v1.png"),
+      path.join(
+        root,
+        "android-twa/custom/res/drawable-xxxhdpi/splash_glow.png",
+      ),
     ),
     true,
   );
   assert.equal(
     fs.existsSync(
-      path.join(root, "android-twa/assets/dalmuti-splash-v2.png"),
+      path.join(root, "android-twa/assets/dalmuti-app-icon-v2.png"),
+    ),
+    true,
+  );
+  assert.equal(
+    fs.existsSync(
+      path.join(root, "android-twa/assets/dalmuti-splash-v3.png"),
     ),
     true,
   );
@@ -128,8 +184,17 @@ test("installed Android app uses one branded splash and system-aware rotation", 
     ),
     true,
   );
-  assert.match(assetBuilder, /dalmuti-app-icon-v1\.png/);
-  assert.match(assetBuilder, /dalmuti-splash-v2\.png/);
+  assert.match(assetBuilder, /dalmuti-app-icon-v2\.png/);
+  assert.match(assetBuilder, /dalmuti-splash-v3\.png/);
+  assert.match(assetBuilder, /ImageFilter\.GaussianBlur/);
+  assert.equal(
+    sha256("android-twa/assets/dalmuti-app-icon-v2.png"),
+    "5c953737fb31f5a8ed8e2d7f53a75681e5b37a0fcf8db55a743206260f6d7946",
+  );
+  assert.equal(
+    sha256("android-twa/assets/dalmuti-splash-v3.png"),
+    "13fadbea989e85980994d185b44f4a4215f3df59e075d1bdf6056a820756631f",
+  );
   assert.doesNotMatch(androidSplashTheme, /windowSplashScreenBrandingImage/);
   assert.equal(
     fs.existsSync(

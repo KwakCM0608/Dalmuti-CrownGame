@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import styles from "./CreditsDialog.module.css";
 
 export const CREDITS_DIALOG_ID = "dalmuti-credits-dialog";
+const CREDITS_CLOSE_DURATION_MS = 180;
 
 const CREDIT_ITEMS = [
   {
@@ -18,7 +19,7 @@ const CREDIT_ITEMS = [
   },
   {
     label: "LABORATORY",
-    value: "Distributed Computing Lab (DCLab)",
+    value: "DCLab(Distributed Computing Lab)",
     detail: "Project affiliation",
   },
   {
@@ -50,8 +51,28 @@ export function CreditsDialog({
   open: boolean;
   onClose: () => void;
 }) {
+  const [closing, setClosing] = useState(false);
   const dialogRef = useRef<HTMLElement | null>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const closingRef = useRef(false);
+  const closeTimerRef = useRef<number | null>(null);
+
+  const requestClose = useCallback(() => {
+    if (closingRef.current) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      onClose();
+      return;
+    }
+
+    closingRef.current = true;
+    setClosing(true);
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null;
+      closingRef.current = false;
+      setClosing(false);
+      onClose();
+    }, CREDITS_CLOSE_DURATION_MS);
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -65,7 +86,7 @@ export function CreditsDialog({
       dialogRef.current?.focus();
     });
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") requestClose();
     };
     window.addEventListener("keydown", handleKeyDown);
 
@@ -74,16 +95,25 @@ export function CreditsDialog({
       window.removeEventListener("keydown", handleKeyDown);
       restoreFocusRef.current?.focus();
     };
-  }, [onClose, open]);
+  }, [open, requestClose]);
+
+  useEffect(
+    () => () => {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+      }
+    },
+    [],
+  );
 
   if (!open) return null;
 
   return (
     <div
-      className={styles.layer}
+      className={`${styles.layer} ${closing ? styles.closing : ""}`}
       role="presentation"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (event.target === event.currentTarget) requestClose();
       }}
     >
       <section
@@ -99,7 +129,7 @@ export function CreditsDialog({
         <button
           type="button"
           className={styles.close}
-          onClick={onClose}
+          onClick={requestClose}
           aria-label="Close credits"
         >
           ×
@@ -132,7 +162,7 @@ export function CreditsDialog({
           and other rights remain with their respective owners.
         </p>
 
-        <button type="button" className={styles.done} onClick={onClose}>
+        <button type="button" className={styles.done} onClick={requestClose}>
           CLOSE
         </button>
       </section>

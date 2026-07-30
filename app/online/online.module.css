@@ -3487,6 +3487,10 @@
   padding: 9px 10px 0;
 }
 
+.ownStatus {
+  display: none;
+}
+
 .handScroller {
   min-width: 0;
   overflow-x: auto;
@@ -9039,14 +9043,108 @@
   }
 }
 
-/* The local player uses the same ranked table seat as every opponent on PC.
- * Keep the lower interaction bar aligned to the quick-match proportions. */
+/* The local player keeps their ranked table seat and also gets the compact
+ * quick-match status summary beside the hand on desktop. */
 @media (min-width: 821px) {
   .ownDock {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: 162px minmax(0, 1fr);
+    column-gap: 10px;
+  }
+
+  .ownStatus {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    align-self: center;
+    align-items: center;
+    gap: 7px;
+    margin: 18px 0 10px 3px;
+    padding: 7px 8px;
+    border: 1px solid rgba(224, 185, 91, 0.32);
+    border-radius: 11px;
+    background:
+      linear-gradient(135deg, rgba(204, 150, 45, 0.11), transparent 48%),
+      rgba(45, 13, 21, 0.94);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 232, 166, 0.04),
+      0 8px 19px rgba(0, 0, 0, 0.27);
+    color: #ead9b8;
+  }
+
+  .ownStatusAvatar {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border: 1px solid rgba(246, 211, 127, 0.48);
+    border-radius: 50%;
+    background: #d1a447;
+    color: #2a150b;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 11px;
+    font-weight: 900;
+  }
+
+  .ownStatusCopy {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+  }
+
+  .ownStatusCopy small,
+  .ownStatusCopy strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ownStatusCopy small {
+    color: #9e875e;
+    font-size: 7px;
+    font-weight: 900;
+  }
+
+  .ownStatusCopy strong {
+    color: #f0dfbd;
+    font-size: 10px;
+    line-height: 1.25;
+  }
+
+  .ownStatus > em {
+    min-width: 34px;
+    padding: 4px 6px;
+    border-radius: 999px;
+    background: rgba(196, 145, 42, 0.15);
+    color: #ddbd66;
+    font-size: 7px;
+    font-style: normal;
+    font-weight: 900;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .ownStatusActive {
+    border-color: rgba(246, 204, 99, 0.88);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 232, 166, 0.12),
+      0 0 0 3px rgba(222, 174, 66, 0.12),
+      0 0 25px rgba(233, 181, 60, 0.24);
+  }
+
+  .ownStatusFinished {
+    border-color: rgba(127, 173, 135, 0.42);
+    background:
+      linear-gradient(135deg, rgba(87, 151, 98, 0.13), transparent 48%),
+      rgba(34, 28, 23, 0.94);
+  }
+
+  .ownDock > .handScroller {
+    grid-column: 2;
   }
 
   .actionBar {
+    grid-column: 1 / -1;
     width: min(720px, 100%);
     max-width: 720px;
     gap: 8px;
@@ -9481,17 +9579,20 @@
     box-shadow: inset 3px 0 #d2a64b;
   }
 
-  /* Every mobile rank draw fits in the table. Flex wrapping keeps an
-   * incomplete final row centered (7 players becomes exactly 4 + 3). */
+  /* Match quick play's fixed rank-card grid. Stable tracks prevent the
+   * installed app from resizing cards while an optimistic claim is replaced
+   * by the server-confirmed selection. */
   .rankChoiceCards[data-card-count] {
     --mobile-rank-columns: 4;
     --mobile-rank-gap: 6px;
-    --mobile-rank-basis: calc(25% - 4.5px);
 
-    display: flex;
-    width: min(100%, 374px);
-    max-width: 374px;
-    flex-wrap: wrap;
+    display: grid;
+    width: min(100%, 330px);
+    max-width: calc(100vw - 32px);
+    grid-template-columns: repeat(
+      var(--mobile-rank-columns),
+      minmax(0, 82px)
+    );
     justify-content: center;
     gap: 8px var(--mobile-rank-gap);
     margin-inline: auto;
@@ -9506,21 +9607,21 @@
   .rankChoiceCards[data-card-count="10"] {
     --mobile-rank-columns: 5;
     --mobile-rank-gap: 4px;
-    --mobile-rank-basis: calc(20% - 3.2px);
   }
 
   .rankChoiceCards[data-card-count="6"] {
     --mobile-rank-columns: 3;
     --mobile-rank-gap: 6px;
-    --mobile-rank-basis: calc(33.333% - 4px);
-    max-width: 270px;
+    width: min(100%, 274px);
   }
 
   .rankChoiceCards[data-card-count] > .rankChoiceSlot,
   .rankChoiceCards[data-card-count="7"] > .rankChoiceSlot {
-    width: var(--mobile-rank-basis);
+    width: 100%;
     max-width: 82px;
-    flex: 0 0 var(--mobile-rank-basis);
+    min-width: 0;
+    flex: none;
+    transform: none;
   }
 
   .rankChoiceCards[data-card-count] .rankChoiceCard {
@@ -9528,15 +9629,34 @@
     max-width: none;
   }
 
+  .rankChoiceCards[data-card-count="7"] > .rankChoiceSlot:nth-child(n + 5),
+  .rankChoiceCards[data-card-count="9"] > .rankChoiceSlot:nth-child(n + 6) {
+    transform: translateX(calc(50% + var(--mobile-rank-gap) / 2));
+  }
+
   /* All players, including the viewer, occupy their real rank position on
    * mobile. For 6–10 players rows are 3+3, 4+3, 4+4, 5+4 and 5+5. */
   .seatRing[data-mobile-layout="true"] {
     position: absolute;
-    inset: 0;
-    display: block;
+    inset: 10px 12px 12px;
+    display: grid;
     width: auto;
     height: auto;
+    grid-template-columns: repeat(10, minmax(0, 1fr));
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 4px 3px;
     pointer-events: none;
+  }
+
+  .seatRing[data-mobile-layout="true"][data-player-count="4"],
+  .seatRing[data-mobile-layout="true"][data-player-count="7"],
+  .seatRing[data-mobile-layout="true"][data-player-count="8"] {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+
+  .seatRing[data-mobile-layout="true"][data-player-count="6"] {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 
   .seatRing[data-mobile-layout="true"] .playerSeat,
@@ -9553,20 +9673,23 @@
     .playerSeat[data-rank-number="9"],
   .seatRing[data-mobile-layout="true"]
     .playerSeat[data-rank-number="10"] {
-    position: absolute;
-    top: var(--mobile-seat-y);
-    left: var(--mobile-seat-x);
+    position: relative;
+    top: auto;
+    left: auto;
     display: grid;
-    width: min(94px, var(--mobile-seat-width));
+    width: auto;
     min-width: 0;
     min-height: 34px;
+    grid-column: var(--mobile-seat-grid-column);
+    grid-row: var(--mobile-seat-grid-row);
     grid-template-columns: minmax(0, 1fr) auto;
+    align-self: end;
     align-items: center;
     gap: 3px;
     padding: 4px 5px;
     border-radius: 8px;
     text-align: left;
-    transform: translate(-50%, var(--mobile-seat-translate-y));
+    transform: none;
     pointer-events: auto;
   }
 
@@ -9664,7 +9787,7 @@
   (hover: none) and (pointer: coarse) and (orientation: landscape) and
     (max-height: 500px) {
   .seatRing[data-mobile-layout="true"] {
-    inset: 4px 10px;
+    inset: 10px 12px 12px;
     z-index: 12;
   }
 
@@ -9683,36 +9806,5 @@
     .seatRing[data-mobile-layout="true"]
     .playerSeat {
     pointer-events: none;
-  }
-}
-
-/* A route-sized entrance is reserved for the installed mobile app. It never
- * blocks input or extends the server-authoritative phase timings. */
-@media (display-mode: standalone) and (hover: none) and (pointer: coarse),
-  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) {
-  .mobileAppScreen {
-    transform-origin: 50% 46%;
-    animation: onlineMobileAppScreenEnter 280ms
-      cubic-bezier(0.2, 0.72, 0.22, 1) both;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .mobileAppScreen {
-    animation: none !important;
-  }
-}
-
-@keyframes onlineMobileAppScreenEnter {
-  from {
-    filter: brightness(0.88);
-    opacity: 0.72;
-    transform: translate3d(0, 7px, 0) scale(0.995);
-  }
-
-  to {
-    filter: none;
-    opacity: 1;
-    transform: none;
   }
 }

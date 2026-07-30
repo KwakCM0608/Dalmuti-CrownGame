@@ -10,9 +10,16 @@ package lab.dclab.dalmuti;
 
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
+import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
+import android.view.View;
+import android.view.animation.DecelerateInterpolator;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 
 import androidx.browser.customtabs.CustomTabsCallback;
 import androidx.browser.trusted.ScreenOrientation;
@@ -26,6 +33,17 @@ import com.google.androidbrowserhelper.trusted.splashscreens.SplashScreenStrateg
 
 public class LauncherActivity
         extends com.google.androidbrowserhelper.trusted.LauncherActivity {
+
+    // 75 + 825 ms reveal, a short settled beat, then a 180 ms Chrome fade.
+    // The native presentation budget remains comfortably below 1.5 seconds.
+    private static final long SPLASH_REVEAL_DELAY_MS = 75L;
+    private static final long SPLASH_REVEAL_DURATION_MS = 825L;
+    private static final long SPLASH_HANDOFF_AT_MS = 950L;
+    private static final String NATIVE_LAUNCH_DISPATCHED_KEY =
+            "dalmuti.nativeLaunchDispatched";
+
+    private final Handler splashHandler = new Handler(Looper.getMainLooper());
+    private boolean nativeLaunchDispatched;
 
     private boolean isSystemAutoRotateEnabled() {
         try {
@@ -61,6 +79,85 @@ public class LauncherActivity
                 : currentTwaOrientation();
     }
 
+    private ImageView splashLayer(int drawableId) {
+        ImageView layer = new ImageView(this);
+        layer.setImageResource(drawableId);
+        layer.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        layer.setLayoutParams(
+                new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                )
+        );
+        return layer;
+    }
+
+    private void showNativeSplash() {
+        getWindow().setStatusBarColor(Color.BLACK);
+        getWindow().setNavigationBarColor(Color.BLACK);
+
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(Color.BLACK);
+
+        ImageView glow = splashLayer(R.drawable.splash_glow);
+        glow.setAlpha(0f);
+        glow.setScaleX(0.90f);
+        glow.setScaleY(0.90f);
+
+        ImageView artwork = splashLayer(R.drawable.splash);
+        artwork.setAlpha(0f);
+        artwork.setScaleX(0.94f);
+        artwork.setScaleY(0.94f);
+
+        root.addView(glow);
+        root.addView(artwork);
+        setContentView(root);
+
+        glow.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        glow.animate()
+                .alpha(0.48f)
+                .scaleX(1.035f)
+                .scaleY(1.035f)
+                .setStartDelay(35L)
+                .setDuration(865L)
+                .setInterpolator(new DecelerateInterpolator(1.5f))
+                .withEndAction(
+                        () -> glow.setLayerType(View.LAYER_TYPE_NONE, null)
+                )
+                .start();
+
+        artwork.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        artwork.animate()
+                .alpha(1f)
+                .scaleX(1f)
+                .scaleY(1f)
+                .setStartDelay(SPLASH_REVEAL_DELAY_MS)
+                .setDuration(SPLASH_REVEAL_DURATION_MS)
+                .setInterpolator(new DecelerateInterpolator(1.35f))
+                .withEndAction(
+                        () -> artwork.setLayerType(View.LAYER_TYPE_NONE, null)
+                )
+                .start();
+    }
+
+    private void launchTwaOnce() {
+        if (nativeLaunchDispatched || isFinishing()) {
+            return;
+        }
+        nativeLaunchDispatched = true;
+        launchTwa();
+    }
+
+    @Override
+    protected ImageView.ScaleType getSplashImageScaleType() {
+        return ImageView.ScaleType.FIT_CENTER;
+    }
+
+    @Override
+    protected boolean shouldLaunchImmediately() {
+        return false;
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         // A requested orientation and a translucent launch theme can crash on
@@ -73,6 +170,34 @@ public class LauncherActivity
             );
         }
         super.onCreate(savedInstanceState);
+
+        nativeLaunchDispatched =
+                savedInstanceState != null
+                        && savedInstanceState.getBoolean(
+                                NATIVE_LAUNCH_DISPATCHED_KEY,
+                                false
+                        );
+        if (isFinishing() || nativeLaunchDispatched) {
+            return;
+        }
+
+        showNativeSplash();
+        splashHandler.postDelayed(this::launchTwaOnce, SPLASH_HANDOFF_AT_MS);
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        outState.putBoolean(
+                NATIVE_LAUNCH_DISPATCHED_KEY,
+                nativeLaunchDispatched
+        );
+    }
+
+    @Override
+    protected void onDestroy() {
+        splashHandler.removeCallbacksAndMessages(null);
+        super.onDestroy();
     }
 
     @Override

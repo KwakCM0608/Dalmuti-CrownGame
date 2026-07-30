@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Android 12+ always draws a system-owned first frame. Keep it on the
-         same base colour with no visible icon, then let Browser Helper render
-         the one complete modern DALMUTI splash. Only one branded screen is
-         visible during the launch hand-off. -->
+    <!-- Android 12+ always draws a system-owned first frame. Keep it black
+         with no visible icon, then let Browser Helper animate and hand off
+         the one complete DALMUTI splash. -->
     <style name="DalmutiLaunchTheme" parent="@android:style/Theme.Translucent.NoTitleBar">
         <item name="android:windowSplashScreenBackground">@color/backgroundColor</item>
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/dalmuti_splash_transparent</item>

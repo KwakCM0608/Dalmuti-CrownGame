@@ -4082,13 +4082,6 @@ export default function Home() {
                 <a
                   className="main-menu-option"
                   href="/online"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    runScreenTransition(
-                      () => window.location.assign("/online"),
-                      145,
-                    );
-                  }}
                 >
                   <small>ONLINE</small>
                   <strong>온라인 모드</strong>

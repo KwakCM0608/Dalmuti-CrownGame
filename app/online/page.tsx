@@ -956,7 +956,7 @@ function seatPosition(rankIndex: number, total: number): CSSProperties {
     total <= 1 ? 270 : 150 + (240 * rankIndex) / Math.max(1, total - 1);
   const radians = (angle * Math.PI) / 180;
   const mobileTopCount =
-    total <= 5 ? total : Math.min(5, Math.ceil(total / 2));
+    total >= 9 ? 5 : total >= 7 ? 4 : total >= 6 ? 3 : total;
   const mobileTopRow = rankIndex < mobileTopCount;
   const mobileRowIndex = mobileTopRow
     ? rankIndex
@@ -964,6 +964,13 @@ function seatPosition(rankIndex: number, total: number): CSSProperties {
   const mobileRowCount = mobileTopRow
     ? mobileTopCount
     : Math.max(1, total - mobileTopCount);
+  const mobileBottomCount = Math.max(0, total - mobileTopCount);
+  const mobileGridColumnStart = mobileTopRow
+    ? rankIndex * 2 + 1
+    : mobileTopCount -
+      mobileBottomCount +
+      (rankIndex - mobileTopCount) * 2 +
+      1;
   return {
     "--seat-x": `${50 + Math.cos(radians) * 42}%`,
     "--seat-y": `${46 + Math.sin(radians) * 34}%`,
@@ -977,6 +984,9 @@ function seatPosition(rankIndex: number, total: number): CSSProperties {
     "--mobile-seat-width": `calc(${100 / mobileRowCount}% - 5px)`,
     "--mobile-seat-y": mobileTopRow ? "10px" : "calc(100% - 10px)",
     "--mobile-seat-translate-y": mobileTopRow ? "0%" : "-100%",
+    "--mobile-seat-track-count": mobileTopCount * 2,
+    "--mobile-seat-grid-column": `${mobileGridColumnStart} / span 2`,
+    "--mobile-seat-grid-row": mobileTopRow ? 1 : 3,
   } as CSSProperties;
 }
 
@@ -2171,7 +2181,7 @@ function OnlineChatPanel({
   connected,
   onSend,
   onEmote,
-  initiallyCollapsed = false,
+  initiallyCollapsed = true,
 }: {
   className?: string;
   dragStorageKey: "lobby" | "game";
@@ -3968,6 +3978,48 @@ export default function OnlinePage() {
     !actionLocked &&
     !activeEvent &&
     connection === "online";
+  const ownStatusText =
+    !snapshot || !me
+      ? ""
+      : me.finishedPlace
+        ? `이번 막 완료 · ${me.finishedPlace}위`
+        : snapshot.phase === "rank-intro"
+          ? "계급 정하기를 준비하는 중"
+          : snapshot.phase === "rank-selection"
+            ? snapshot.rankSelection?.selectedSlotIndex !== null
+              ? "다른 플레이어를 기다리는 중"
+              : "계급 카드를 선택하세요"
+            : snapshot.phase === "rank-reveal"
+              ? "계급 카드를 공개하는 중"
+              : snapshot.phase === "rank-confirm"
+                ? "계급을 확인하는 중"
+                : isTaxSelection
+                  ? `반환 카드 ${snapshot.requiredReturnCount}장을 선택하세요`
+                  : isHandConcealed
+                    ? "패 미정"
+                    : isHandRevealing
+                      ? "패를 공개하는 중"
+                      : activeEvent?.actorPlayerId === me.id
+                        ? activeEvent.type === "PLAYER_PASSED"
+                          ? "패스하는 중"
+                          : "카드를 내는 중"
+                        : turnPresentationReady && isMyTurn
+                          ? "나의 차례"
+                          : currentTurnPlayer
+                            ? `${currentTurnPlayer.name}의 차례`
+                            : "다음 차례를 준비하는 중";
+  const ownStatusRole =
+    isRankSelectionPhase || !me ? "계급 미정" : roleLabel(me.role);
+  const ownStatusBadge =
+    !me
+      ? ""
+      : me.finishedPlace
+        ? `${me.finishedPlace}위`
+        : isRankSelectionPhase
+          ? "선택"
+          : isHandConcealed
+            ? "패 미정"
+            : `${me.handCount}장`;
   const declaredRevolution =
     snapshot && snapshot.declaredRevolution?.round === snapshot.round
       ? snapshot.declaredRevolution
@@ -4321,7 +4373,7 @@ export default function OnlinePage() {
     return (
       <main
         key="online-entry-screen"
-        className={`${styles.entryShell} ${styles.mobileAppScreen}`}
+        className={styles.entryShell}
       >
         <div className={styles.grain} />
         <header className={styles.entryHeader}>
@@ -4468,7 +4520,7 @@ export default function OnlinePage() {
     return (
       <main
         key="online-lobby-screen"
-        className={`${styles.lobbyShell} ${styles.mobileAppScreen}`}
+        className={styles.lobbyShell}
       >
         <div className={styles.grain} />
         <header className={styles.roomHeader}>
@@ -4536,7 +4588,7 @@ export default function OnlinePage() {
                 viewerId={snapshot.viewerId}
                 connected={connection === "online"}
                 onSend={sendChatMessage}
-                initiallyCollapsed={mobileAppLayout}
+                initiallyCollapsed
               />
             )}
           </div>
@@ -4795,7 +4847,7 @@ export default function OnlinePage() {
   return (
     <main
       key="online-game-screen"
-      className={`${styles.gameShell} ${styles.mobileAppScreen}`}
+      className={styles.gameShell}
     >
       <div className={styles.grain} />
       <header className={styles.roomHeader}>
@@ -5370,6 +5422,24 @@ export default function OnlinePage() {
                 : ""
             }`}
           >
+            {me && (
+              <div
+                className={`${styles.ownStatus} ${
+                  showMyTurnHighlight ? styles.ownStatusActive : ""
+                } ${
+                  me.finishedPlace ? styles.ownStatusFinished : ""
+                }`}
+                role="status"
+                aria-label={`${ownStatusRole}, ${ownStatusBadge}, ${ownStatusText}`}
+              >
+                <span className={styles.ownStatusAvatar}>나</span>
+                <span className={styles.ownStatusCopy}>
+                  <small>{ownStatusRole}</small>
+                  <strong>{ownStatusText}</strong>
+                </span>
+                <em>{ownStatusBadge}</em>
+              </div>
+            )}
             <div className={styles.handScroller}>
               <div
                 className={`${styles.hand} ${
@@ -5433,7 +5503,7 @@ export default function OnlinePage() {
               connected={connection === "online"}
               onSend={sendChatMessage}
               onEmote={sendEmote}
-              initiallyCollapsed={mobileAppLayout}
+              initiallyCollapsed
             />
             <div className={styles.actionBar}>
               <div className={styles.selectionCopy}>

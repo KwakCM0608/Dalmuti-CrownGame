@@ -318,6 +318,47 @@ test("ships without the disposable starter preview", async () => {
   await assert.rejects(access(new URL("../app/_sites-preview", projectRoot)));
 });
 
+test("main menu opens online immediately and credits use the exact lab name", async () => {
+  const [page, credits, creditStyles] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(
+      new URL("../app/components/CreditsDialog.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/components/CreditsDialog.module.css", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(
+    page,
+    /className="main-menu-option"\s+href="\/online"/,
+  );
+  assert.doesNotMatch(page, /window\.location\.assign\("\/online"\)/);
+  assert.match(
+    credits,
+    /value: "DCLab\(Distributed Computing Lab\)"/,
+  );
+  assert.doesNotMatch(credits, /Distributed Computing Lab \(DCLab\)/);
+  assert.match(credits, /CREDITS_CLOSE_DURATION_MS = 180/);
+  assert.match(credits, /requestClose/);
+  assert.match(credits, /closing \? styles\.closing/);
+  assert.match(
+    creditStyles,
+    /animation: creditsLayerIn 180ms ease both/,
+  );
+  assert.match(
+    creditStyles,
+    /animation: creditsDialogIn 280ms cubic-bezier\(0\.2, 0\.78, 0\.22, 1\) both/,
+  );
+  assert.match(
+    creditStyles,
+    /\.layer\.closing[\s\S]*animation: creditsLayerOut 180ms ease both/,
+  );
+  assert.match(creditStyles, /@media \(prefers-reduced-motion: reduce\)/);
+});
+
 test("tribute excludes Jesters while noble returns keep them", async () => {
   const { selectDalmutiReturnCards, selectPeonTaxCards } = await import(
     new URL("../lib/taxation.ts", import.meta.url)
@@ -432,15 +473,9 @@ test("online mode exposes synchronized reveal, tax, Dalmuti, and exit states", a
   assert.match(page, /key="online-entry-screen"/);
   assert.match(page, /key="online-lobby-screen"/);
   assert.match(page, /key="online-game-screen"/);
-  assert.match(page, /styles\.mobileAppScreen/);
-  assert.match(
-    styles,
-    /@media \(display-mode: standalone\)[\s\S]*\.mobileAppScreen\s*\{[\s\S]*onlineMobileAppScreenEnter/,
-  );
-  assert.match(
-    styles,
-    /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.mobileAppScreen\s*\{[^}]*animation: none !important;/,
-  );
+  assert.doesNotMatch(page, /styles\.mobileAppScreen/);
+  assert.doesNotMatch(styles, /onlineMobileAppScreenEnter/);
+  assert.doesNotMatch(styles, /\.mobileAppScreen/);
   assert.doesNotMatch(
     page,
     /length: Math\.max\(1, displayedMe\?\.handCount \?\? 14\)/,
@@ -451,6 +486,9 @@ test("online mode exposes synchronized reveal, tax, Dalmuti, and exit states", a
   );
   assert.match(page, /"--card-index": index/);
   assert.match(styles, /\.ownDockFinished \.playerSeatSelf/);
+  assert.match(page, /className=\{`\$\{styles\.ownStatus\}/);
+  assert.match(page, /const ownStatusText =/);
+  assert.match(styles, /@media \(min-width: 821px\)[\s\S]*\.ownStatus\s*\{/);
   assert.match(
     styles,
     /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.eventOverlay\s*\{[^}]*animation: none !important;/,
@@ -1076,6 +1114,10 @@ test("online chat is room-scoped and score rails use compact casino chips", asyn
   ]);
 
   assert.match(onlinePage, /function OnlineChatPanel/);
+  assert.match(onlinePage, /initiallyCollapsed = true/);
+  assert.ok(
+    (onlinePage.match(/\n\s+initiallyCollapsed\n/g) ?? []).length >= 2,
+  );
   assert.match(quickPage, /빠른 대전 플레이 인원/);
   assert.match(onlinePage, /ONLINE_CHAT_MAX_LENGTH/);
   assert.match(onlinePage, /sinceChatSeq/);
@@ -1196,7 +1238,7 @@ test("quick and online modes share fixed chips and balanced mobile rank rows", a
   assert.match(onlinePage, /data-mobile-layout=\{mobileGameLayout \|\| undefined\}/);
   assert.match(
     onlinePage,
-    /total <= 5 \? total : Math\.min\(5, Math\.ceil\(total \/ 2\)\)/,
+    /total >= 9 \? 5 : total >= 7 \? 4 : total >= 6 \? 3 : total/,
   );
   assert.match(
     quickStyles,
@@ -1204,6 +1246,15 @@ test("quick and online modes share fixed chips and balanced mobile rank rows", a
   );
   assert.match(
     onlineStyles,
-    /\.rankChoiceCards\[data-card-count="6"\][^}]*--mobile-rank-basis: calc\(33\.333% - 4px\)/s,
+    /\.rankChoiceCards\[data-card-count="6"\][^}]*--mobile-rank-columns: 3;[^}]*width: min\(100%, 274px\)/s,
   );
+  assert.match(
+    onlineStyles,
+    /\.rankChoiceCards\[data-card-count="7"\][^}]*\.rankChoiceSlot:nth-child\(n \+ 5\)[\s\S]{0,180}translateX/,
+  );
+  assert.match(
+    onlineStyles,
+    /\.seatRing\[data-mobile-layout="true"\]\[data-player-count="6"\][^}]*grid-template-columns: repeat\(6,/s,
+  );
+  assert.match(onlinePage, /"--mobile-seat-grid-column"/);
 });

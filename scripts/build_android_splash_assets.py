@@ -6,16 +6,21 @@ Bubblewrap project never depends on a temporary Codex image location.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageFilter
 
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSET_ROOT = ROOT / "android-twa" / "assets"
 OUTPUT_ROOT = ROOT / "android-twa" / "custom" / "res"
-ICON_SOURCE = ASSET_ROOT / "dalmuti-app-icon-v1.png"
-SPLASH_SOURCE = ASSET_ROOT / "dalmuti-splash-v2.png"
+ICON_SOURCE = ASSET_ROOT / "dalmuti-app-icon-v2.png"
+SPLASH_SOURCE = ASSET_ROOT / "dalmuti-splash-v3.png"
+EXPECTED_SOURCE_HASHES = {
+    ICON_SOURCE: "5c953737fb31f5a8ed8e2d7f53a75681e5b37a0fcf8db55a743206260f6d7946",
+    SPLASH_SOURCE: "13fadbea989e85980994d185b44f4a4215f3df59e075d1bdf6056a820756631f",
+}
 
 SPLASH_SIZES = {
     "mdpi": 300,
@@ -47,6 +52,15 @@ def load_square(path: Path) -> Image.Image:
     return image
 
 
+def verify_approved_sources() -> None:
+    for path, expected_hash in EXPECTED_SOURCE_HASHES.items():
+        actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual_hash != expected_hash:
+            raise ValueError(
+                f"Android artwork does not match the approved source: {path}",
+            )
+
+
 def save_resized(source: Image.Image, target: Path, size: int) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     source.resize((size, size), Image.Resampling.LANCZOS).save(
@@ -72,7 +86,22 @@ def save_adaptive_icon(source: Image.Image, target: Path, size: int) -> None:
     canvas.save(target, optimize=True)
 
 
+def save_splash_glow(source: Image.Image, target: Path, size: int) -> None:
+    resized = source.resize((size, size), Image.Resampling.LANCZOS)
+    luminance = resized.convert("L")
+    # Only the bright crown, lettering, and existing sparks contribute to the
+    # native halo; the dark red frame remains transparent.
+    mask = luminance.point(
+        lambda value: max(0, min(190, round((value - 46) * 1.85))),
+    ).filter(ImageFilter.GaussianBlur(max(4, round(size * 0.028))))
+    glow = Image.new("RGBA", (size, size), (255, 157, 38, 0))
+    glow.putalpha(mask)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    glow.save(target, optimize=True)
+
+
 def main() -> None:
+    verify_approved_sources()
     icon = load_square(ICON_SOURCE)
     splash = load_square(SPLASH_SOURCE)
 
@@ -80,6 +109,11 @@ def main() -> None:
         save_resized(
             splash,
             OUTPUT_ROOT / f"drawable-{density}" / "splash.png",
+            size,
+        )
+        save_splash_glow(
+            splash,
+            OUTPUT_ROOT / f"drawable-{density}" / "splash_glow.png",
             size,
         )
 
