@@ -504,6 +504,14 @@ test("online mode exposes synchronized reveal, tax, Dalmuti, and exit states", a
   assert.match(styles, /@media \(min-width: 821px\)[\s\S]*\.ownStatus\s*\{/);
   assert.match(
     styles,
+    /@media \(min-width: 821px\)[\s\S]{0,180}\.ownDock\s*\{[^}]*grid-template-columns: clamp\(238px, 18vw, 270px\) minmax\(0, 1fr\);/,
+  );
+  assert.match(
+    styles,
+    /\.ownStatusCopy strong\s*\{[^}]*overflow: visible;[^}]*text-overflow: clip;[^}]*white-space: normal;[^}]*word-break: keep-all;/s,
+  );
+  assert.match(
+    styles,
     /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.eventOverlay\s*\{[^}]*animation: none !important;/,
   );
   assert.match(styles, /\.rankChoiceSlotClaimed/);

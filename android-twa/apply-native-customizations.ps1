@@ -19,7 +19,7 @@ $launcherPath = Join-Path `
     "app\src\main\java\lab\dclab\dalmuti\LauncherActivity.java"
 $launcherIconResource = "@mipmap/dalmuti_app_icon_v3"
 $splashResource = "@drawable/dalmuti_splash_v4"
-$nativeProofFileName = "dalmuti-native-assets-v7.json"
+$nativeProofFileName = "dalmuti-native-assets-v8.json"
 
 foreach ($requiredPath in @(
     $resourceSource,
@@ -40,7 +40,8 @@ $obsoleteResourceNames = @(
     "ic_launcher.xml",
     "splash.png",
     "splash_glow.png",
-    "dalmuti_splash_transparent.xml"
+    "dalmuti_splash_transparent.xml",
+    "dalmuti_splash_transparent_v4.xml"
 )
 Get-ChildItem -LiteralPath $resourceTarget -Recurse -File |
     Where-Object { $_.Name -in $obsoleteResourceNames } |
@@ -216,11 +217,17 @@ try {
 }
 
 New-Item -ItemType Directory -Path $assetTarget -Force | Out-Null
+Get-ChildItem `
+    -LiteralPath $assetTarget `
+    -Filter "dalmuti-native-assets-v*.json" `
+    -File `
+    -ErrorAction SilentlyContinue |
+    Remove-Item -Force
 $nativeProof = [ordered]@{
     schemaVersion = 1
     packageId = "lab.dclab.dalmuti"
-    appVersion = "1.0.6"
-    versionCode = 7
+    appVersion = "1.0.7"
+    versionCode = 8
     launcherIconResource = $launcherIconResource
     splashResource = $splashResource
     iconSourceSha256 = "5c953737fb31f5a8ed8e2d7f53a75681e5b37a0fcf8db55a743206260f6d7946"
@@ -235,6 +242,6 @@ $nativeProofPath = Join-Path $assetTarget $nativeProofFileName
 )
 
 Write-Output (
-    "Applied DALMUTI Android assets v7 and wrote packaging proof: " +
+    "Applied DALMUTI Android assets v8 and wrote packaging proof: " +
     $nativeProofPath
 )

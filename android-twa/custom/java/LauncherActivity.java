@@ -34,13 +34,16 @@ import com.google.androidbrowserhelper.trusted.splashscreens.SplashScreenStrateg
 public class LauncherActivity
         extends com.google.androidbrowserhelper.trusted.LauncherActivity {
 
-    // 75 + 825 ms reveal, a short settled beat, then a 180 ms Chrome fade.
-    // The native presentation budget remains comfortably below 1.5 seconds.
-    private static final long SPLASH_REVEAL_DELAY_MS = 75L;
-    private static final long SPLASH_REVEAL_DURATION_MS = 825L;
-    private static final long SPLASH_HANDOFF_AT_MS = 950L;
-    private static final String NATIVE_LAUNCH_DISPATCHED_KEY =
-            "dalmuti.nativeLaunchDispatched";
+    // Android 12's mandatory starting window is folded into the first black
+    // frame. The branded reveal then gets a settled beat before Chrome's
+    // 180 ms hand-off, for a single presentation of roughly 1.8 seconds.
+    private static final long SYSTEM_SPLASH_EXIT_DURATION_MS = 180L;
+    private static final long SPLASH_REVEAL_DELAY_MS = 120L;
+    private static final long SPLASH_REVEAL_DURATION_MS = 1150L;
+    private static final long SPLASH_GLOW_REVEAL_DELAY_MS = 60L;
+    private static final long SPLASH_GLOW_REVEAL_DURATION_MS = 1250L;
+    private static final long SPLASH_GLOW_SETTLE_DURATION_MS = 220L;
+    private static final long SPLASH_HANDOFF_AT_MS = 1600L;
 
     private final Handler splashHandler = new Handler(Looper.getMainLooper());
     private boolean nativeLaunchDispatched;
@@ -92,9 +95,29 @@ public class LauncherActivity
         return layer;
     }
 
+    private void configureSystemSplashExit() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            return;
+        }
+        getSplashScreen().setOnExitAnimationListener(
+                splashScreenView ->
+                        splashScreenView.animate()
+                                .alpha(0f)
+                                .setDuration(
+                                        SYSTEM_SPLASH_EXIT_DURATION_MS
+                                )
+                                .setInterpolator(
+                                        new DecelerateInterpolator(1.35f)
+                                )
+                                .withEndAction(splashScreenView::remove)
+                                .start()
+        );
+    }
+
     private void showNativeSplash() {
         getWindow().setStatusBarColor(Color.BLACK);
         getWindow().setNavigationBarColor(Color.BLACK);
+        getWindow().setBackgroundDrawableResource(android.R.color.black);
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
@@ -118,11 +141,31 @@ public class LauncherActivity
                 .alpha(0.48f)
                 .scaleX(1.035f)
                 .scaleY(1.035f)
-                .setStartDelay(35L)
-                .setDuration(865L)
+                .setStartDelay(SPLASH_GLOW_REVEAL_DELAY_MS)
+                .setDuration(SPLASH_GLOW_REVEAL_DURATION_MS)
                 .setInterpolator(new DecelerateInterpolator(1.5f))
                 .withEndAction(
-                        () -> glow.setLayerType(View.LAYER_TYPE_NONE, null)
+                        () ->
+                                glow.animate()
+                                        .alpha(0f)
+                                        .scaleX(1f)
+                                        .scaleY(1f)
+                                        .setDuration(
+                                                SPLASH_GLOW_SETTLE_DURATION_MS
+                                        )
+                                        .setInterpolator(
+                                                new DecelerateInterpolator(
+                                                        1.35f
+                                                )
+                                        )
+                                        .withEndAction(
+                                                () ->
+                                                        glow.setLayerType(
+                                                                View.LAYER_TYPE_NONE,
+                                                                null
+                                                        )
+                                        )
+                                        .start()
                 )
                 .start();
 
@@ -170,28 +213,18 @@ public class LauncherActivity
             );
         }
         super.onCreate(savedInstanceState);
+        configureSystemSplashExit();
 
-        nativeLaunchDispatched =
-                savedInstanceState != null
-                        && savedInstanceState.getBoolean(
-                                NATIVE_LAUNCH_DISPATCHED_KEY,
-                                false
-                        );
-        if (isFinishing() || nativeLaunchDispatched) {
+        // The superclass persists browser-launch completion and finishes a
+        // recreated activity only after that callback has actually fired.
+        // Keep this guard instance-local so recreation during provider binding
+        // cannot restore a premature "dispatched" state and stall the launch.
+        if (isFinishing()) {
             return;
         }
 
         showNativeSplash();
         splashHandler.postDelayed(this::launchTwaOnce, SPLASH_HANDOFF_AT_MS);
-    }
-
-    @Override
-    protected void onSaveInstanceState(Bundle outState) {
-        super.onSaveInstanceState(outState);
-        outState.putBoolean(
-                NATIVE_LAUNCH_DISPATCHED_KEY,
-                nativeLaunchDispatched
-        );
     }
 
     @Override

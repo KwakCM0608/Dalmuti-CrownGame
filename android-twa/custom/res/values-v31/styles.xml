@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Android 12+ always draws a system-owned first frame. Keep it black
-         with no visible icon, then let Browser Helper animate and hand off
-         the one complete DALMUTI splash. -->
+    <!-- Android 12+ always draws a system-owned first frame. Use an opaque
+         black-on-black drawable so the platform cannot substitute the
+         launcher icon. LauncherActivity fades this frame directly into the
+         one complete DALMUTI reveal. -->
     <style name="DalmutiLaunchTheme" parent="@android:style/Theme.Translucent.NoTitleBar">
         <item name="android:windowSplashScreenBackground">@color/backgroundColor</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/dalmuti_splash_transparent_v4</item>
-        <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/dalmuti_splash_os_black_v4</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@android:color/black</item>
+        <item name="android:windowSplashScreenAnimationDuration">0</item>
         <item name="android:windowNoTitle">true</item>
     </style>
 </resources>

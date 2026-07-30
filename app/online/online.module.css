@@ -9135,7 +9135,7 @@
  * quick-match status summary beside the hand on desktop. */
 @media (min-width: 821px) {
   .ownDock {
-    grid-template-columns: 162px minmax(0, 1fr);
+    grid-template-columns: clamp(238px, 18vw, 270px) minmax(0, 1fr);
     column-gap: 10px;
   }
 
@@ -9179,8 +9179,7 @@
     gap: 2px;
   }
 
-  .ownStatusCopy small,
-  .ownStatusCopy strong {
+  .ownStatusCopy small {
     display: block;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -9194,9 +9193,16 @@
   }
 
   .ownStatusCopy strong {
+    display: block;
+    overflow: visible;
     color: #f0dfbd;
     font-size: 10px;
     line-height: 1.25;
+    overflow-wrap: normal;
+    text-overflow: clip;
+    text-wrap: balance;
+    white-space: normal;
+    word-break: keep-all;
   }
 
   .ownStatus > em {

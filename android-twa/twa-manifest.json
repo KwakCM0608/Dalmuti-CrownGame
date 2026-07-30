@@ -20,8 +20,8 @@
     "path": "../.android-tools/signing/dalmuti-local-test.jks",
     "alias": "dalmuti"
   },
-  "appVersionCode": 7,
-  "appVersion": "1.0.6",
+  "appVersionCode": 8,
+  "appVersion": "1.0.7",
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
   "webManifestUrl": "https://dalmuti-crown-game.byj010608.chatgpt.site/manifest.webmanifest",

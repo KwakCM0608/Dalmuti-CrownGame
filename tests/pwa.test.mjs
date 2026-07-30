@@ -101,8 +101,8 @@ test("installed Android app uses one branded splash and system-aware rotation", 
   assert.match(wrapper.iconUrl, /icon-512\.png/);
   assert.equal(wrapper.backgroundColor, "#000000");
   assert.equal(wrapper.splashScreenFadeOutDuration, 180);
-  assert.equal(wrapper.appVersionCode, 7);
-  assert.equal(wrapper.appVersion, "1.0.6");
+  assert.equal(wrapper.appVersionCode, 8);
+  assert.equal(wrapper.appVersion, "1.0.7");
   assert.equal(wrapper.startUrl, "/?source=android-twa");
   assert.equal(wrapper.orientation, "default");
   assert.doesNotMatch(webManifest, /orientation:\s*"any"/);
@@ -112,7 +112,7 @@ test("installed Android app uses one branded splash and system-aware rotation", 
   assert.match(customizer, /@mipmap\/dalmuti_app_icon_v3/);
   assert.match(customizer, /@drawable\/dalmuti_splash_v4/);
   assert.match(customizer, /SPLASH_IMAGE_DRAWABLE/);
-  assert.match(customizer, /dalmuti-native-assets-v7\.json/);
+  assert.match(customizer, /dalmuti-native-assets-v8\.json/);
   assert.match(customizer, /Native resource hash mismatch after copy/);
   assert.match(nativeLauncher, /Settings\.System\.ACCELEROMETER_ROTATION/);
   assert.match(nativeLauncher, /ActivityInfo\.SCREEN_ORIENTATION_LOCKED/);
@@ -140,17 +140,38 @@ test("installed Android app uses one branded splash and system-aware rotation", 
   assert.match(nativeLauncher, /ImageView\.ScaleType\.FIT_CENTER/);
   assert.match(
     nativeLauncher,
+    /getSplashScreen\(\)\.setOnExitAnimationListener/,
+  );
+  assert.match(nativeLauncher, /splashScreenView::remove/);
+  assert.match(
+    nativeLauncher,
+    /getWindow\(\)\.setBackgroundDrawableResource\(android\.R\.color\.black\)/,
+  );
+  assert.match(
+    nativeLauncher,
     /splashHandler\.postDelayed\(this::launchTwaOnce, SPLASH_HANDOFF_AT_MS\)/,
   );
   assert.match(
     nativeLauncher,
     /if \(nativeLaunchDispatched \|\| isFinishing\(\)\)/,
   );
-  assert.match(nativeLauncher, /NATIVE_LAUNCH_DISPATCHED_KEY/);
+  assert.doesNotMatch(nativeLauncher, /NATIVE_LAUNCH_DISPATCHED_KEY/);
+  assert.doesNotMatch(
+    nativeLauncher,
+    /protected void onSaveInstanceState\(Bundle outState\)/,
+  );
+  assert.match(
+    nativeLauncher,
+    /glow\.animate\(\)[^]*?\.alpha\(0f\)[^]*?\.scaleX\(1f\)[^]*?\.scaleY\(1f\)/,
+  );
   const nativeTiming = Object.fromEntries(
     [
+      "SYSTEM_SPLASH_EXIT_DURATION_MS",
       "SPLASH_REVEAL_DELAY_MS",
       "SPLASH_REVEAL_DURATION_MS",
+      "SPLASH_GLOW_REVEAL_DELAY_MS",
+      "SPLASH_GLOW_REVEAL_DURATION_MS",
+      "SPLASH_GLOW_SETTLE_DURATION_MS",
       "SPLASH_HANDOFF_AT_MS",
     ].map((name) => {
       const match = nativeLauncher.match(
@@ -166,14 +187,31 @@ test("installed Android app uses one branded splash and system-aware rotation", 
       nativeTiming.SPLASH_HANDOFF_AT_MS,
   );
   assert.ok(
+    nativeTiming.SPLASH_GLOW_REVEAL_DELAY_MS +
+      nativeTiming.SPLASH_GLOW_REVEAL_DURATION_MS +
+      nativeTiming.SPLASH_GLOW_SETTLE_DURATION_MS <=
+      nativeTiming.SPLASH_HANDOFF_AT_MS,
+  );
+  assert.ok(
+    nativeTiming.SPLASH_HANDOFF_AT_MS +
+      wrapper.splashScreenFadeOutDuration >=
+      1_700,
+  );
+  assert.ok(
     nativeTiming.SPLASH_HANDOFF_AT_MS +
       wrapper.splashScreenFadeOutDuration <=
-      1_500,
+      2_000,
+  );
+  assert.ok(nativeTiming.SYSTEM_SPLASH_EXIT_DURATION_MS <= 250);
+  assert.match(
+    androidSplashTheme,
+    /android:windowSplashScreenAnimatedIcon[^]*dalmuti_splash_os_black_v4/,
   );
   assert.match(
     androidSplashTheme,
-    /android:windowSplashScreenAnimatedIcon[^]*dalmuti_splash_transparent_v4/,
+    /android:windowSplashScreenIconBackgroundColor[^]*@android:color\/black/,
   );
+  assert.doesNotMatch(androidSplashTheme, /ic_launcher|transparent_v4/);
   for (const density of ["mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi"]) {
     for (const [folder, file] of [
       ["drawable", "dalmuti_splash_v4.png"],
@@ -236,21 +274,27 @@ test("installed Android app uses one branded splash and system-aware rotation", 
     sha256("android-twa/assets/dalmuti-splash-v4.png"),
     "13fadbea989e85980994d185b44f4a4215f3df59e075d1bdf6056a820756631f",
   );
-  assert.match(apkVerifier, /dalmuti-native-assets-v7\.json/);
+  assert.match(apkVerifier, /dalmuti-native-assets-v8\.json/);
   assert.match(apkVerifier, /dump badging/);
   assert.match(apkVerifier, /dump resources/);
+  assert.match(apkVerifier, /dump xmltree/);
+  assert.match(apkVerifier, /dump --values resources/);
   assert.match(apkVerifier, /mipmap\/dalmuti_app_icon_v3/);
   assert.match(apkVerifier, /drawable\/dalmuti_splash_v4/);
   assert.match(apkVerifier, /drawable\/dalmuti_splash_glow_v4/);
+  assert.match(apkVerifier, /drawable\/dalmuti_splash_os_black_v4/);
+  assert.match(apkVerifier, /style\/DalmutiLaunchTheme/);
+  assert.match(apkVerifier, /Compiled LauncherActivity/);
+  assert.match(apkVerifier, /Compiled Android 12\+ launch theme/);
   assert.match(apkVerifier, /resources\.arsc/);
-  assert.match(apkVerifier, /appVersion = "1\.0\.6"/);
-  assert.match(apkVerifier, /versionCode = 7/);
+  assert.match(apkVerifier, /appVersion = "1\.0\.7"/);
+  assert.match(apkVerifier, /versionCode = 8/);
   assert.doesNotMatch(androidSplashTheme, /windowSplashScreenBrandingImage/);
   assert.equal(
     fs.existsSync(
       path.join(
         root,
-        "android-twa/custom/res/drawable/dalmuti_splash_transparent_v4.xml",
+        "android-twa/custom/res/drawable/dalmuti_splash_os_black_v4.xml",
       ),
     ),
     true,
@@ -262,6 +306,7 @@ test("installed Android app uses one branded splash and system-aware rotation", 
     "android-twa/custom/res/mipmap-xxxhdpi/ic_maskable.png",
     "android-twa/custom/res/mipmap-anydpi-v26/ic_launcher.xml",
     "android-twa/custom/res/drawable/dalmuti_splash_transparent.xml",
+    "android-twa/custom/res/drawable/dalmuti_splash_transparent_v4.xml",
   ]) {
     assert.equal(fs.existsSync(path.join(root, obsoleteFile)), false);
   }
@@ -381,13 +426,13 @@ test(
         fs.readFileSync(
           path.join(
             fixtureRoot,
-            "app/src/main/assets/dalmuti-native-assets-v7.json",
+            "app/src/main/assets/dalmuti-native-assets-v8.json",
           ),
           "utf8",
         ),
       );
-      assert.equal(proof.appVersion, "1.0.6");
-      assert.equal(proof.versionCode, 7);
+      assert.equal(proof.appVersion, "1.0.7");
+      assert.equal(proof.versionCode, 8);
       assert.equal(
         proof.launcherIconResource,
         "@mipmap/dalmuti_app_icon_v3",
