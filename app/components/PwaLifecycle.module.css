@@ -26,8 +26,8 @@
   width: 42px;
   height: 42px;
   border: 1px solid rgba(235, 196, 95, 0.56);
-  border-radius: 50%;
-  background: #75539a url("/brand-dalmuti-crown.png") center / cover no-repeat;
+  border-radius: 10px;
+  background: #16070b url("/pwa/icon-v2-192.png") center / cover no-repeat;
   box-shadow: 0 5px 16px rgba(0, 0, 0, 0.32);
 }
 

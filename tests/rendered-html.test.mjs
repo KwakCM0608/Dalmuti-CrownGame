@@ -476,6 +476,19 @@ test("online mode exposes synchronized reveal, tax, Dalmuti, and exit states", a
   assert.doesNotMatch(page, /styles\.mobileAppScreen/);
   assert.doesNotMatch(styles, /onlineMobileAppScreenEnter/);
   assert.doesNotMatch(styles, /\.mobileAppScreen/);
+  assert.match(page, /<strong>세금 교환 없음<\/strong>/);
+  assert.match(
+    styles,
+    /\.taxSkippedIntroOverlay \.eventCenterCopy > strong\s*\{[^}]*white-space: nowrap;/s,
+  );
+  assert.match(
+    styles,
+    /\.eventCenterCopy > strong,[\s\S]{0,600}word-break: keep-all;/,
+  );
+  assert.match(
+    styles,
+    /@media \(hover: none\) and \(pointer: coarse\) and \(max-width: 520px\)[\s\S]{0,240}\.phaseIntroOverlay \.eventCenterCopy > strong\s*\{[^}]*font-size: 34px;/,
+  );
   assert.doesNotMatch(
     page,
     /length: Math\.max\(1, displayedMe\?\.handCount \?\? 14\)/,
@@ -1257,4 +1270,12 @@ test("quick and online modes share fixed chips and balanced mobile rank rows", a
     /\.seatRing\[data-mobile-layout="true"\]\[data-player-count="6"\][^}]*grid-template-columns: repeat\(6,/s,
   );
   assert.match(onlinePage, /"--mobile-seat-grid-column"/);
+  assert.match(
+    onlineStyles,
+    /Installed-app tables[\s\S]*\.gameShell \.table\s*\{[^}]*overflow: visible;[^}]*isolation: isolate;/,
+  );
+  assert.match(
+    onlineStyles,
+    /\.gameShell \.seatRing\[data-mobile-layout="true"\]\s*\{[^}]*inset: -11px 5px;[^}]*z-index: 18;[^}]*overflow: visible;/s,
+  );
 });

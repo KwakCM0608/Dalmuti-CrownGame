@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
+import { InstalledPwaSplash } from "@/app/components/InstalledPwaSplash";
 import { PwaLifecycle } from "@/app/components/PwaLifecycle";
 import "./globals.css";
 
@@ -32,7 +33,11 @@ export async function generateMetadata(): Promise<Metadata> {
       icon: "/brand-dalmuti-crown.png",
       shortcut: "/brand-dalmuti-crown.png",
       apple: [
-        { url: "/pwa/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+        {
+          url: "/pwa/apple-touch-icon-v2.png",
+          sizes: "180x180",
+          type: "image/png",
+        },
       ],
     },
     appleWebApp: {
@@ -67,8 +72,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko">
+    <html lang="ko" suppressHydrationWarning>
       <body>
+        <InstalledPwaSplash />
         {children}
         <PwaLifecycle />
       </body>

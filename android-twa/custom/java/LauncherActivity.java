@@ -99,12 +99,12 @@ public class LauncherActivity
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
 
-        ImageView glow = splashLayer(R.drawable.splash_glow);
+        ImageView glow = splashLayer(R.drawable.dalmuti_splash_glow_v4);
         glow.setAlpha(0f);
         glow.setScaleX(0.90f);
         glow.setScaleY(0.90f);
 
-        ImageView artwork = splashLayer(R.drawable.splash);
+        ImageView artwork = splashLayer(R.drawable.dalmuti_splash_v4);
         artwork.setAlpha(0f);
         artwork.setScaleX(0.94f);
         artwork.setScaleY(0.94f);

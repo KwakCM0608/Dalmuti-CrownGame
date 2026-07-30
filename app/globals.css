@@ -22,6 +22,117 @@ body {
   min-height: 100%;
 }
 
+/* Chrome generates its first installed-PWA frame from the manifest. This
+   continuation is rendered only for a first mobile standalone launch and
+   completes in under 1.5 seconds. */
+.installed-pwa-splash {
+  display: none;
+}
+
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) {
+  html[data-dalmuti-pwa-splash="show"] .installed-pwa-splash {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483647;
+    display: grid;
+    overflow: hidden;
+    place-items: center;
+    background: #000;
+    pointer-events: auto;
+    animation: installedPwaSplashLayer 1.34s ease both;
+  }
+
+  .installed-pwa-splash-glow {
+    position: absolute;
+    width: min(88vw, 560px);
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: radial-gradient(
+      circle,
+      rgba(176, 44, 39, 0.34),
+      rgba(101, 26, 56, 0.18) 38%,
+      transparent 70%
+    );
+    filter: blur(22px);
+    animation: installedPwaSplashGlow 1.18s ease-out both;
+  }
+
+  .installed-pwa-splash-art {
+    position: relative;
+    width: min(82vw, 460px);
+    max-height: 82dvh;
+    aspect-ratio: 1;
+    border-radius: clamp(12px, 4vw, 28px);
+    background: #090204 url("/pwa/installed-splash-v2.webp") center / cover
+      no-repeat;
+    box-shadow:
+      0 0 0 1px rgba(222, 177, 75, 0.16),
+      0 0 52px rgba(210, 62, 45, 0.25),
+      0 28px 80px rgba(0, 0, 0, 0.72);
+    animation: installedPwaSplashArt 1.22s
+      cubic-bezier(0.2, 0.78, 0.22, 1) both;
+  }
+}
+
+@media (display-mode: standalone) and (orientation: landscape) and (max-height: 500px) and (pointer: coarse),
+  (display-mode: fullscreen) and (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
+  .installed-pwa-splash-art {
+    width: min(68dvh, 430px);
+  }
+}
+
+@keyframes installedPwaSplashLayer {
+  0%,
+  78% {
+    opacity: 1;
+  }
+  100% {
+    visibility: hidden;
+    opacity: 0;
+  }
+}
+
+@keyframes installedPwaSplashArt {
+  0%,
+  7% {
+    opacity: 0;
+    filter: brightness(0.55);
+    transform: scale(0.93);
+  }
+  26% {
+    opacity: 1;
+    filter: brightness(1.08);
+    transform: scale(1);
+  }
+  72% {
+    opacity: 1;
+    filter: brightness(1);
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    filter: brightness(0.92);
+    transform: scale(1.018);
+  }
+}
+
+@keyframes installedPwaSplashGlow {
+  0% {
+    opacity: 0;
+    transform: scale(0.68);
+  }
+  34%,
+  72% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.12);
+  }
+}
+
 body {
   margin: 0;
   background: #d8d1bf;

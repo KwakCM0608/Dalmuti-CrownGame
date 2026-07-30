@@ -15,12 +15,16 @@ from PIL import Image, ImageFilter
 ROOT = Path(__file__).resolve().parents[1]
 ASSET_ROOT = ROOT / "android-twa" / "assets"
 OUTPUT_ROOT = ROOT / "android-twa" / "custom" / "res"
-ICON_SOURCE = ASSET_ROOT / "dalmuti-app-icon-v2.png"
-SPLASH_SOURCE = ASSET_ROOT / "dalmuti-splash-v3.png"
+ICON_SOURCE = ASSET_ROOT / "dalmuti-app-icon-v3.png"
+SPLASH_SOURCE = ASSET_ROOT / "dalmuti-splash-v4.png"
 EXPECTED_SOURCE_HASHES = {
     ICON_SOURCE: "5c953737fb31f5a8ed8e2d7f53a75681e5b37a0fcf8db55a743206260f6d7946",
     SPLASH_SOURCE: "13fadbea989e85980994d185b44f4a4215f3df59e075d1bdf6056a820756631f",
 }
+ICON_RESOURCE = "dalmuti_app_icon_v3.png"
+MASKABLE_ICON_RESOURCE = "dalmuti_app_icon_maskable_v3.png"
+SPLASH_RESOURCE = "dalmuti_splash_v4.png"
+SPLASH_GLOW_RESOURCE = "dalmuti_splash_glow_v4.png"
 
 SPLASH_SIZES = {
     "mdpi": 300,
@@ -59,6 +63,22 @@ def verify_approved_sources() -> None:
             raise ValueError(
                 f"Android artwork does not match the approved source: {path}",
             )
+
+
+def remove_obsolete_generated_resources() -> None:
+    obsolete_names = {
+        "ic_launcher.png",
+        "ic_maskable.png",
+        "splash.png",
+        "splash_glow.png",
+    }
+    for density in SPLASH_SIZES:
+        for folder in (
+            OUTPUT_ROOT / f"drawable-{density}",
+            OUTPUT_ROOT / f"mipmap-{density}",
+        ):
+            for obsolete_name in obsolete_names:
+                (folder / obsolete_name).unlink(missing_ok=True)
 
 
 def save_resized(source: Image.Image, target: Path, size: int) -> None:
@@ -102,32 +122,33 @@ def save_splash_glow(source: Image.Image, target: Path, size: int) -> None:
 
 def main() -> None:
     verify_approved_sources()
+    remove_obsolete_generated_resources()
     icon = load_square(ICON_SOURCE)
     splash = load_square(SPLASH_SOURCE)
 
     for density, size in SPLASH_SIZES.items():
         save_resized(
             splash,
-            OUTPUT_ROOT / f"drawable-{density}" / "splash.png",
+            OUTPUT_ROOT / f"drawable-{density}" / SPLASH_RESOURCE,
             size,
         )
         save_splash_glow(
             splash,
-            OUTPUT_ROOT / f"drawable-{density}" / "splash_glow.png",
+            OUTPUT_ROOT / f"drawable-{density}" / SPLASH_GLOW_RESOURCE,
             size,
         )
 
     for density, size in LEGACY_ICON_SIZES.items():
         save_resized(
             icon,
-            OUTPUT_ROOT / f"mipmap-{density}" / "ic_launcher.png",
+            OUTPUT_ROOT / f"mipmap-{density}" / ICON_RESOURCE,
             size,
         )
 
     for density, size in ADAPTIVE_ICON_SIZES.items():
         save_adaptive_icon(
             icon,
-            OUTPUT_ROOT / f"mipmap-{density}" / "ic_maskable.png",
+            OUTPUT_ROOT / f"mipmap-{density}" / MASKABLE_ICON_RESOURCE,
             size,
         )
 
