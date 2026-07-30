@@ -28,7 +28,7 @@ self.addEventListener("install", (event) => {
           if (response.ok) await cache.put(url, response);
         }),
       );
-    }),
+    }).then(() => self.skipWaiting()),
   );
 });
 

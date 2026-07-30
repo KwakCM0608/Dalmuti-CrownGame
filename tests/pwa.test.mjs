@@ -40,6 +40,7 @@ test("service worker never caches online API or mutation requests", () => {
   assert.match(worker, /2026-07-31-pwa-no-web-splash-v3/);
   assert.match(worker, /icon-v2-512\.png/);
   assert.doesNotMatch(worker, /installed-splash-v2\.webp/);
+  assert.match(worker, /\.then\(\(\) => self\.skipWaiting\(\)\)/);
   assert.match(worker, /request\.method !== "GET"/);
   assert.match(worker, /pathname\.startsWith\("\/api\/online\/"\)/);
   assert.match(worker, /event\.respondWith\(fetch\(request\)\)/);
