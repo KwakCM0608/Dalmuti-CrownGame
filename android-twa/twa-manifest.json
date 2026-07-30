@@ -1,0 +1,42 @@
+{
+  "packageId": "lab.dclab.dalmuti",
+  "host": "dalmuti-crown-game.byj010608.chatgpt.site",
+  "name": "DALMUTI",
+  "launcherName": "DALMUTI",
+  "display": "standalone",
+  "themeColor": "#18070c",
+  "themeColorDark": "#18070c",
+  "navigationColor": "#18070c",
+  "navigationColorDark": "#18070c",
+  "navigationDividerColor": "#18070c",
+  "navigationDividerColorDark": "#18070c",
+  "backgroundColor": "#18070c",
+  "enableNotifications": false,
+  "startUrl": "/",
+  "iconUrl": "https://dalmuti-crown-game.byj010608.chatgpt.site/pwa/icon-512.png",
+  "maskableIconUrl": "https://dalmuti-crown-game.byj010608.chatgpt.site/pwa/icon-maskable-512.png",
+  "splashScreenFadeOutDuration": 420,
+  "signingKey": {
+    "path": "../.android-tools/signing/dalmuti-local-test.jks",
+    "alias": "dalmuti"
+  },
+  "appVersionCode": 1,
+  "appVersion": "1.0.0",
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://dalmuti-crown-game.byj010608.chatgpt.site/manifest.webmanifest",
+  "fallbackType": "customtabs",
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "minSdkVersion": 23,
+  "orientation": "any",
+  "fingerprints": [
+    {
+      "name": "local-test",
+      "value": "EA:0E:91:85:F9:03:9A:80:99:DA:84:FE:8B:94:BB:99:72:F6:55:B1:E6:87:BD:72:2F:19:5F:54:A3:CC:61:BD"
+    }
+  ],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": []
+}

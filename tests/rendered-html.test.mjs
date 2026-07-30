@@ -32,7 +32,7 @@ test("server-renders the playable Dalmuti prototype", async () => {
 
   const html = await response.text();
   assert.match(html, /<html lang="ko">/i);
-  assert.match(html, /달무티 — DCLab의 계급전/i);
+  assert.match(html, /<title>DALMUTI<\/title>/i);
   assert.match(html, /DALMUTI/);
   assert.doesNotMatch(html, /왕관은/);
   assert.doesNotMatch(html, /네 명의 AI와(?: 함께)? 바로 한 판을 시작합니다/);
@@ -58,8 +58,11 @@ test("server-renders the online room entry surface", async () => {
 
   const html = await response.text();
   assert.match(html, />DALMUTI</);
+  assert.doesNotMatch(html, /DCLab의 계급전/);
   assert.match(html, /방 만들기/);
   assert.match(html, /코드로 참가/);
+  assert.match(html, /새로운 달무티/);
+  assert.match(html, /게임에서 사용할 닉네임/);
   assert.match(html, /4–8 PLAYERS/);
   assert.match(html, />규칙</);
 });
@@ -82,7 +85,7 @@ test("ships without the disposable starter preview", async () => {
   ]);
 
   assert.match(page, /"use client"/);
-  assert.match(page, /DCLab의 계급전/);
+  assert.doesNotMatch(page, /DCLab의 계급전/);
   assert.match(styles, /brand-dalmuti-crown\.png/);
   assert.match(page, /function createDeck/);
   assert.match(page, /function applyTax/);

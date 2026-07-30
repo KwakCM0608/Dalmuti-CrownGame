@@ -1,6 +1,10 @@
 "use client";
 
-import type { CSSProperties, FormEvent } from "react";
+import type {
+  CSSProperties,
+  FormEvent,
+  KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import {
   memo,
   useCallback,
@@ -25,6 +29,10 @@ import {
   type OnlineEmoteId,
 } from "@/lib/online-emotes";
 import { scoreChipCount } from "@/lib/score-chips";
+import {
+  applyPhysicalRoomCodeKey,
+  normalizeRoomCodeInput,
+} from "@/lib/room-code-input";
 import {
   BOT_DIFFICULTIES,
   type BotDifficulty,
@@ -334,7 +342,7 @@ function normalizePhase(value: unknown): string {
 }
 
 function normalizeCode(value: string): string {
-  return value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+  return normalizeRoomCodeInput(value);
 }
 
 function cardFrom(value: unknown, index = 0): CardView | null {
@@ -1005,10 +1013,7 @@ function Brand({
   const contents = (
     <>
       <span className={styles.brandSeal} aria-hidden="true" />
-      <span>
-        <strong>DALMUTI</strong>
-        <small>DCLab의 계급전</small>
-      </span>
+      <strong>DALMUTI</strong>
     </>
   );
   if (onActivate) {
@@ -2737,6 +2742,10 @@ export default function OnlinePage() {
     const schedulePoll = (delayMs: number) => {
       if (stopped) return;
       if (pollTimer !== null) window.clearTimeout(pollTimer);
+      if (document.visibilityState !== "visible") {
+        pollTimer = null;
+        return;
+      }
       pollTimer = window.setTimeout(() => void runPoll(), delayMs);
     };
     const runPoll = async () => {
@@ -2764,11 +2773,47 @@ export default function OnlinePage() {
   }, [pollRoom, screen, session]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => setClock(Date.now()), 120);
-    return () => window.clearInterval(interval);
+    let interval: number | null = null;
+    const startClock = () => {
+      if (interval !== null) window.clearInterval(interval);
+      setClock(Date.now());
+      interval = window.setInterval(
+        () => setClock(Date.now()),
+        document.visibilityState === "visible" ? 250 : 1_000,
+      );
+    };
+
+    startClock();
+    document.addEventListener("visibilitychange", startClock);
+    return () => {
+      if (interval !== null) window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", startClock);
+    };
   }, []);
 
   useEffect(() => () => stopRankMoveRuntime(), [stopRankMoveRuntime]);
+
+  const handleRoomCodeKeyDown = (
+    event: ReactKeyboardEvent<HTMLInputElement>,
+  ) => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+    const input = event.currentTarget;
+    const next = applyPhysicalRoomCodeKey(
+      input.value,
+      input.selectionStart ?? input.value.length,
+      input.selectionEnd ?? input.value.length,
+      event.code,
+    );
+    if (!next) return;
+
+    event.preventDefault();
+    setRoomCodeInput(next.value);
+    window.requestAnimationFrame(() => {
+      if (!input.isConnected) return;
+      input.setSelectionRange(next.caret, next.caret);
+    });
+  };
 
   const submitEntry = async (event: FormEvent) => {
     event.preventDefault();
@@ -3161,6 +3206,15 @@ export default function OnlinePage() {
     (selectedCards.length && selectedCards.every((card) => card.rank === 13)
       ? 13
       : null);
+  const selectedRankIds =
+    selectedRank === null
+      ? []
+      : hand
+          .filter((card) => card.rank === selectedRank)
+          .map((card) => card.id);
+  const isSelectedRankComplete =
+    selectedRankIds.length > 0 &&
+    selectedRankIds.every((cardId) => selectedIds.includes(cardId));
   const playError = useMemo(() => {
     if (!selectedCards.length) return "낼 카드를 선택하세요.";
     if (selectedNormalRanks.length > 1)
@@ -3900,8 +3954,8 @@ export default function OnlinePage() {
               <small>{entryMode === "create" ? "CREATE A ROOM" : "JOIN A ROOM"}</small>
               <h2>
                 {entryMode === "create"
-                  ? "새로운 계급전"
-                  : "초대받은 계급전"}
+                  ? "새로운 달무티"
+                  : "초대받은 달무티"}
               </h2>
               <p>
                 {entryMode === "create"
@@ -3914,7 +3968,7 @@ export default function OnlinePage() {
               <input
                 value={nickname}
                 onChange={(event) => setNickname(event.target.value.slice(0, 16))}
-                placeholder="랩실에서 부르는 이름"
+                placeholder="게임에서 사용할 닉네임"
                 autoComplete="nickname"
                 maxLength={16}
               />
@@ -3928,9 +3982,13 @@ export default function OnlinePage() {
                   onChange={(event) =>
                     setRoomCodeInput(normalizeCode(event.target.value))
                   }
+                  onKeyDown={handleRoomCodeKeyDown}
                   placeholder="ABC123"
                   autoComplete="one-time-code"
+                  autoCapitalize="characters"
+                  autoCorrect="off"
                   inputMode="text"
+                  spellCheck={false}
                   maxLength={6}
                 />
                 <small>{roomCodeInput.length}/6</small>
@@ -4879,6 +4937,17 @@ export default function OnlinePage() {
                         : playError ?? "카드를 선택하세요"
                       : "상대의 행동을 기다리고 있습니다"}
                 </small>
+                {!isTaxSelection && isMyTurn && selectedRank !== null && (
+                  <button
+                    type="button"
+                    className={styles.rankBulkButton}
+                    onClick={() => toggleRank(selectedRank)}
+                  >
+                    {isSelectedRankComplete
+                      ? "같은 숫자 선택 해제"
+                      : "같은 숫자 모두 선택"}
+                  </button>
+                )}
               </div>
               {isTaxSelection ? (
                 <button

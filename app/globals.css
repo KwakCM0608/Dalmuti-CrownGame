@@ -5395,6 +5395,458 @@ button:focus-visible {
   }
 }
 
+.rank-bulk-button {
+  display: none;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .selection-hint:has(.rank-bulk-button) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 8px;
+  }
+
+  .selection-hint:has(.rank-bulk-button) > span,
+  .selection-hint:has(.rank-bulk-button) > small {
+    grid-column: 1;
+  }
+
+  .rank-bulk-button {
+    grid-row: 1 / 3;
+    grid-column: 2;
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    justify-content: center;
+    padding: 0 10px;
+    border: 1px solid rgba(218, 178, 82, 0.34);
+    border-radius: 8px;
+    background: rgba(202, 153, 53, 0.12);
+    color: #d7b65d;
+    font: inherit;
+    font-size: 8px;
+    font-weight: 900;
+    line-height: 1.2;
+    touch-action: manipulation;
+  }
+}
+
+/* Mobile viewport and touch hardening.
+ * Keep the desktop composition intact while making the game board follow the
+ * actually visible browser viewport on phones and installed web apps. */
+html,
+body {
+  overscroll-behavior: none;
+}
+
+body {
+  min-height: 100vh;
+  min-height: 100svh;
+  min-height: 100dvh;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a,
+input,
+[role="button"] {
+  touch-action: manipulation;
+}
+
+.game-shell {
+  --app-header-height: 76px;
+  --app-header-block: calc(
+    var(--app-header-height) + env(safe-area-inset-top, 0px)
+  );
+
+  min-height: 100vh;
+  min-height: 100svh;
+  min-height: 100dvh;
+  overscroll-behavior: none;
+}
+
+.game-shell .topbar {
+  min-height: var(--app-header-block);
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
+  padding-right: calc(28px + env(safe-area-inset-right, 0px));
+  padding-left: calc(28px + env(safe-area-inset-left, 0px));
+}
+
+.game-shell .game-stage {
+  min-height: calc(100vh - var(--app-header-block));
+  min-height: calc(100svh - var(--app-header-block));
+  min-height: calc(100dvh - var(--app-header-block));
+}
+
+.game-shell .score-rail ol,
+.game-shell .history-rail ul {
+  max-height: calc(100dvh - var(--app-header-block) - 154px);
+}
+
+.game-shell .hand-wrap {
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.game-shell .hand {
+  touch-action: pan-x;
+}
+
+@media (hover: none) {
+  .game-shell
+    .playing-card:hover:not(:disabled, .is-selected, .is-tax-source-placeholder) {
+    z-index: auto;
+    transform: none;
+  }
+}
+
+@media (max-width: 800px) {
+  .game-shell {
+    --app-header-height: 66px;
+
+    height: 100vh;
+    height: 100svh;
+    height: 100dvh;
+  }
+
+  .game-shell .topbar {
+    min-height: var(--app-header-block);
+    padding-top: calc(10px + env(safe-area-inset-top, 0px));
+    padding-right: calc(13px + env(safe-area-inset-right, 0px));
+    padding-left: calc(13px + env(safe-area-inset-left, 0px));
+    backdrop-filter: none;
+  }
+
+  .game-shell .game-stage,
+  .game-shell .table-column {
+    min-height: calc(100vh - var(--app-header-block));
+    min-height: calc(100svh - var(--app-header-block));
+    min-height: calc(100dvh - var(--app-header-block));
+  }
+
+  .game-shell .table-column {
+    padding-right: calc(6px + env(safe-area-inset-right, 0px));
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    padding-left: calc(6px + env(safe-area-inset-left, 0px));
+  }
+
+  .game-shell .welcome-layer,
+  .game-shell .modal-layer {
+    inset: var(--app-header-block) 0 0;
+  }
+
+  .game-shell .top-actions button,
+  .game-shell .pass-button,
+  .game-shell .play-button,
+  .game-shell .secondary-button,
+  .game-shell .tax-selection-confirm,
+  .game-shell .skip-round-button {
+    min-height: 44px;
+  }
+
+  .game-shell .hand-wrap {
+    scroll-padding-inline:
+      calc(150px + env(safe-area-inset-left, 0px))
+      calc(18px + env(safe-area-inset-right, 0px));
+  }
+
+  .game-shell
+    .human-zone:not(.is-finished)
+    .hand-wrap {
+    justify-content: flex-start;
+    padding-left: calc(150px + env(safe-area-inset-left, 0px));
+  }
+
+  .game-shell
+    .human-zone:not(.is-finished)
+    .hand {
+    width: max-content;
+    min-width: 100%;
+    justify-content: flex-start;
+    padding-right: calc(18px + env(safe-area-inset-right, 0px));
+    padding-left: 8px;
+  }
+
+  .game-shell .human-status {
+    z-index: 12;
+    max-width: 144px;
+  }
+
+  .game-shell .turn-controls {
+    min-height: 52px;
+    margin-bottom: env(safe-area-inset-bottom, 0px);
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* With two rows of seats, park the timer against the lower-right rail of
+   * the felt instead of covering ranks 6-10. */
+  .game-shell
+    .table-column:has(
+      .player-seat[data-rank-seat="6"],
+      .player-seat[data-rank-seat="7"],
+      .player-seat[data-rank-seat="8"],
+      .player-seat[data-rank-seat="9"],
+      .player-seat[data-rank-seat="10"]
+    )
+    > .turn-countdown {
+    top: auto;
+    right: calc(9px + env(safe-area-inset-right, 0px));
+    bottom: calc(158px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Fixed layers and large glow stacks are expensive on mobile GPUs. */
+  .game-shell .paper-grain {
+    opacity: 0.24;
+    mix-blend-mode: normal;
+  }
+
+  .game-shell .topbar,
+  .game-shell .modal-card {
+    backdrop-filter: none;
+  }
+
+  .game-shell .great-revolution-field-effect > span:nth-of-type(n + 9),
+  .game-shell .dalmuti-action-effects > span:nth-of-type(n + 9),
+  .game-shell .rank-transition-effect > span:nth-of-type(n + 8) {
+    display: none;
+  }
+
+  .game-shell .great-revolution-field-effect,
+  .game-shell .dalmuti-action-effects {
+    mix-blend-mode: normal;
+  }
+}
+
+@media (max-width: 520px) {
+  .game-shell .brand small {
+    display: none;
+  }
+
+  .game-shell .brand {
+    gap: 8px;
+  }
+
+  .game-shell .top-actions {
+    gap: 5px;
+  }
+
+  .game-shell .top-actions button {
+    min-width: 48px;
+    padding-inline: 9px;
+  }
+
+  .game-shell
+    .human-zone:not(.is-finished)
+    .hand-wrap {
+    padding-left: calc(142px + env(safe-area-inset-left, 0px));
+  }
+
+  .game-shell .human-status {
+    left: calc(5px + env(safe-area-inset-left, 0px));
+    max-width: 136px;
+  }
+
+  .game-shell .human-status div:nth-child(2) strong {
+    overflow: hidden;
+    max-width: 70px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .game-shell .turn-controls {
+    margin-right: calc(4px + env(safe-area-inset-right, 0px));
+    margin-left: calc(4px + env(safe-area-inset-left, 0px));
+  }
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .game-shell {
+    --app-header-height: 54px;
+  }
+
+  .game-shell .topbar {
+    padding-top: calc(5px + env(safe-area-inset-top, 0px));
+    padding-right: calc(10px + env(safe-area-inset-right, 0px));
+    padding-bottom: 5px;
+    padding-left: calc(10px + env(safe-area-inset-left, 0px));
+  }
+
+  .game-shell .brand-seal {
+    width: 32px;
+    height: 32px;
+  }
+
+  .game-shell .brand strong {
+    font-size: 13px;
+  }
+
+  .game-shell .top-actions button {
+    min-height: 40px;
+    padding-block: 6px;
+  }
+
+  .game-shell .game-stage {
+    height: calc(100dvh - var(--app-header-block));
+    overflow: hidden;
+  }
+
+  .game-shell .table-column {
+    display: grid;
+    height: calc(100dvh - var(--app-header-block));
+    min-height: 0;
+    grid-template-rows: minmax(0, 1fr) 112px;
+    padding-top: 4px;
+    padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .game-shell .felt-table {
+    min-height: 0;
+    height: auto;
+    border-width: 5px;
+    border-radius: 30% / 12%;
+    grid-row: 1;
+  }
+
+  .game-shell .opponent-row {
+    top: 6px;
+    right: calc(6px + env(safe-area-inset-right, 0px));
+    left: calc(6px + env(safe-area-inset-left, 0px));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 3px;
+  }
+
+  .game-shell .player-seat {
+    min-height: 43px;
+    padding: 3px 2px;
+  }
+
+  .game-shell .player-avatar {
+    width: 22px;
+    height: 22px;
+    font-size: 8px;
+  }
+
+  .game-shell .player-copy strong {
+    max-width: 92px;
+    font-size: 8px;
+  }
+
+  .game-shell .opponent-card-stack {
+    bottom: -9px;
+    height: 20px;
+  }
+
+  .game-shell .opponent-hand-back {
+    width: 13px;
+    height: 20px;
+  }
+
+  .game-shell .opponent-hand-back + .opponent-hand-back {
+    margin-left: -9px;
+  }
+
+  .game-shell .play-area {
+    top: 60%;
+    width: 62%;
+  }
+
+  .game-shell .table-cards {
+    min-height: 112px;
+  }
+
+  .game-shell .table-cards .playing-card {
+    width: 73px;
+    height: 112px;
+  }
+
+  .game-shell .table-callout {
+    margin-top: 5px;
+    font-size: 16px;
+  }
+
+  .game-shell .play-area > p {
+    margin-top: 4px;
+    font-size: 10px;
+  }
+
+  .game-shell .human-zone {
+    min-height: 108px;
+    margin-top: -3px;
+    grid-row: 2;
+  }
+
+  .game-shell .human-status {
+    bottom: 78px;
+  }
+
+  .game-shell .hand-wrap {
+    min-height: 78px;
+  }
+
+  .game-shell .hand {
+    min-height: 78px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+
+  .game-shell .playing-card,
+  .game-shell .playing-card-back {
+    width: 53px;
+    height: 81px;
+  }
+
+  .game-shell .hand .playing-card + .playing-card,
+  .game-shell .hand .playing-card-back + .playing-card-back {
+    margin-left: -24px;
+  }
+
+  .game-shell .turn-controls {
+    min-height: 44px;
+    padding-block: 3px;
+  }
+
+  .game-shell .table-column > .turn-countdown,
+  .game-shell
+    .table-column:has(
+      .player-seat[data-rank-seat="6"],
+      .player-seat[data-rank-seat="7"],
+      .player-seat[data-rank-seat="8"],
+      .player-seat[data-rank-seat="9"],
+      .player-seat[data-rank-seat="10"]
+    )
+    > .turn-countdown {
+    top: auto;
+    right: calc(8px + env(safe-area-inset-right, 0px));
+    bottom: calc(120px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .game-shell .turn-countdown > div {
+    width: 46px;
+    height: 46px;
+  }
+
+  .game-shell .turn-countdown > div::before {
+    width: 34px;
+    height: 34px;
+  }
+
+  .game-shell .turn-countdown b {
+    font-size: 17px;
+  }
+
+  .game-shell .turn-countdown p {
+    display: none;
+  }
+
+  .game-shell .welcome-card,
+  .game-shell .modal-card {
+    max-height: calc(100dvh - var(--app-header-block) - 12px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
 .game-shell .play-area {
   width: min(560px, 72%);
 }

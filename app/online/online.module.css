@@ -5899,10 +5899,6 @@
     grid-template-columns: 1fr;
   }
 
-  .emptySlot:nth-child(n + 7) {
-    display: none;
-  }
-
   .lobbyControls {
     grid-template-columns: 1fr;
   }
@@ -7827,5 +7823,604 @@
   .eventOverlay {
     opacity: 1 !important;
     animation: none !important;
+  }
+}
+
+/* Mobile viewport and touch hardening.
+ * Header and content use one shared block-size so browser chrome, notches and
+ * installed-app mode cannot leave a clipped or mismatched game surface. */
+.entryShell,
+.lobbyShell,
+.gameShell {
+  --app-header-height: 76px;
+  --app-header-block: calc(
+    var(--app-header-height) + env(safe-area-inset-top, 0px)
+  );
+
+  min-height: 100vh;
+  min-height: 100svh;
+  min-height: 100dvh;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.entryHeader,
+.roomHeader {
+  min-height: var(--app-header-block);
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
+  padding-right: calc(28px + env(safe-area-inset-right, 0px));
+  padding-left: calc(28px + env(safe-area-inset-left, 0px));
+}
+
+.entryHero,
+.lobbyLayout,
+.gameLayout {
+  min-height: calc(100vh - var(--app-header-block));
+  min-height: calc(100svh - var(--app-header-block));
+  min-height: calc(100dvh - var(--app-header-block));
+}
+
+.rankRail ol,
+.historyRail ul {
+  max-height: calc(100dvh - var(--app-header-block) - 154px);
+}
+
+.entryShell button,
+.entryShell a,
+.entryShell input,
+.lobbyShell button,
+.lobbyShell a,
+.lobbyShell input,
+.gameShell button,
+.gameShell a,
+.gameShell input,
+.gameShell [role="button"] {
+  touch-action: manipulation;
+}
+
+.handScroller,
+.rankChoiceCards {
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+}
+
+.chatMessages {
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+
+@media (hover: none) {
+  .card:hover:not(:disabled, .cardDisplayOnly, .cardSelected) {
+    z-index: auto;
+    transform: none;
+  }
+}
+
+@media (max-width: 820px) {
+  .entryShell,
+  .lobbyShell,
+  .gameShell {
+    --app-header-height: 66px;
+  }
+
+  .entryShell,
+  .lobbyShell {
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+
+  .gameShell {
+    height: 100vh;
+    height: 100svh;
+    height: 100dvh;
+  }
+
+  .entryHeader,
+  .roomHeader {
+    min-height: var(--app-header-block);
+    padding-top: calc(10px + env(safe-area-inset-top, 0px));
+    padding-right: calc(13px + env(safe-area-inset-right, 0px));
+    padding-left: calc(13px + env(safe-area-inset-left, 0px));
+    backdrop-filter: none;
+  }
+
+  .entryHero,
+  .lobbyLayout,
+  .gameLayout,
+  .boardColumn {
+    min-height: calc(100vh - var(--app-header-block));
+    min-height: calc(100svh - var(--app-header-block));
+    min-height: calc(100dvh - var(--app-header-block));
+  }
+
+  .entryHero,
+  .lobbyLayout {
+    padding-bottom: calc(38px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .gameLayout {
+    height: calc(100dvh - var(--app-header-block));
+    overflow: hidden;
+  }
+
+  .boardColumn {
+    height: calc(100dvh - var(--app-header-block));
+    padding-right: calc(6px + env(safe-area-inset-right, 0px));
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    padding-left: calc(6px + env(safe-area-inset-left, 0px));
+  }
+
+  .modalLayer,
+  .gameShellGreatRevolution::before,
+  .gameShellGreatRevolution::after {
+    inset: var(--app-header-block) 0 0;
+  }
+
+  .soloLink,
+  .rulesButton,
+  .headerActions > button,
+  .primaryButton,
+  .secondaryButton,
+  .passButton,
+  .submitButton,
+  .readyButton,
+  .lobbyControls button,
+  .chatComposer button {
+    min-height: 44px;
+  }
+
+  .field input,
+  .chatComposer input,
+  .gameChatPanel .chatComposer input {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .lobbyPlayers ol {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* Mobile hosts must be able to add bots to all eight positions. */
+  .emptySlot:nth-child(n + 7) {
+    display: grid;
+  }
+
+  .gameChatPanel {
+    right: calc(6px + env(safe-area-inset-right, 0px));
+    bottom: calc(61px + env(safe-area-inset-bottom, 0px));
+    max-width: calc(
+      100vw - env(safe-area-inset-left, 0px) -
+        env(safe-area-inset-right, 0px) - 12px
+    );
+  }
+
+  .gameChatPanel .chatComposer {
+    padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .chatHeading button {
+    width: 36px;
+    height: 36px;
+  }
+
+  .chatComposer .emoteToggle {
+    min-width: 44px;
+    height: 44px;
+  }
+
+  .actionBar {
+    min-height: 54px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .ownDock {
+    padding-right: calc(2px + env(safe-area-inset-right, 0px));
+    padding-left: calc(2px + env(safe-area-inset-left, 0px));
+  }
+
+  .handScroller {
+    scroll-padding-inline:
+      calc(156px + env(safe-area-inset-left, 0px))
+      calc(18px + env(safe-area-inset-right, 0px));
+  }
+
+  .ownDock:not(.ownDockFinished) .handScroller {
+    padding-left: calc(156px + env(safe-area-inset-left, 0px));
+  }
+
+  .ownDock:not(.ownDockFinished) .hand {
+    width: max-content;
+    min-width: 100%;
+    justify-content: flex-start;
+    padding-right: calc(18px + env(safe-area-inset-right, 0px));
+    padding-left: 8px;
+  }
+
+  /* Two-row seating no longer competes with the countdown in 6-8 player
+   * rooms; the timer moves to the clear lower-right edge of the table. */
+  .boardColumn:has(
+      .playerSeat[data-rank-number="6"],
+      .playerSeat[data-rank-number="7"],
+      .playerSeat[data-rank-number="8"]
+    )
+    > .turnCountdown {
+    top: auto;
+    right: calc(9px + env(safe-area-inset-right, 0px));
+    bottom: calc(158px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .grain {
+    opacity: 0.24;
+    mix-blend-mode: normal;
+  }
+
+  .entryHeader,
+  .roomHeader,
+  .gameChatPanel .chatComposer,
+  .gameChatPanel.chatPanelCollapsed .chatHeading,
+  .emotePicker {
+    backdrop-filter: none;
+  }
+
+  .gameShellGreatRevolution::before,
+  .gameShellGreatRevolution::after,
+  .greatRevolutionFieldEffect {
+    mix-blend-mode: normal;
+  }
+
+  .greatRevolutionFieldEffect > span:nth-of-type(n + 9),
+  .rankShiftEffect > span:nth-of-type(n + 8),
+  .dalmutiEffectOverlay > span:nth-of-type(n + 9) {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .brand small {
+    display: none;
+  }
+
+  .brand {
+    gap: 8px;
+  }
+
+  .headerActions {
+    gap: 5px;
+  }
+
+  .soloLink,
+  .rulesButton,
+  .headerActions > button {
+    min-width: 44px;
+    padding-inline: 8px;
+  }
+
+  .lobbyPlayers ol {
+    grid-template-columns: 1fr;
+  }
+
+  .seatRing {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .playerSeat[data-rank-number="5"],
+  .playerSeat[data-rank-number="6"],
+  .playerSeat[data-rank-number="7"],
+  .playerSeat[data-rank-number="8"] {
+    min-height: 51px;
+  }
+
+  .playerSeat[data-rank-number="5"] .avatar,
+  .playerSeat[data-rank-number="6"] .avatar,
+  .playerSeat[data-rank-number="7"] .avatar,
+  .playerSeat[data-rank-number="8"] .avatar {
+    display: grid;
+    width: 23px;
+    height: 23px;
+    font-size: 8px;
+  }
+
+  .playerSeatSelf {
+    left: calc(5px + env(safe-area-inset-left, 0px));
+    width: 143px;
+  }
+
+  .ownDock:not(.ownDockFinished) .handScroller {
+    padding-left: calc(151px + env(safe-area-inset-left, 0px));
+  }
+
+  .gameChatPanel {
+    right: calc(4px + env(safe-area-inset-right, 0px));
+    bottom: calc(61px + env(safe-area-inset-bottom, 0px));
+    width: calc(
+      100vw - env(safe-area-inset-left, 0px) -
+        env(safe-area-inset-right, 0px) - 8px
+    );
+  }
+
+  .gameChatPanel .chatMessage p {
+    font-size: 14px;
+    line-height: 1.46;
+  }
+
+  .gameChatPanel .chatMessage strong {
+    font-size: 12px;
+  }
+
+  .chatComposerWithEmotes {
+    grid-template-columns: minmax(0, 1fr) 44px auto;
+  }
+
+  .emotePicker {
+    right: -38px;
+    max-width: calc(100vw - 22px);
+    grid-template-columns: repeat(4, minmax(44px, 1fr));
+  }
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .entryShell,
+  .lobbyShell,
+  .gameShell {
+    --app-header-height: 54px;
+  }
+
+  .entryHeader,
+  .roomHeader {
+    padding-top: calc(5px + env(safe-area-inset-top, 0px));
+    padding-right: calc(10px + env(safe-area-inset-right, 0px));
+    padding-bottom: 5px;
+    padding-left: calc(10px + env(safe-area-inset-left, 0px));
+  }
+
+  .brandSeal {
+    width: 32px;
+    height: 32px;
+  }
+
+  .brand strong {
+    font-size: 13px;
+  }
+
+  .connectionPill {
+    display: none;
+  }
+
+  .soloLink,
+  .rulesButton,
+  .headerActions > button {
+    min-height: 40px;
+    padding-block: 6px;
+  }
+
+  .entryHero,
+  .lobbyLayout {
+    min-height: calc(100dvh - var(--app-header-block));
+    padding-top: 22px;
+    padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .gameLayout,
+  .boardColumn {
+    height: calc(100dvh - var(--app-header-block));
+    min-height: 0;
+  }
+
+  .boardColumn {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) 112px;
+    padding-top: 4px;
+    padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .table,
+  .tableRankSelection {
+    min-height: 0;
+    height: auto;
+    border-width: 5px;
+    border-radius: 30% / 12%;
+    grid-row: 1;
+  }
+
+  .seatRing {
+    top: 5px;
+    right: calc(6px + env(safe-area-inset-right, 0px));
+    left: calc(6px + env(safe-area-inset-left, 0px));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 3px;
+  }
+
+  .playerSeat,
+  .playerSeat[data-rank-number="5"],
+  .playerSeat[data-rank-number="6"],
+  .playerSeat[data-rank-number="7"],
+  .playerSeat[data-rank-number="8"] {
+    min-height: 43px;
+    padding: 3px 2px;
+  }
+
+  .playerSeat .avatar,
+  .playerSeat[data-rank-number="5"] .avatar,
+  .playerSeat[data-rank-number="6"] .avatar,
+  .playerSeat[data-rank-number="7"] .avatar,
+  .playerSeat[data-rank-number="8"] .avatar {
+    display: grid;
+    width: 22px;
+    height: 22px;
+    font-size: 8px;
+  }
+
+  .playerCopy strong {
+    max-width: 92px;
+    font-size: 8px;
+  }
+
+  .seatRevealCards {
+    bottom: -9px;
+    height: 20px;
+  }
+
+  .seatRevealCards i {
+    width: 13px;
+    height: 20px;
+  }
+
+  .tableCenter {
+    top: 60%;
+    width: 62%;
+    min-height: 116px;
+  }
+
+  .tableCards {
+    min-height: 112px;
+  }
+
+  .tableCards .card {
+    width: 73px;
+    height: 112px;
+  }
+
+  .tableCenter > strong {
+    font-size: 16px;
+  }
+
+  .tableCenter > p {
+    margin-top: 4px;
+    font-size: 10px;
+  }
+
+  .ownDock {
+    min-height: 108px;
+    margin-top: -3px;
+    padding-top: 2px;
+    grid-row: 2;
+  }
+
+  .playerSeatSelf {
+    top: 2px;
+    width: 138px;
+    min-height: 45px;
+  }
+
+  .handScroller {
+    min-height: 78px;
+    padding-top: 2px;
+  }
+
+  .ownDock:not(.ownDockFinished) .handScroller {
+    padding-left: calc(146px + env(safe-area-inset-left, 0px));
+  }
+
+  .hand {
+    min-height: 78px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+
+  .card {
+    width: 53px;
+    height: 81px;
+  }
+
+  .hand .card + .card {
+    margin-left: -24px;
+  }
+
+  .actionBar {
+    min-height: 44px;
+    padding-block: 3px;
+  }
+
+  .turnCountdown,
+  .boardColumn:has(
+      .playerSeat[data-rank-number="6"],
+      .playerSeat[data-rank-number="7"],
+      .playerSeat[data-rank-number="8"]
+    )
+    > .turnCountdown {
+    top: auto;
+    right: calc(8px + env(safe-area-inset-right, 0px));
+    bottom: calc(120px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .turnCountdownRing {
+    width: 46px;
+    height: 46px;
+  }
+
+  .turnCountdownRing::before {
+    width: 34px;
+    height: 34px;
+  }
+
+  .turnCountdownRing b {
+    font-size: 17px;
+  }
+
+  .turnCountdownCopy {
+    display: none;
+  }
+
+  .gameChatPanel {
+    bottom: calc(51px + env(safe-area-inset-bottom, 0px));
+    height: min(148px, calc(100dvh - var(--app-header-block) - 58px));
+  }
+
+  .eventCards .card {
+    width: 74px;
+    height: 114px;
+  }
+
+  .eventCardWrap {
+    --event-card-half-width: 37px;
+    --event-card-half-height: 57px;
+  }
+
+  .decisionCard,
+  .resultCard,
+  .botDifficultyDialog {
+    max-height: calc(100dvh - var(--app-header-block) - 12px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
+.rankBulkButton {
+  display: none;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .selectionCopy:has(.rankBulkButton) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 8px;
+  }
+
+  .selectionCopy:has(.rankBulkButton) > strong,
+  .selectionCopy:has(.rankBulkButton) > small {
+    grid-column: 1;
+  }
+
+  .rankBulkButton {
+    grid-row: 1 / 3;
+    grid-column: 2;
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    justify-content: center;
+    padding: 0 10px;
+    border: 1px solid rgba(218, 178, 82, 0.34);
+    border-radius: 8px;
+    background: rgba(202, 153, 53, 0.12);
+    color: #d7b65d;
+    font: inherit;
+    font-size: 8px;
+    font-weight: 900;
+    line-height: 1.2;
+    touch-action: manipulation;
   }
 }

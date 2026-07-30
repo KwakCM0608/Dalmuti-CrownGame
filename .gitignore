@@ -15,6 +15,14 @@
 # testing
 /coverage
 /artifacts/
+/.android-tools/
+
+# local Android wrapper outputs and signing material
+/android-twa/.gradle/
+/android-twa/app/build/
+/android-twa/build/
+/android-twa/*.jks
+/android-twa/*.keystore
 
 # next.js
 /.next/

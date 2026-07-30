@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#18070c" />
+    <title>DALMUTI — 오프라인</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        min-height: 100dvh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        padding: max(24px, env(safe-area-inset-top))
+          max(24px, env(safe-area-inset-right))
+          max(24px, env(safe-area-inset-bottom))
+          max(24px, env(safe-area-inset-left));
+        color: #fff4d2;
+        background:
+          radial-gradient(circle at 50% 32%, #512331 0, transparent 42%),
+          linear-gradient(145deg, #20090f, #100307);
+        font-family:
+          Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      main {
+        width: min(420px, 100%);
+        padding: 34px 26px;
+        text-align: center;
+        border: 1px solid rgba(225, 185, 81, 0.42);
+        border-radius: 28px;
+        background: rgba(27, 7, 12, 0.86);
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.36);
+      }
+      img {
+        width: 76px;
+        height: 76px;
+        border: 2px solid #d4ab4b;
+        border-radius: 50%;
+      }
+      h1 {
+        margin: 18px 0 8px;
+        font-family: Georgia, serif;
+        font-size: 27px;
+        letter-spacing: 0.2em;
+      }
+      p {
+        margin: 0 0 24px;
+        color: rgba(255, 244, 210, 0.72);
+        font-size: 14px;
+        line-height: 1.65;
+      }
+      button {
+        min-width: 148px;
+        min-height: 48px;
+        color: #281208;
+        border: 1px solid #f2d47c;
+        border-radius: 14px;
+        background: linear-gradient(#f4d77f, #c48a30);
+        font: inherit;
+        font-weight: 900;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/brand-dalmuti-crown.png" alt="" />
+      <h1>DALMUTI</h1>
+      <p>
+        지금은 네트워크에 연결할 수 없습니다.<br />
+        연결 상태를 확인한 뒤 다시 시도해 주세요.
+      </p>
+      <button type="button" onclick="location.reload()">다시 연결</button>
+    </main>
+  </body>
+</html>

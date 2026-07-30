@@ -1735,6 +1735,17 @@ export default function Home() {
     !roundResultReady;
   const selectedCards = humanHand.filter((card) => selectedIds.includes(card.id));
   const selectedSet = normalizedSet(selectedCards);
+  const selectedRankSeed = selectedSet
+    ? humanHand.find((card) => card.rank === selectedSet.rank) ?? null
+    : null;
+  const selectedRankIds = selectedRankSeed
+    ? humanHand
+        .filter((card) => card.rank === selectedRankSeed.rank)
+        .map((card) => card.id)
+    : [];
+  const isSelectedRankComplete =
+    selectedRankIds.length > 0 &&
+    selectedRankIds.every((cardId) => selectedIds.includes(cardId));
   const selectedError = isHumanTaxSelecting
     ? selectedIds.length === humanTaxSelectionCount
       ? null
@@ -2956,10 +2967,7 @@ export default function Home() {
           aria-label="초기 모드 선택 화면으로 돌아가기"
         >
           <span className="brand-seal" aria-hidden="true" />
-          <div>
-            <strong>DALMUTI</strong>
-            <small>DCLab의 계급전</small>
-          </div>
+          <strong>DALMUTI</strong>
         </button>
 
         <div className="round-chip" aria-label="게임 정보">
@@ -3801,6 +3809,17 @@ export default function Home() {
                           ? `현재 ${game.table.count}장 묶음 · 더블클릭하면 같은 숫자 전체 선택`
                           : "한 번 클릭: 개별 선택 · 더블클릭: 같은 숫자 전체 선택"}
                     </small>
+                    {selectedRankSeed && (
+                      <button
+                        type="button"
+                        className="rank-bulk-button"
+                        onClick={() => selectAllOfRank(selectedRankSeed)}
+                      >
+                        {isSelectedRankComplete
+                          ? "같은 숫자 선택 해제"
+                          : "같은 숫자 모두 선택"}
+                      </button>
+                    )}
                   </div>
                   <button
                     type="button"

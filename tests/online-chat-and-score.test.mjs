@@ -15,6 +15,11 @@ const {
   isOnlineEmoteId,
   onlineEmoteById,
 } = await import(new URL("../lib/online-emotes.ts", import.meta.url));
+const {
+  applyPhysicalRoomCodeKey,
+  normalizeRoomCodeInput,
+  roomCodeCharacterFromPhysicalKey,
+} = await import(new URL("../lib/room-code-input.ts", import.meta.url));
 
 test("online chat normalizes whitespace and strips invisible controls", () => {
   assert.equal(
@@ -65,4 +70,31 @@ test("online emotes use a fixed safe whitelist and a short display window", () =
     label: "박수",
   });
   assert.equal(onlineEmoteById("custom"), null);
+});
+
+test("room codes accept only six uppercase ASCII letters or numbers", () => {
+  assert.equal(normalizeRoomCodeInput("abc-123z"), "ABC123");
+  assert.equal(normalizeRoomCodeInput(" a!b@9# "), "AB9");
+  assert.equal(normalizeRoomCodeInput("ＡＢＣ１２３"), "");
+});
+
+test("Korean room-code input becomes the matching two-set keyboard keys", () => {
+  assert.equal(normalizeRoomCodeInput("한글"), "GKSRMF");
+  assert.equal(normalizeRoomCodeInput("ㅂㅈㄷㄱㅅㅛ"), "QWERTY");
+  assert.equal(normalizeRoomCodeInput("가A1"), "RKA1");
+});
+
+test("physical room-code keys replace the current selection without IME text", () => {
+  assert.equal(roomCodeCharacterFromPhysicalKey("KeyQ"), "Q");
+  assert.equal(roomCodeCharacterFromPhysicalKey("Digit7"), "7");
+  assert.equal(roomCodeCharacterFromPhysicalKey("Numpad2"), "2");
+  assert.equal(roomCodeCharacterFromPhysicalKey("Minus"), null);
+  assert.deepEqual(applyPhysicalRoomCodeKey("ABCD12", 2, 5, "KeyQ"), {
+    value: "ABQ2",
+    caret: 3,
+  });
+  assert.deepEqual(applyPhysicalRoomCodeKey("ABC123", 6, 6, "KeyZ"), {
+    value: "ABC123",
+    caret: 6,
+  });
 });

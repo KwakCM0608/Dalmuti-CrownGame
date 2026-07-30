@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "lab.dclab.dalmuti",
+      "sha256_cert_fingerprints": [
+        "EA:0E:91:85:F9:03:9A:80:99:DA:84:FE:8B:94:BB:99:72:F6:55:B1:E6:87:BD:72:2F:19:5F:54:A3:CC:61:BD"
+      ]
+    }
+  }
+]
