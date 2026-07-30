@@ -237,9 +237,12 @@ test("installed Android app uses one branded splash and system-aware rotation", 
     "13fadbea989e85980994d185b44f4a4215f3df59e075d1bdf6056a820756631f",
   );
   assert.match(apkVerifier, /dalmuti-native-assets-v7\.json/);
-  assert.match(apkVerifier, /dalmuti_app_icon_v3\.png/);
-  assert.match(apkVerifier, /dalmuti_splash_v4\.png/);
-  assert.match(apkVerifier, /dalmuti_splash_glow_v4\.png/);
+  assert.match(apkVerifier, /dump badging/);
+  assert.match(apkVerifier, /dump resources/);
+  assert.match(apkVerifier, /mipmap\/dalmuti_app_icon_v3/);
+  assert.match(apkVerifier, /drawable\/dalmuti_splash_v4/);
+  assert.match(apkVerifier, /drawable\/dalmuti_splash_glow_v4/);
+  assert.match(apkVerifier, /resources\.arsc/);
   assert.match(apkVerifier, /appVersion = "1\.0\.6"/);
   assert.match(apkVerifier, /versionCode = 7/);
   assert.doesNotMatch(androidSplashTheme, /windowSplashScreenBrandingImage/);
