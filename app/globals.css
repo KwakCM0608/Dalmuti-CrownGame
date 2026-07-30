@@ -5669,22 +5669,22 @@ button:focus-visible {
   position: fixed;
   inset: 0;
   z-index: 999;
-  background:
-    radial-gradient(circle at 50% 48%, rgba(240, 197, 92, 0.28), transparent 34%),
-    linear-gradient(135deg, #25080f, #6b1e2d 52%, #1c070c);
+  display: none;
   pointer-events: none;
-  animation: quickScreenFlash 310ms cubic-bezier(0.36, 0.04, 0.2, 1) both;
 }
 
-@keyframes quickScreenFlash {
+@keyframes quickInstalledScreenVeil {
   0% {
     opacity: 0;
+    transform: scale(1.025);
   }
-  40% {
-    opacity: 0.82;
+  42% {
+    opacity: 0.62;
+    transform: scale(1);
   }
   100% {
     opacity: 0;
+    transform: scale(0.992);
   }
 }
 
@@ -8423,5 +8423,97 @@ input,
   .game-shell.game-shell .human-status,
   .game-shell.game-shell .human-zone.is-finished .human-status {
     display: none;
+  }
+}
+
+/* Desktop quick match keeps every rank position occupied. The local player
+ * uses the same seat component as every opponent, with a restrained gold
+ * treatment so it remains immediately identifiable. */
+@media (min-width: 801px) and (min-height: 501px) {
+  .game-shell .opponent-row .player-seat.is-human-seat {
+    display: grid;
+    border-color: rgba(244, 203, 105, 0.9);
+    background:
+      linear-gradient(135deg, rgba(119, 70, 31, 0.44), rgba(47, 17, 23, 0.96)),
+      rgba(25, 12, 14, 0.95);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 229, 154, 0.15),
+      0 0 0 3px rgba(221, 176, 72, 0.12),
+      0 11px 24px rgba(0, 0, 0, 0.34);
+  }
+
+  .game-shell .opponent-row .player-seat.is-human-seat .player-avatar {
+    background: #d1a447;
+    color: #2a150b;
+  }
+
+  .game-shell .opponent-row .player-seat.is-human-seat::before {
+    position: absolute;
+    top: -9px;
+    right: 9px;
+    padding: 2px 6px;
+    border: 1px solid rgba(255, 231, 167, 0.56);
+    border-radius: 999px;
+    background: #6d3b20;
+    color: #ffe4a1;
+    content: "나";
+    font-size: 7px;
+    font-weight: 950;
+    letter-spacing: 0.05em;
+  }
+}
+
+/* Only the installed phone app receives a page-change veil. Desktop and
+ * regular mobile web navigation update immediately without a flash layer. */
+@media (display-mode: standalone) and (max-width: 800px),
+  (display-mode: fullscreen) and (max-width: 800px),
+  (display-mode: standalone) and (orientation: landscape) and (max-height: 500px) and (pointer: coarse),
+  (display-mode: fullscreen) and (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
+  .screen-transition-flash {
+    display: block;
+    background:
+      radial-gradient(
+        ellipse at 50% 46%,
+        rgba(146, 75, 96, 0.26),
+        transparent 58%
+      ),
+      rgba(20, 5, 10, 0.72);
+    backdrop-filter: blur(2px);
+    animation: quickInstalledScreenVeil 420ms cubic-bezier(0.22, 0.72, 0.24, 1)
+      both;
+  }
+}
+
+/* Let rank seats straddle the felt edge and keep wide multi-card submissions
+ * fully visible on phone screens. */
+@media (max-width: 800px),
+  (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
+  .game-shell.game-shell .mobile-act-chip {
+    display: none;
+  }
+
+  .game-shell.game-shell .felt-table {
+    margin-block: 12px 7px;
+    overflow: visible;
+  }
+
+  .game-shell.game-shell .opponent-row {
+    inset: -13px 5px -13px;
+    z-index: 10;
+  }
+
+  .game-shell.game-shell .opponent-row .player-seat {
+    z-index: 2;
+  }
+
+  .game-shell.game-shell .public-turn-action-layer {
+    overflow: visible;
+    border-radius: 0;
+  }
+
+  .game-shell.game-shell .public-play-card {
+    width: min(92px, 25vw);
+    height: auto;
+    aspect-ratio: 92 / 142;
   }
 }

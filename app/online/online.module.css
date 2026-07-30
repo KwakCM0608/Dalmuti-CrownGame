@@ -2062,14 +2062,13 @@
 }
 
 .playerSeatSelf {
-  position: relative;
-  top: auto;
-  left: auto;
-  width: min(185px, 22vw);
-  flex: 0 0 auto;
   border-color: rgba(223, 185, 96, 0.42);
-  background: #38141e;
-  transform: none;
+  background:
+    linear-gradient(120deg, rgba(212, 163, 57, 0.17), transparent 72%),
+    #38141e;
+  box-shadow:
+    0 0 0 2px rgba(221, 177, 73, 0.1),
+    0 9px 20px rgba(0, 0, 0, 0.25);
 }
 
 .playerSeatDisconnected {
@@ -9040,6 +9039,173 @@
   }
 }
 
+/* The local player uses the same ranked table seat as every opponent on PC.
+ * Keep the lower interaction bar aligned to the quick-match proportions. */
+@media (min-width: 821px) {
+  .ownDock {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .actionBar {
+    width: min(720px, 100%);
+    max-width: 720px;
+    gap: 8px;
+    margin-inline: auto;
+    padding: 10px 12px;
+    border-radius: 12px;
+  }
+
+  .passButton,
+  .submitButton {
+    min-height: 38px;
+    border-radius: 8px;
+    font-size: 10px;
+  }
+
+  .passButton {
+    min-width: 66px;
+  }
+
+  .submitButton {
+    min-width: 98px;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) and (max-width: 820px),
+  (hover: none) and (pointer: coarse) and (orientation: landscape) and
+    (max-height: 500px) {
+  /* Keep glow badges and motion origins clear of the table's clipped edge. */
+  .seatRing[data-mobile-layout="true"] {
+    inset: 2px 4px;
+    z-index: 12;
+  }
+
+  .seatRing[data-mobile-layout="true"] .playerSeat,
+  .seatRing[data-mobile-layout="true"] .playerSeatSelf {
+    z-index: 12;
+  }
+
+  /* Large same-rank groups fan out within a phone viewport before settling. */
+  .playOverlay .eventCardWrap {
+    animation-name: onlinePublicCardPlayMobile;
+  }
+}
+
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) {
+  .gameShell .headerInviteButton {
+    display: none;
+  }
+
+  .mobileDrawerInvite {
+    display: flex;
+    min-height: 58px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: auto;
+    padding: 10px 11px;
+    border: 1px solid rgba(226, 188, 96, 0.28);
+    border-radius: 10px;
+    background:
+      linear-gradient(120deg, rgba(210, 161, 55, 0.12), transparent),
+      rgba(255, 255, 255, 0.025);
+    color: #e7d8b7;
+    font: inherit;
+    text-align: left;
+  }
+
+  .mobileDrawerInvite span {
+    display: grid;
+    gap: 3px;
+  }
+
+  .mobileDrawerInvite small {
+    color: #9d7b3c;
+    font-size: 6px;
+    font-weight: 900;
+    letter-spacing: 0.16em;
+  }
+
+  .mobileDrawerInvite strong {
+    color: #f0cf79;
+    font-family: ui-monospace, monospace;
+    font-size: 15px;
+    letter-spacing: 0.12em;
+  }
+
+  .mobileDrawerInvite em {
+    color: #bca77e;
+    font-size: 7px;
+    font-style: normal;
+    font-weight: 900;
+  }
+}
+
+@keyframes onlinePublicCardPlayMobile {
+  0% {
+    opacity: 0;
+    transform:
+      translate3d(
+        calc(
+          var(--from-x) - var(--event-card-half-width) +
+            var(--event-card-from-spread)
+        ),
+        calc(var(--from-y) - var(--event-card-half-height)),
+        0
+      )
+      rotate(-4deg)
+      scale(0.3);
+  }
+
+  10%,
+  22% {
+    opacity: 1;
+    transform:
+      translate3d(
+        calc(
+          var(--from-x) - var(--event-card-half-width) +
+            var(--event-card-from-spread)
+        ),
+        calc(var(--from-y) - var(--event-card-half-height)),
+        0
+      )
+      rotate(-2deg)
+      scale(0.36);
+  }
+
+  52%,
+  72% {
+    opacity: 1;
+    transform:
+      translate3d(
+        calc(
+          var(--center-x) - var(--event-card-half-width) +
+            var(--event-card-mobile-expanded-x, var(--event-card-expanded-x))
+        ),
+        calc(var(--center-y) - var(--event-card-half-height)),
+        0
+      )
+      scale(1);
+  }
+
+  88%,
+  100% {
+    opacity: 1;
+    transform:
+      translate3d(
+        calc(
+          var(--center-x) - var(--event-card-half-width) +
+            var(--event-card-mobile-offset-x, var(--event-card-offset-x))
+        ),
+        calc(var(--center-y) - var(--event-card-half-height)),
+        0
+      )
+      rotate(var(--event-card-angle))
+      scale(1);
+  }
+}
+
 @keyframes onlineDalmutiAutoPassMobile {
   0% {
     opacity: 0;
@@ -9097,7 +9263,7 @@
 .mobileRankToggle,
 .mobileRankDrawerBackdrop,
 .mobileRankDrawer,
-.mobileRoundBadge {
+.mobileDrawerInvite {
   display: none;
 }
 
@@ -9315,29 +9481,6 @@
     box-shadow: inset 3px 0 #d2a64b;
   }
 
-  .mobileRoundBadge {
-    position: absolute;
-    top: 56px;
-    left: 50%;
-    z-index: 18;
-    display: inline-flex;
-    min-height: 22px;
-    align-items: center;
-    justify-content: center;
-    padding: 4px 9px;
-    border: 1px solid rgba(227, 193, 108, 0.28);
-    border-radius: 999px;
-    background: rgba(17, 31, 26, 0.82);
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.24);
-    color: #d8ba70;
-    font-size: 7px;
-    font-weight: 900;
-    letter-spacing: 0.08em;
-    pointer-events: none;
-    transform: translateX(-50%);
-    white-space: nowrap;
-  }
-
   /* Every mobile rank draw fits in the table. Flex wrapping keeps an
    * incomplete final row centered (7 players becomes exactly 4 + 3). */
   .rankChoiceCards[data-card-count] {
@@ -9386,7 +9529,7 @@
   }
 
   /* All players, including the viewer, occupy their real rank position on
-   * mobile. For 6–10 players rows are 4+2, 4+3, 4+4, 5+4 and 5+5. */
+   * mobile. For 6–10 players rows are 3+3, 4+3, 4+4, 5+4 and 5+5. */
   .seatRing[data-mobile-layout="true"] {
     position: absolute;
     inset: 0;
@@ -9497,10 +9640,6 @@
 
 @media (hover: none) and (pointer: coarse) and (orientation: landscape) and
   (max-height: 500px) {
-  .mobileRoundBadge {
-    top: 43px;
-  }
-
   .seatRing[data-mobile-layout="true"] .playerSeat,
   .seatRing[data-mobile-layout="true"] .playerSeatSelf {
     min-height: 29px;
@@ -9511,5 +9650,69 @@
     width: min(100%, 410px);
     max-width: 410px;
     gap-block: 5px;
+  }
+}
+
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) {
+  .mobileRankDrawer .mobileDrawerInvite {
+    display: flex;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) and (max-width: 820px),
+  (hover: none) and (pointer: coarse) and (orientation: landscape) and
+    (max-height: 500px) {
+  .seatRing[data-mobile-layout="true"] {
+    inset: 4px 10px;
+    z-index: 12;
+  }
+
+  .seatRing[data-mobile-layout="true"] .playerSeat,
+  .seatRing[data-mobile-layout="true"] .playerSeatSelf {
+    z-index: 12;
+  }
+
+  /* Rank cards must own the touch layer while the opening draw is active.
+   * Player seats remain visible, but can no longer intercept edge-card taps. */
+  .tableRankSelection .tableCenter {
+    z-index: 20;
+  }
+
+  .tableRankSelection
+    .seatRing[data-mobile-layout="true"]
+    .playerSeat {
+    pointer-events: none;
+  }
+}
+
+/* A route-sized entrance is reserved for the installed mobile app. It never
+ * blocks input or extends the server-authoritative phase timings. */
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) {
+  .mobileAppScreen {
+    transform-origin: 50% 46%;
+    animation: onlineMobileAppScreenEnter 280ms
+      cubic-bezier(0.2, 0.72, 0.22, 1) both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobileAppScreen {
+    animation: none !important;
+  }
+}
+
+@keyframes onlineMobileAppScreenEnter {
+  from {
+    filter: brightness(0.88);
+    opacity: 0.72;
+    transform: translate3d(0, 7px, 0) scale(0.995);
+  }
+
+  to {
+    filter: none;
+    opacity: 1;
+    transform: none;
   }
 }

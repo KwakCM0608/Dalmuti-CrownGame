@@ -13,7 +13,10 @@ import { rankedDealCounts } from "@/lib/dealing";
 import { resolveQuickDalmutiAutoPass } from "@/lib/quick-dalmuti";
 import { scoreChipCount } from "@/lib/score-chips";
 import { roundChipAward } from "@/lib/round-score";
-import { toggleWholeRankSelection } from "@/lib/selection";
+import {
+  togglePlayableCardSelection,
+  toggleWholePlayableRankSelection,
+} from "@/lib/selection";
 import {
   BOT_DIFFICULTIES,
   chooseBotCardIds,
@@ -1462,7 +1465,9 @@ function PublicTurnActionLayer({
   const expandedStep =
     cardCount <= 1 ? 0 : Math.min(112, 430 / Math.max(1, cardCount - 1));
   const mobileExpandedStep =
-    cardCount <= 1 ? 0 : Math.min(70, 250 / Math.max(1, cardCount - 1));
+    cardCount <= 1 ? 0 : Math.min(54, 190 / Math.max(1, cardCount - 1));
+  const mobileSettledStep =
+    cardCount <= 1 ? 0 : Math.min(24, 190 / Math.max(1, cardCount - 1));
   const delayStep =
     cardCount <= 1
       ? 0
@@ -1566,7 +1571,7 @@ function PublicTurnActionLayer({
               "--expanded-x": `${centerOffset * expandedStep}px`,
               "--expanded-x-mobile": `${centerOffset * mobileExpandedStep}px`,
               "--settled-x": `${centerOffset * 46}px`,
-              "--settled-x-mobile": `${centerOffset * 24}px`,
+              "--settled-x-mobile": `${centerOffset * mobileSettledStep}px`,
               "--settled-angle": `${(cardIndex - 1) * 3}deg`,
               "--action-delay": `${cardIndex * delayStep}ms`,
             } as React.CSSProperties;
@@ -1614,6 +1619,24 @@ function PublicTurnActionLayer({
   );
 }
 
+function shouldUseInstalledMobileTransition(): boolean {
+  if (typeof window === "undefined") return false;
+
+  const installed =
+    window.matchMedia("(display-mode: standalone)").matches ||
+    window.matchMedia("(display-mode: fullscreen)").matches;
+  const phoneViewport =
+    window.matchMedia("(max-width: 800px)").matches ||
+    window.matchMedia(
+      "(orientation: landscape) and (max-height: 500px) and (pointer: coarse)",
+    ).matches;
+  const reduceMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
+
+  return installed && phoneViewport && !reduceMotion;
+}
+
 export default function Home() {
   const [game, setGame] = useState<GameState | null>(null);
   const [landingView, setLandingView] = useState<LandingView>("main");
@@ -1650,7 +1673,7 @@ export default function Home() {
 
   const runScreenTransition = useCallback((
     action: () => void,
-    actionDelay = 95,
+    actionDelay = 150,
   ) => {
     for (const timer of screenTransitionTimersRef.current) {
       window.clearTimeout(timer);
@@ -1658,11 +1681,16 @@ export default function Home() {
     screenTransitionTimersRef.current = [];
     setScreenTransitioning(false);
 
+    if (!shouldUseInstalledMobileTransition()) {
+      action();
+      return;
+    }
+
     const flashTimer = window.setTimeout(() => {
       setScreenTransitioning(true);
       screenTransitionTimersRef.current = [
         window.setTimeout(action, actionDelay),
-        window.setTimeout(() => setScreenTransitioning(false), 310),
+        window.setTimeout(() => setScreenTransitioning(false), 420),
       ];
     }, 0);
     screenTransitionTimersRef.current = [flashTimer];
@@ -2852,16 +2880,20 @@ export default function Home() {
   const toggleCard = (cardId: string) => {
     if (!isHumanTurn && !isHumanTaxSelecting) return;
     setSelectedIds((current) => {
-      if (current.includes(cardId)) {
-        return current.filter((id) => id !== cardId);
+      if (isHumanTaxSelecting) {
+        if (current.includes(cardId)) {
+          return current.filter((id) => id !== cardId);
+        }
+        if (current.length >= humanTaxSelectionCount) {
+          return current;
+        }
+        return [...current, cardId];
       }
-      if (
-        isHumanTaxSelecting &&
-        current.length >= humanTaxSelectionCount
-      ) {
-        return current;
-      }
-      return [...current, cardId];
+
+      const card = humanHand.find((candidate) => candidate.id === cardId);
+      return card
+        ? togglePlayableCardSelection(current, card, humanHand)
+        : current;
     });
   };
 
@@ -2874,7 +2906,7 @@ export default function Home() {
             .filter((candidate) => candidate.rank === card.rank)
             .map((candidate) => candidate.id);
     setSelectedIds((current) =>
-      toggleWholeRankSelection(current, sameRankIds),
+      toggleWholePlayableRankSelection(current, sameRankIds, humanHand),
     );
   };
 
@@ -3100,12 +3132,6 @@ export default function Home() {
             <i />
             <span>{game.players.length}인</span>
           </div>
-        )}
-
-        {game && (
-          <span className="mobile-act-chip" aria-label={`현재 제 ${game.round}막`}>
-            ACT {game.round}
-          </span>
         )}
 
         {(game || landingView === "quick-setup") && (

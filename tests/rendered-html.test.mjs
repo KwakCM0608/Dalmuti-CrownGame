@@ -109,7 +109,10 @@ test("ships without the disposable starter preview", async () => {
   assert.match(page, /phase: "reveal-intro"/);
   assert.match(page, /className="hand-reveal-intro"/);
   assert.match(page, /concealed=\{isHandConcealed\}/);
-  assert.match(page, /toggleWholeRankSelection\(current, sameRankIds\)/);
+  assert.match(
+    page,
+    /toggleWholePlayableRankSelection\(current, sameRankIds, humanHand\)/,
+  );
   assert.match(page, /type PublicTurnAction/);
   assert.match(page, /publicAction: PublicTurnAction \| null/);
   assert.match(page, /function TaxTransferLayer/);
@@ -246,7 +249,22 @@ test("ships without the disposable starter preview", async () => {
     /\.opening-rank-cards\[data-card-count="7"\][\s\S]{0,260}grid-template-columns: repeat\(4,/,
   );
   assert.match(styles, /\.mobile-rail-toggle/);
-  assert.match(styles, /\.mobile-act-chip/);
+  assert.doesNotMatch(page, /className="mobile-act-chip"/);
+  assert.match(page, /function shouldUseInstalledMobileTransition/);
+  assert.match(page, /\(display-mode: standalone\)/);
+  assert.match(page, /if \(!shouldUseInstalledMobileTransition\(\)\) \{\s*action\(\)/);
+  assert.match(
+    page,
+    /const mobileSettledStep =[\s\S]{0,120}190 \/ Math\.max/,
+  );
+  assert.match(
+    styles,
+    /@media \(min-width: 801px\) and \(min-height: 501px\)[\s\S]{0,180}\.player-seat\.is-human-seat[\s\S]{0,80}display: grid/,
+  );
+  assert.match(
+    styles,
+    /\.game-shell\.game-shell \.public-turn-action-layer \{\s*overflow: visible/,
+  );
   assert.match(page, /className="human-status" ref=\{humanAnchorRef\}/);
   assert.doesNotMatch(page, /className="hand-wrap" ref=\{humanAnchorRef\}/);
   assert.match(page, /isDalmutiHighlighted/);
@@ -411,9 +429,25 @@ test("online mode exposes synchronized reveal, tax, Dalmuti, and exit states", a
   assert.match(page, /key=\{activeEvent\.id\}/);
   assert.match(page, /const \[initialElapsed\] = useState/);
   assert.match(page, /className=\{styles\.eventCenterCopy\}/);
+  assert.match(page, /key="online-entry-screen"/);
+  assert.match(page, /key="online-lobby-screen"/);
+  assert.match(page, /key="online-game-screen"/);
+  assert.match(page, /styles\.mobileAppScreen/);
   assert.match(
+    styles,
+    /@media \(display-mode: standalone\)[\s\S]*\.mobileAppScreen\s*\{[\s\S]*onlineMobileAppScreenEnter/,
+  );
+  assert.match(
+    styles,
+    /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.mobileAppScreen\s*\{[^}]*animation: none !important;/,
+  );
+  assert.doesNotMatch(
     page,
     /length: Math\.max\(1, displayedMe\?\.handCount \?\? 14\)/,
+  );
+  assert.match(
+    page,
+    /renderedHandValue !== null &&\s*!isHandConcealed/,
   );
   assert.match(page, /"--card-index": index/);
   assert.match(styles, /\.ownDockFinished \.playerSeatSelf/);
@@ -455,6 +489,92 @@ test("double-clicking a selected rank clears that whole rank", async () => {
   assert.deepEqual(toggleWholeRankSelection(rankIds, rankIds), []);
   assert.deepEqual(
     toggleWholeRankSelection(["joker-1", ...rankIds], rankIds),
+    ["joker-1"],
+  );
+});
+
+test("single-card selection switches normal ranks while preserving jokers", async () => {
+  const { togglePlayableCardSelection } = await import(
+    new URL("../lib/selection.ts", import.meta.url)
+  );
+  const hand = [
+    { id: "12-1", rank: 12 },
+    { id: "12-2", rank: 12 },
+    { id: "8-1", rank: 8 },
+    { id: "8-2", rank: 8 },
+    { id: "joker-1", rank: 13 },
+    { id: "joker-2", rank: 13 },
+  ];
+
+  assert.deepEqual(
+    togglePlayableCardSelection(
+      ["12-1", "12-2", "joker-1"],
+      hand[2],
+      hand,
+    ),
+    ["joker-1", "8-1"],
+  );
+  assert.deepEqual(
+    togglePlayableCardSelection(["12-1"], hand[1], hand),
+    ["12-1", "12-2"],
+  );
+  assert.deepEqual(
+    togglePlayableCardSelection(["12-1", "12-2"], hand[0], hand),
+    ["12-2"],
+  );
+});
+
+test("single-card selection lets jokers accompany the active normal rank", async () => {
+  const { togglePlayableCardSelection } = await import(
+    new URL("../lib/selection.ts", import.meta.url)
+  );
+  const hand = [
+    { id: "12-1", rank: 12 },
+    { id: "8-1", rank: 8 },
+    { id: "joker-1", rank: 13 },
+    { id: "joker-2", rank: 13 },
+  ];
+
+  assert.deepEqual(
+    togglePlayableCardSelection(["12-1"], hand[2], hand),
+    ["12-1", "joker-1"],
+  );
+  assert.deepEqual(
+    togglePlayableCardSelection(["12-1", "joker-1"], hand[2], hand),
+    ["12-1"],
+  );
+  assert.deepEqual(
+    togglePlayableCardSelection(["joker-1"], hand[0], hand),
+    ["joker-1", "12-1"],
+  );
+});
+
+test("double-click rank switching preserves jokers and clears the prior normal rank", async () => {
+  const { toggleWholePlayableRankSelection } = await import(
+    new URL("../lib/selection.ts", import.meta.url)
+  );
+  const hand = [
+    { id: "12-1", rank: 12 },
+    { id: "12-2", rank: 12 },
+    { id: "8-1", rank: 8 },
+    { id: "8-2", rank: 8 },
+    { id: "joker-1", rank: 13 },
+  ];
+
+  assert.deepEqual(
+    toggleWholePlayableRankSelection(
+      ["12-1", "12-2", "joker-1"],
+      ["8-1", "8-2"],
+      hand,
+    ),
+    ["joker-1", "8-1", "8-2"],
+  );
+  assert.deepEqual(
+    toggleWholePlayableRankSelection(
+      ["joker-1", "8-1", "8-2"],
+      ["8-1", "8-2"],
+      hand,
+    ),
     ["joker-1"],
   );
 });

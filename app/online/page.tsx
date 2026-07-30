@@ -33,6 +33,10 @@ import {
 } from "@/lib/online-emotes";
 import { scoreChipCount } from "@/lib/score-chips";
 import {
+  togglePlayableCardSelection,
+  toggleWholePlayableRankSelection,
+} from "@/lib/selection";
+import {
   applyPhysicalRoomCodeKey,
   normalizeRoomCodeInput,
 } from "@/lib/room-code-input";
@@ -971,7 +975,7 @@ function seatPosition(rankIndex: number, total: number): CSSProperties {
     "--mobile-seat-columns": mobileRowCount,
     "--mobile-seat-x": `${((mobileRowIndex + 0.5) / mobileRowCount) * 100}%`,
     "--mobile-seat-width": `calc(${100 / mobileRowCount}% - 5px)`,
-    "--mobile-seat-y": mobileTopRow ? "7px" : "calc(100% - 7px)",
+    "--mobile-seat-y": mobileTopRow ? "10px" : "calc(100% - 10px)",
     "--mobile-seat-translate-y": mobileTopRow ? "0%" : "-100%",
   } as CSSProperties;
 }
@@ -997,6 +1001,24 @@ function mobileGameLayoutSnapshot(): boolean {
 
 function mobileGameLayoutServerSnapshot(): boolean {
   return false;
+}
+
+const MOBILE_APP_LAYOUT_QUERY =
+  "(display-mode: standalone) and (hover: none) and (pointer: coarse), " +
+  "(display-mode: fullscreen) and (hover: none) and (pointer: coarse)";
+
+function subscribeMobileAppLayout(onStoreChange: () => void): () => void {
+  if (typeof window === "undefined") return () => undefined;
+  const mediaQuery = window.matchMedia(MOBILE_APP_LAYOUT_QUERY);
+  mediaQuery.addEventListener("change", onStoreChange);
+  return () => mediaQuery.removeEventListener("change", onStoreChange);
+}
+
+function mobileAppLayoutSnapshot(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia(MOBILE_APP_LAYOUT_QUERY).matches
+  );
 }
 
 function formatRank(rank: number): string {
@@ -1863,6 +1885,14 @@ function EventOverlayView({
       dalmutiCards.length <= 1
         ? 0
         : Math.min(36, 100 / Math.max(1, dalmutiCards.length - 1));
+    const mobileExpandedStep =
+      dalmutiCards.length <= 1
+        ? 0
+        : Math.min(54, 210 / Math.max(1, dalmutiCards.length - 1));
+    const mobileStackStep =
+      dalmutiCards.length <= 1
+        ? 0
+        : Math.min(34, 190 / Math.max(1, dalmutiCards.length - 1));
     return (
       <div
         className={`${styles.eventOverlay} ${styles.playOverlay} ${styles.dalmutiEffectOverlay}`}
@@ -1884,6 +1914,13 @@ function EventOverlayView({
                   }px`,
                   "--event-card-expanded-x": `${
                     (index - (dalmutiCards.length - 1) / 2) * expandedStep
+                  }px`,
+                  "--event-card-mobile-expanded-x": `${
+                    (index - (dalmutiCards.length - 1) / 2) *
+                    mobileExpandedStep
+                  }px`,
+                  "--event-card-mobile-offset-x": `${
+                    (index - (dalmutiCards.length - 1) / 2) * mobileStackStep
                   }px`,
                   "--event-card-from-spread": `${
                     (index - (dalmutiCards.length - 1) / 2) * 9
@@ -1968,6 +2005,14 @@ function EventOverlayView({
       cards.length <= 1
         ? 0
         : Math.min(36, 100 / Math.max(1, cards.length - 1));
+    const mobileExpandedStep =
+      cards.length <= 1
+        ? 0
+        : Math.min(54, 210 / Math.max(1, cards.length - 1));
+    const mobileStackStep =
+      cards.length <= 1
+        ? 0
+        : Math.min(34, 190 / Math.max(1, cards.length - 1));
     return (
       <div
         className={`${styles.eventOverlay} ${styles.playOverlay}`}
@@ -1987,6 +2032,12 @@ function EventOverlayView({
                   }px`,
                   "--event-card-expanded-x": `${
                     (index - (cards.length - 1) / 2) * expandedStep
+                  }px`,
+                  "--event-card-mobile-expanded-x": `${
+                    (index - (cards.length - 1) / 2) * mobileExpandedStep
+                  }px`,
+                  "--event-card-mobile-offset-x": `${
+                    (index - (cards.length - 1) / 2) * mobileStackStep
                   }px`,
                   "--event-card-from-spread": `${
                     (index - (cards.length - 1) / 2) * 9
@@ -2120,6 +2171,7 @@ function OnlineChatPanel({
   connected,
   onSend,
   onEmote,
+  initiallyCollapsed = false,
 }: {
   className?: string;
   dragStorageKey: "lobby" | "game";
@@ -2128,12 +2180,13 @@ function OnlineChatPanel({
   connected: boolean;
   onSend: (text: string) => Promise<void>;
   onEmote?: (emoteId: OnlineEmoteId) => Promise<void>;
+  initiallyCollapsed?: boolean;
 }) {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [emoteSending, setEmoteSending] = useState(false);
   const [emotePickerOpen, setEmotePickerOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(initiallyCollapsed);
   const [chatError, setChatError] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
@@ -2532,6 +2585,11 @@ export default function OnlinePage() {
   const mobileGameLayout = useSyncExternalStore(
     subscribeMobileGameLayout,
     mobileGameLayoutSnapshot,
+    mobileGameLayoutServerSnapshot,
+  );
+  const mobileAppLayout = useSyncExternalStore(
+    subscribeMobileAppLayout,
+    mobileAppLayoutSnapshot,
     mobileGameLayoutServerSnapshot,
   );
   const [screen, setScreen] = useState<"entry" | "room">("entry");
@@ -3256,10 +3314,13 @@ export default function OnlinePage() {
   };
 
   const sendCommand = useCallback(
-    async (type: OnlineCommand["type"], payload: LooseRecord = {}) => {
+    async (
+      type: OnlineCommand["type"],
+      payload: LooseRecord = {},
+    ): Promise<boolean> => {
       const activeSession = sessionRef.current;
       const current = snapshotRef.current;
-      if (!activeSession || !current || busy) return;
+      if (!activeSession || !current || busy) return false;
       const commandId = createCommandId();
       const command = {
         id: commandId,
@@ -3288,7 +3349,7 @@ export default function OnlinePage() {
           },
         );
         const body: unknown = await response.json().catch(() => ({}));
-        if (sessionRef.current?.token !== activeSession.token) return;
+        if (sessionRef.current?.token !== activeSession.token) return false;
         if (!response.ok) {
           throw new Error(apiErrorMessage(body, "행동을 처리하지 못했습니다."));
         }
@@ -3298,13 +3359,17 @@ export default function OnlinePage() {
         ingestRoomEmotes(result.emotes);
         setSelectedIds([]);
         setConnection("online");
+        return true;
       } catch (reason) {
-        setError(
-          reason instanceof Error
-            ? reason.message
-            : "행동을 처리하지 못했습니다.",
-        );
+        if (type !== "CHOOSE_RANK_CARD") {
+          setError(
+            reason instanceof Error
+              ? reason.message
+              : "행동을 처리하지 못했습니다.",
+          );
+        }
         void pollRoom();
+        return false;
       } finally {
         setBusy(false);
       }
@@ -3532,14 +3597,6 @@ export default function OnlinePage() {
     ? activeTaxVisualOverride.hand
     : snapshot?.hand ?? null;
   const renderedHand = renderedHandValue ?? [];
-  const displayedMe =
-    me && activeTaxVisualOverride
-      ? {
-          ...me,
-          handCount:
-            activeTaxVisualOverride.handCounts[me.id] ?? me.handCount,
-        }
-      : me;
   const isHandConcealed = Boolean(
     snapshot &&
       (snapshot.phase === "reveal-intro" || snapshot.hand === null),
@@ -3961,11 +4018,8 @@ export default function OnlinePage() {
   const rankedOpponents = useMemo(
     () =>
       tableRankedPlayers
-        .map((player, rankIndex) => ({ player, rankIndex }))
-        .filter(
-          ({ player }) => mobileGameLayout || player.id !== me?.id,
-        ),
-    [me?.id, mobileGameLayout, tableRankedPlayers],
+        .map((player, rankIndex) => ({ player, rankIndex })),
+    [tableRankedPlayers],
   );
 
   useEffect(() => {
@@ -4105,11 +4159,17 @@ export default function OnlinePage() {
 
   const toggleCard = (cardId: string) => {
     if ((!isMyTurn || !turnPresentationReady) && !isTaxSelection) return;
-    setSelectedIds((current) =>
-      current.includes(cardId)
-        ? current.filter((id) => id !== cardId)
-        : [...current, cardId],
-    );
+    setSelectedIds((current) => {
+      if (isTaxSelection) {
+        return current.includes(cardId)
+          ? current.filter((id) => id !== cardId)
+          : [...current, cardId];
+      }
+      const card = hand.find((candidate) => candidate.id === cardId);
+      return card
+        ? togglePlayableCardSelection(current, card, hand)
+        : current;
+    });
   };
 
   const toggleRank = (rank: number) => {
@@ -4118,10 +4178,13 @@ export default function OnlinePage() {
       .filter((card) => card.rank === rank)
       .map((card) => card.id);
     setSelectedIds((current) => {
-      const allSelected = rankIds.every((id) => current.includes(id));
-      return allSelected
-        ? current.filter((id) => !rankIds.includes(id))
-        : [...new Set([...current, ...rankIds])];
+      if (isTaxSelection) {
+        const allSelected = rankIds.every((id) => current.includes(id));
+        return allSelected
+          ? current.filter((id) => !rankIds.includes(id))
+          : [...new Set([...current, ...rankIds])];
+      }
+      return toggleWholePlayableRankSelection(current, rankIds, hand);
     });
   };
 
@@ -4256,7 +4319,10 @@ export default function OnlinePage() {
 
   if (screen === "entry") {
     return (
-      <main className={styles.entryShell}>
+      <main
+        key="online-entry-screen"
+        className={`${styles.entryShell} ${styles.mobileAppScreen}`}
+      >
         <div className={styles.grain} />
         <header className={styles.entryHeader}>
           <Brand />
@@ -4400,7 +4466,10 @@ export default function OnlinePage() {
 
   if (!snapshot || isLobby) {
     return (
-      <main className={styles.lobbyShell}>
+      <main
+        key="online-lobby-screen"
+        className={`${styles.lobbyShell} ${styles.mobileAppScreen}`}
+      >
         <div className={styles.grain} />
         <header className={styles.roomHeader}>
           <Brand
@@ -4460,12 +4529,14 @@ export default function OnlinePage() {
             </button>
             {snapshot && (
               <OnlineChatPanel
+                key={`lobby-chat-${mobileAppLayout ? "app" : "web"}`}
                 className={styles.lobbyChatPanel}
                 dragStorageKey="lobby"
                 messages={chatMessages}
                 viewerId={snapshot.viewerId}
                 connected={connection === "online"}
                 onSend={sendChatMessage}
+                initiallyCollapsed={mobileAppLayout}
               />
             )}
           </div>
@@ -4722,7 +4793,10 @@ export default function OnlinePage() {
   }
 
   return (
-    <main className={styles.gameShell}>
+    <main
+      key="online-game-screen"
+      className={`${styles.gameShell} ${styles.mobileAppScreen}`}
+    >
       <div className={styles.grain} />
       <header className={styles.roomHeader}>
         <div className={styles.mobileBrandGroup}>
@@ -4764,7 +4838,11 @@ export default function OnlinePage() {
           >
             규칙
           </button>
-          <button type="button" onClick={copyInvite}>
+          <button
+            type="button"
+            className={styles.headerInviteButton}
+            onClick={copyInvite}
+          >
             {displayCode}
           </button>
           <button
@@ -4866,6 +4944,17 @@ export default function OnlinePage() {
             );
           })}
         </ol>
+        <button
+          type="button"
+          className={styles.mobileDrawerInvite}
+          onClick={copyInvite}
+        >
+          <span>
+            <small>INVITE CODE</small>
+            <strong>{displayCode}</strong>
+          </span>
+          <em>{copied ? "복사됨" : "초대 링크 복사"}</em>
+        </button>
       </aside>
 
       <section className={styles.gameLayout}>
@@ -4948,12 +5037,6 @@ export default function OnlinePage() {
             } as CSSProperties
           }
         >
-          <span
-            className={styles.mobileRoundBadge}
-            aria-label={`현재 제 ${snapshot.round}막`}
-          >
-            제 {snapshot.round}막
-          </span>
           <div
             className={`${styles.openingSequenceVeil} ${
               openingSequenceActive
@@ -5287,44 +5370,6 @@ export default function OnlinePage() {
                 : ""
             }`}
           >
-            {me && !mobileGameLayout && (
-              <PlayerSeat
-                player={displayedMe ?? me}
-                isSelf
-                isHost={isHost}
-                isCurrent={
-                  turnPresentationReady &&
-                  isMyTurn &&
-                  !dalmutiHighlightPlayerId
-                }
-                rankNumber={
-                  tableRankedPlayers.findIndex((player) => player.id === me.id) +
-                  1
-                }
-                isRankMoving={rankMovingPlayerIds.includes(me.id)}
-                rankMovement={(() => {
-                  const priorRankIndex =
-                    rankMoveOriginById?.[me.id] ??
-                    snapshot.players.findIndex(
-                      (player) => player.id === me.id,
-                    );
-                  const nextRankIndex = tableRankedPlayers.findIndex(
-                    (player) => player.id === me.id,
-                  );
-                  return priorRankIndex > nextRankIndex
-                    ? "up"
-                    : priorRankIndex < nextRankIndex
-                      ? "down"
-                      : null;
-                })()}
-                isHandRevealing={isHandRevealing}
-                handRevealElapsedMs={handRevealElapsedMs}
-                isDalmutiHighlighted={me.id === dalmutiHighlightPlayerId}
-                activeEmote={activeEmotesByPlayerId[me.id] ?? null}
-                roleHidden={isRankSelectionPhase}
-                elementRef={(element) => bindSeatElement(me.id, element)}
-              />
-            )}
             <div className={styles.handScroller}>
               <div
                 className={`${styles.hand} ${
@@ -5336,28 +5381,12 @@ export default function OnlinePage() {
                   } as CSSProperties
                 }
               >
-                {renderedHandValue === null
-                  ? Array.from(
-                      { length: Math.max(1, displayedMe?.handCount ?? 14) },
-                      (_, index) => (
-                        <PlayingCard
-                          key={`back-${index}`}
-                          card={{ id: `back-${index}`, rank: 13 }}
-                          concealed
-                          displayOnly
-                          style={
-                            {
-                              "--card-index": index,
-                            } as CSSProperties
-                          }
-                        />
-                      ),
-                    )
-                  : renderedHand.map((card, index) => (
+                {renderedHandValue !== null &&
+                  !isHandConcealed &&
+                  renderedHand.map((card, index) => (
                       <PlayingCard
                         key={card.id}
                         card={card}
-                        concealed={isHandConcealed}
                         selected={selectedIds.includes(card.id)}
                         disabled={
                           (!isMyTurn || !turnPresentationReady) &&
@@ -5396,6 +5425,7 @@ export default function OnlinePage() {
               </div>
             </div>
             <OnlineChatPanel
+              key={`game-chat-${mobileAppLayout ? "app" : "web"}`}
               className={styles.gameChatPanel}
               dragStorageKey="game"
               messages={chatMessages}
@@ -5403,6 +5433,7 @@ export default function OnlinePage() {
               connected={connection === "online"}
               onSend={sendChatMessage}
               onEmote={sendEmote}
+              initiallyCollapsed={mobileAppLayout}
             />
             <div className={styles.actionBar}>
               <div className={styles.selectionCopy}>

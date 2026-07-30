@@ -53,10 +53,14 @@ test("updates are offered only on safe entry screens", () => {
   assert.match(layout, /<PwaLifecycle \/>/);
 });
 
-test("installed Android app uses branded native splash and user rotation", () => {
+test("installed Android app uses one branded splash and system-aware rotation", () => {
   const wrapper = JSON.parse(read("android-twa/twa-manifest.json"));
   const webManifest = read("app/manifest.ts");
   const customizer = read("android-twa/apply-native-customizations.ps1");
+  const nativeLauncher = read(
+    "android-twa/custom/java/LauncherActivity.java",
+  );
+  const assetBuilder = read("scripts/build_android_splash_assets.py");
   const androidSplashTheme = read(
     "android-twa/custom/res/values-v31/styles.xml",
   );
@@ -64,13 +68,23 @@ test("installed Android app uses branded native splash and user rotation", () =>
   assert.match(wrapper.iconUrl, /icon-512\.png/);
   assert.equal(wrapper.backgroundColor, "#18070c");
   assert.equal(wrapper.splashScreenFadeOutDuration, 220);
-  assert.equal(wrapper.appVersionCode, 4);
-  assert.equal(wrapper.appVersion, "1.0.3");
+  assert.equal(wrapper.appVersionCode, 5);
+  assert.equal(wrapper.appVersion, "1.0.4");
   assert.equal(wrapper.orientation, "default");
   assert.doesNotMatch(webManifest, /orientation:\s*"any"/);
-  assert.match(customizer, /SCREEN_ORIENTATION_USER/);
-  assert.match(customizer, /android:screenOrientation="user"/);
+  assert.match(customizer, /customRoot "java\\LauncherActivity\.java"/);
+  assert.match(customizer, /android:screenOrientation="unspecified"/);
   assert.match(customizer, /DalmutiLaunchTheme/);
+  assert.match(nativeLauncher, /Settings\.System\.ACCELEROMETER_ROTATION/);
+  assert.match(nativeLauncher, /ActivityInfo\.SCREEN_ORIENTATION_LOCKED/);
+  assert.match(nativeLauncher, /ActivityInfo\.SCREEN_ORIENTATION_FULL_USER/);
+  assert.match(nativeLauncher, /ScreenOrientation\.ANY/);
+  assert.match(nativeLauncher, /ScreenOrientation\.LANDSCAPE/);
+  assert.match(nativeLauncher, /ScreenOrientation\.PORTRAIT/);
+  assert.match(
+    nativeLauncher,
+    /builder\.setScreenOrientation\(launchOrientation\)/,
+  );
   assert.match(
     androidSplashTheme,
     /android:windowSplashScreenAnimatedIcon[^]*dalmuti_splash_transparent/,
@@ -84,6 +98,38 @@ test("installed Android app uses branded native splash and user rotation", () =>
     ),
     true,
   );
+  assert.equal(
+    fs.existsSync(
+      path.join(root, "android-twa/assets/dalmuti-app-icon-v1.png"),
+    ),
+    true,
+  );
+  assert.equal(
+    fs.existsSync(
+      path.join(root, "android-twa/assets/dalmuti-splash-v2.png"),
+    ),
+    true,
+  );
+  assert.equal(
+    fs.existsSync(
+      path.join(
+        root,
+        "android-twa/custom/res/mipmap-xxxhdpi/ic_launcher.png",
+      ),
+    ),
+    true,
+  );
+  assert.equal(
+    fs.existsSync(
+      path.join(
+        root,
+        "android-twa/custom/res/mipmap-anydpi-v26/ic_launcher.xml",
+      ),
+    ),
+    true,
+  );
+  assert.match(assetBuilder, /dalmuti-app-icon-v1\.png/);
+  assert.match(assetBuilder, /dalmuti-splash-v2\.png/);
   assert.doesNotMatch(androidSplashTheme, /windowSplashScreenBrandingImage/);
   assert.equal(
     fs.existsSync(

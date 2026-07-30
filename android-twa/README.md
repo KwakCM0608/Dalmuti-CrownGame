@@ -9,14 +9,18 @@ The APK opens the deployed PWA at:
 `https://dalmuti-crown-game.byj010608.chatgpt.site`
 
 After Bubblewrap generates or updates the Android project, run
-`apply-native-customizations.ps1` before building. It removes the duplicate
-Android 12 icon-only splash, hands off to one complete DALMUTI splash, and uses
-Android's `user` orientation policy so the installed app follows the device
-owner's auto-rotate/rotation-lock preference. Regenerate the committed splash
-assets with `scripts/build_android_splash_assets.py` when the crown artwork
-changes.
+`apply-native-customizations.ps1` before building. It installs the versioned
+Android-only launcher icon, keeps Android 12's mandatory first frame unbranded,
+and hands off to one complete modern DALMUTI splash. The custom launcher reads
+the system auto-rotate preference on every launch: sensor rotation is enabled
+only when the device setting is enabled, otherwise the current portrait or
+landscape orientation is locked in both the wrapper and the launched TWA.
 
-The current test package is version `1.0.3` (`versionCode` 4), signed with the
+The approved source artwork lives in `android-twa/assets`. Regenerate the
+committed density-specific icon and splash resources with
+`scripts/build_android_splash_assets.py` after replacing a versioned source.
+
+The current test package is version `1.0.4` (`versionCode` 5), signed with the
 same local test key so it can update the previous test APK in place.
 
 This build is intended for private device testing. Public app-store

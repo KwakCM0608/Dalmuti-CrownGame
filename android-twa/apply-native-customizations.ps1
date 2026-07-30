@@ -12,6 +12,7 @@ $resourceSource = Join-Path $customRoot "res"
 $resourceTarget = Join-Path $generatedRoot "app\src\main\res"
 $manifestPath = Join-Path $generatedRoot "app\src\main\AndroidManifest.xml"
 $buildGradlePath = Join-Path $generatedRoot "build.gradle"
+$launcherTemplatePath = Join-Path $customRoot "java\LauncherActivity.java"
 $launcherPath = Join-Path `
     $generatedRoot `
     "app\src\main\java\lab\dclab\dalmuti\LauncherActivity.java"
@@ -21,6 +22,7 @@ foreach ($requiredPath in @(
     $resourceTarget,
     $manifestPath,
     $buildGradlePath,
+    $launcherTemplatePath,
     $launcherPath
 )) {
     if (-not (Test-Path -LiteralPath $requiredPath)) {
@@ -34,44 +36,58 @@ Copy-Item `
     -Recurse `
     -Force
 
-$launcherSource = Get-Content -LiteralPath $launcherPath -Raw
-$launcherSource = $launcherSource.Replace(
-    "ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED",
-    "ActivityInfo.SCREEN_ORIENTATION_USER"
-)
-$launcherSource = $launcherSource.Replace(
-    "ActivityInfo.SCREEN_ORIENTATION_FULL_USER",
-    "ActivityInfo.SCREEN_ORIENTATION_USER"
-)
-[System.IO.File]::WriteAllText($launcherPath, $launcherSource, $utf8NoBom)
+Copy-Item `
+    -LiteralPath $launcherTemplatePath `
+    -Destination $launcherPath `
+    -Force
 
 $manifestSource = Get-Content -LiteralPath $manifestPath -Raw
-$plainActivity = '<activity android:name="LauncherActivity"'
-$brandedActivity = @'
-<activity android:name="LauncherActivity"
-            android:screenOrientation="user"
-            android:theme="@style/DalmutiLaunchTheme"
-'@
-
-if (
-    $manifestSource.Contains('android:screenOrientation="user"') -and
-    $manifestSource.Contains('android:theme="@style/DalmutiLaunchTheme"')
-) {
-    # Already customized.
-} elseif (
-    $manifestSource.Contains('android:screenOrientation="fullUser"') -and
-    $manifestSource.Contains('android:theme="@style/DalmutiLaunchTheme"')
-) {
-    $manifestSource = $manifestSource.Replace(
-        'android:screenOrientation="fullUser"',
-        'android:screenOrientation="user"'
-    )
-} elseif ($manifestSource.Contains($plainActivity)) {
-    $manifestSource = $manifestSource.Replace($plainActivity, $brandedActivity)
-} else {
+$launcherActivityPattern = '(?s)<activity\s+android:name="LauncherActivity".*?>'
+$launcherActivityMatch = [regex]::Match(
+    $manifestSource,
+    $launcherActivityPattern
+)
+if (-not $launcherActivityMatch.Success) {
     throw "Could not find the Bubblewrap launcher activity to customize."
 }
 
+$launcherActivityTag = $launcherActivityMatch.Value
+if ($launcherActivityTag -match 'android:screenOrientation="[^"]*"') {
+    $launcherActivityTag = [regex]::Replace(
+        $launcherActivityTag,
+        'android:screenOrientation="[^"]*"',
+        'android:screenOrientation="unspecified"'
+    )
+} else {
+    $launcherActivityTag = $launcherActivityTag.Replace(
+        '<activity android:name="LauncherActivity"',
+        @'
+<activity android:name="LauncherActivity"
+            android:screenOrientation="unspecified"
+'@
+    )
+}
+
+if ($launcherActivityTag -match 'android:theme="[^"]*"') {
+    $launcherActivityTag = [regex]::Replace(
+        $launcherActivityTag,
+        'android:theme="[^"]*"',
+        'android:theme="@style/DalmutiLaunchTheme"'
+    )
+} else {
+    $launcherActivityTag = $launcherActivityTag.Replace(
+        '<activity android:name="LauncherActivity"',
+        @'
+<activity android:name="LauncherActivity"
+            android:theme="@style/DalmutiLaunchTheme"
+'@
+    )
+}
+
+$manifestSource = $manifestSource.Replace(
+    $launcherActivityMatch.Value,
+    $launcherActivityTag
+)
 [System.IO.File]::WriteAllText($manifestPath, $manifestSource, $utf8NoBom)
 
 $buildGradleSource = Get-Content -LiteralPath $buildGradlePath -Raw
@@ -85,4 +101,4 @@ $buildGradleSource = $buildGradleSource.Replace(
     $utf8NoBom
 )
 
-Write-Output "Applied the single DALMUTI hand-off splash and rotation-lock policy."
+Write-Output "Applied the DALMUTI icon, single splash, and system-aware rotation policy."
