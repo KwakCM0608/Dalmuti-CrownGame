@@ -38,6 +38,20 @@ APK는 개인 기기 테스트용이며, 앱 스토어 공개 배포 전에는 �
 추가할 수 있습니다. 참가자가 준비하면 방장이 PLAY를 누르고, 서버가
 패를 배분한 뒤 각자의 패만 공개됩니다.
 
+## 강화학습 준비
+
+GPU 없이 현재 봇 기준전을 실행하고 합성 셀프플레이 데이터를 만들 수
+있습니다.
+
+```bash
+pnpm run rl:evaluate -- --matches 100 --acts 3 --lineup easy,normal,hard,hard
+pnpm run rl:rollouts -- --episodes 1000 --players 4 --acts 3 --difficulty hard
+```
+
+관측값, 행동 마스크, CPU/GPU 컴퓨터의 작업 분리는
+[`docs/reinforcement-learning.md`](docs/reinforcement-learning.md)에
+정리되어 있습니다.
+
 ## 검증
 
 ```bash
