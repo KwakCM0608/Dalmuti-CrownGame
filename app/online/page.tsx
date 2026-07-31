@@ -1089,9 +1089,13 @@ function PlayingCard({
           : `${formatRank(card.rank)} 카드${selected ? ", 선택됨" : ""}`
       }
     >
-      {!concealed && (
-        <img src={cardImage(card.rank)} alt="" draggable={false} />
-      )}
+      <img
+        src={cardImage(card.rank)}
+        alt=""
+        draggable={false}
+        loading="eager"
+        decoding="async"
+      />
     </button>
   );
 }
@@ -2849,8 +2853,9 @@ export default function OnlinePage() {
         Math.max(
           0,
           Math.min(
-            HAND_REVEAL_PRESENTATION_MS,
-            next.serverTime - (next.phaseEndsAt - 1_400),
+            MAX_EVENT_CATCHUP_MS,
+            next.serverTime -
+              (next.phaseEndsAt - HAND_REVEAL_PRESENTATION_MS),
           ),
         ),
       );
@@ -5384,11 +5389,18 @@ export default function OnlinePage() {
             <div ref={tableCenterRef} className={styles.tableCenter}>
               {isRankSelectionPhase && snapshot.rankSelection ? (
                 <RankSelectionField
-                  key={`${snapshot.rankSelection.stage}:${
-                    snapshot.phaseEndsAt ??
-                    snapshot.rankSelection.countdownEndsAt ??
-                    0
-                  }`}
+                  key={
+                    snapshot.rankSelection.stage === "selecting" ||
+                    snapshot.rankSelection.stage === "locked"
+                      ? `choice:${
+                          snapshot.rankSelection.countdownEndsAt ?? 0
+                        }`
+                      : `${snapshot.rankSelection.stage}:${
+                          snapshot.phaseEndsAt ??
+                          snapshot.rankSelection.countdownEndsAt ??
+                          0
+                        }`
+                  }
                   rankSelection={snapshot.rankSelection}
                   players={snapshot.players}
                   viewerId={snapshot.viewerId}
@@ -5577,30 +5589,43 @@ export default function OnlinePage() {
                 }
               >
                 {isHandConcealed
-                  ? Array.from({ length: concealedHandCount }, (_, index) => (
-                      <PlayingCard
-                        key={`local-hand-slot-${index}`}
-                        card={{
-                          id: `concealed-local-hand-${index}`,
-                          rank: 13,
-                        }}
-                        concealed
-                        disabled
-                        style={
-                          {
-                            "--card-index": index,
-                          } as CSSProperties
-                        }
-                      />
-                    ))
+                  ? renderedHandValue !== null
+                    ? renderedHand.map((card, index) => (
+                        <PlayingCard
+                          key={card.id}
+                          card={card}
+                          concealed
+                          disabled
+                          style={
+                            {
+                              "--card-index": index,
+                            } as CSSProperties
+                          }
+                        />
+                      ))
+                    : Array.from(
+                        { length: concealedHandCount },
+                        (_, index) => (
+                          <PlayingCard
+                            key={`local-hand-slot-${index}`}
+                            card={{
+                              id: `concealed-local-hand-${index}`,
+                              rank: 13,
+                            }}
+                            concealed
+                            disabled
+                            style={
+                              {
+                                "--card-index": index,
+                              } as CSSProperties
+                            }
+                          />
+                        ),
+                      )
                   : renderedHandValue !== null &&
                     renderedHand.map((card, index) => (
                       <PlayingCard
-                        key={
-                          isHandRevealing
-                            ? `local-hand-slot-${index}`
-                            : card.id
-                        }
+                        key={card.id}
                         card={card}
                         selected={selectedIds.includes(card.id)}
                         disabled={

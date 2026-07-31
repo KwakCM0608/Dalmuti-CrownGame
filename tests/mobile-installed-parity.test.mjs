@@ -343,3 +343,31 @@ test("desktop online hand recentres on its full dock after every hand mutation",
     /\.gameShell \.ownDock > \.handScroller \.hand \{[\s\S]*?min-width: 100%;[\s\S]*?justify-content: center;/,
   );
 });
+
+test("installed online rank draw stays mounted and centred while choices lock", () => {
+  assert.match(
+    onlinePage,
+    /stage === "selecting" \|\|\s*snapshot\.rankSelection\.stage === "locked"[\s\S]{0,180}\? `choice:\$\{[\s\S]{0,100}countdownEndsAt/,
+  );
+
+  const marker = "End-of-file installed portrait rank draw";
+  const markerIndex = onlineStyles.lastIndexOf(marker);
+  assert.notEqual(markerIndex, -1);
+  const terminalRankCss = onlineStyles.slice(markerIndex);
+
+  assert.match(terminalRankCss, /display: flex;/);
+  assert.match(terminalRankCss, /flex-wrap: wrap;/);
+  assert.match(terminalRankCss, /justify-content: center;/);
+  assert.match(
+    terminalRankCss,
+    /\.rankChoiceCards\[data-card-count\][\s\S]*?> \.rankChoiceSlot\s*\{[\s\S]*?flex: 0 0 var\(--installed-pregame-rank-card-width\);[\s\S]*?transform: none;/,
+  );
+  assert.doesNotMatch(
+    terminalRankCss,
+    /nth-child[\s\S]{0,100}translateX/,
+  );
+  assert.match(
+    onlineStyles,
+    /@media \(hover: hover\) and \(pointer: fine\)[\s\S]*?translateY\(-9px\)/,
+  );
+});

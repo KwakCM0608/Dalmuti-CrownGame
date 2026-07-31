@@ -3157,12 +3157,14 @@
   object-fit: contain;
 }
 
-.rankChoiceCard:not(:disabled):hover .rankChoiceCardInner,
-.rankChoiceCard:not(:disabled):focus-visible .rankChoiceCardInner {
-  box-shadow:
-    0 0 0 3px rgba(239, 198, 95, 0.38),
-    0 19px 33px rgba(0, 0, 0, 0.5);
-  transform: translateY(-9px);
+@media (hover: hover) and (pointer: fine) {
+  .rankChoiceCard:not(:disabled):hover .rankChoiceCardInner,
+  .rankChoiceCard:not(:disabled):focus-visible .rankChoiceCardInner {
+    box-shadow:
+      0 0 0 3px rgba(239, 198, 95, 0.38),
+      0 19px 33px rgba(0, 0, 0, 0.5);
+    transform: translateY(-9px);
+  }
 }
 
 .rankChoiceCard:focus-visible {
@@ -3463,6 +3465,10 @@
 .cardBack {
   border-color: #8f6e92;
   background: #76549b url("/cards/back.webp") center / cover no-repeat;
+}
+
+.cardBack img {
+  opacity: 0;
 }
 
 .cardDisplayOnly {
@@ -3922,6 +3928,7 @@
 .handRevealing .card {
   pointer-events: none;
   transform-style: preserve-3d;
+  will-change: transform, filter;
   animation: onlineHandCardReveal 0.84s cubic-bezier(0.34, 0.02, 0.2, 1) both;
   animation-delay: calc(var(--card-index, 0) * 26ms);
 }
@@ -9881,9 +9888,25 @@
     top: 50%;
     left: 13px;
     z-index: 3;
-    width: clamp(238px, 18vw, 270px);
+    width: 154px;
+    min-width: 154px;
+    max-width: 154px;
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+    gap: 8px;
     margin: 0;
+    border-color: rgba(223, 185, 96, 0.42);
+    background: #38141e;
+    box-shadow: 0 9px 20px rgba(0, 0, 0, 0.25);
     transform: translateY(-50%);
+  }
+
+  .gameShell .ownStatusAvatar {
+    width: 36px;
+    height: 36px;
+    border-color: #a77c31;
+    background: #251016;
+    color: var(--gold-400);
+    box-shadow: none;
   }
 
   .gameShell .ownDock > .handScroller {
@@ -9977,12 +10000,12 @@
     color: #fff0bc;
     font-size: 25px;
     line-height: 0.9;
-    transform: translateY(-4px);
+    transform: none;
   }
 
   .gameShell .turnCountdownRing small {
-    align-self: end;
-    margin-bottom: 11px;
+    align-self: auto;
+    margin: 3px 0 0;
     color: #9f8b67;
     font-size: 6px;
   }
@@ -10040,6 +10063,26 @@
     will-change: auto;
   }
 
+  .gameShell .playerSeat.playerSeatSelf {
+    border-color: rgba(244, 203, 105, 0.9);
+    background:
+      linear-gradient(
+        135deg,
+        rgba(119, 70, 31, 0.44),
+        rgba(47, 17, 23, 0.96)
+      ),
+      rgba(25, 12, 14, 0.95);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 229, 154, 0.15),
+      0 0 0 3px rgba(221, 176, 72, 0.12),
+      0 11px 24px rgba(0, 0, 0, 0.34);
+  }
+
+  .gameShell .playerSeat.playerSeatSelf .avatar {
+    background: #d1a447;
+    color: #2a150b;
+  }
+
   .gameShell .playerSeatRankMoving {
     z-index: 22;
     overflow: visible;
@@ -10082,8 +10125,15 @@
     top: 50%;
     left: 13px;
     z-index: 3;
-    width: clamp(238px, 18vw, 270px);
+    width: 154px;
+    min-width: 154px;
+    max-width: 154px;
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+    gap: 8px;
     margin: 0;
+    border-color: rgba(223, 185, 96, 0.42);
+    background: #38141e;
+    box-shadow: 0 9px 20px rgba(0, 0, 0, 0.25);
     transform: translateY(-50%);
   }
 
@@ -11390,5 +11440,89 @@
   .gameShell .seatRing[data-mobile-layout="true"] .playerSeatSelf {
     min-height: 25px;
     padding-block: 3px;
+  }
+}
+/* End-of-file installed portrait rank draw. The rank board remains centred
+ * and mounted through the selecting-to-locked transition. */
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse) and
+    (orientation: portrait),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) and
+    (orientation: portrait) {
+  .gameShell.gameShell .rankChoiceCards[data-card-count] {
+    display: flex;
+    width: calc(
+      var(--installed-pregame-rank-card-width) +
+        var(--installed-pregame-rank-card-width) +
+        var(--installed-pregame-rank-card-width) +
+        var(--installed-pregame-rank-card-width) +
+        var(--installed-pregame-rank-gap) +
+        var(--installed-pregame-rank-gap) +
+        var(--installed-pregame-rank-gap)
+    );
+    max-width: calc(100vw - 34px);
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: center;
+    justify-self: center;
+    gap: 6px var(--installed-pregame-rank-gap);
+    margin-inline: 0;
+    overflow: visible;
+  }
+
+  .gameShell.gameShell
+    .rankChoiceCards:is(
+      [data-card-count="5"],
+      [data-card-count="9"],
+      [data-card-count="10"]
+    ) {
+    width: calc(
+      var(--installed-pregame-rank-card-width) +
+        var(--installed-pregame-rank-card-width) +
+        var(--installed-pregame-rank-card-width) +
+        var(--installed-pregame-rank-card-width) +
+        var(--installed-pregame-rank-card-width) +
+        var(--installed-pregame-rank-gap) +
+        var(--installed-pregame-rank-gap) +
+        var(--installed-pregame-rank-gap) +
+        var(--installed-pregame-rank-gap)
+    );
+  }
+
+  .gameShell.gameShell .rankChoiceCards[data-card-count="6"] {
+    width: calc(
+      var(--installed-pregame-rank-card-width) +
+        var(--installed-pregame-rank-card-width) +
+        var(--installed-pregame-rank-card-width) +
+        var(--installed-pregame-rank-gap) +
+        var(--installed-pregame-rank-gap)
+    );
+  }
+
+  .gameShell.gameShell
+    .rankChoiceCards[data-card-count]
+    > .rankChoiceSlot {
+    width: var(--installed-pregame-rank-card-width);
+    min-width: var(--installed-pregame-rank-card-width);
+    max-width: var(--installed-pregame-rank-card-width);
+    flex: 0 0 var(--installed-pregame-rank-card-width);
+    transform: none;
+  }
+
+  .gameShell.gameShell
+    .rankChoiceCards[data-card-count]
+    .rankChoiceCard {
+    width: 100%;
+    max-width: none;
+  }
+
+  .gameShell.gameShell
+    .rankChoiceSlot:not(.rankChoiceSlotRevealed)
+    .rankChoiceCardInner {
+    transform: none;
+  }
+
+  .gameShell.gameShell .rankChoiceOwner {
+    width: 100%;
+    max-width: 100%;
   }
 }

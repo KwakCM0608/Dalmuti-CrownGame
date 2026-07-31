@@ -147,6 +147,38 @@ test("terminal desktop parity layer removes duplicate fades and pins quick-match
   );
 });
 
+test("desktop online self seat, timer, and compact dock status match quick play", () => {
+  const parityCss = desktopParityLayer();
+
+  assert.match(
+    parityCss,
+    /\.gameShell \.playerSeat\.playerSeatSelf\s*\{[\s\S]*?rgba\(244, 203, 105, 0\.9\)[\s\S]*?#d1a447/,
+  );
+  assert.match(
+    parityCss,
+    /\.gameShell \.turnCountdownRing b\s*\{[^}]*transform: none;/,
+  );
+  assert.match(
+    parityCss,
+    /\.gameShell \.turnCountdownRing small\s*\{[^}]*margin: 3px 0 0;/,
+  );
+  assert.match(
+    parityCss,
+    /\.gameShell \.ownStatus\s*\{[^}]*width: 154px;[^}]*max-width: 154px;/,
+  );
+});
+
+test("quick desktop score rail is pinned to the online rail contract", () => {
+  assert.match(
+    quickStyles,
+    /Desktop rail contract shared with online play[\s\S]*?@media \(min-width: 1121px\)[\s\S]*?grid-template-columns: 178px minmax\(620px, 1fr\) 184px;[\s\S]*?width: 178px;/,
+  );
+  assert.match(
+    quickStyles,
+    /@media \(min-width: 821px\) and \(max-width: 1120px\)[\s\S]*?grid-template-columns: 158px minmax\(570px, 1fr\);[\s\S]*?width: 158px;/,
+  );
+});
+
 test("desktop opening and phase overlays use one quick-match rhythm", () => {
   const parityCss = desktopParityLayer();
 

@@ -9186,3 +9186,25 @@ input,
     padding-block: 3px;
   }
 }
+
+/* Desktop rail contract shared with online play. Keep this terminal so older
+ * responsive layers cannot restore the legacy quick-match sidebar widths. */
+@media (min-width: 1121px) {
+  .game-shell.game-shell .game-stage {
+    grid-template-columns: 178px minmax(620px, 1fr) 184px;
+  }
+
+  .game-shell.game-shell .score-rail {
+    width: 178px;
+  }
+}
+
+@media (min-width: 821px) and (max-width: 1120px) {
+  .game-shell.game-shell .game-stage {
+    grid-template-columns: 158px minmax(570px, 1fr);
+  }
+
+  .game-shell.game-shell .score-rail {
+    width: 158px;
+  }
+}

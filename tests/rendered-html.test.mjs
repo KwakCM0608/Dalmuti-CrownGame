@@ -453,15 +453,27 @@ test("quick and online hands preserve every assigned face-down slot through reve
   );
   assert.match(
     onlinePage,
-    /Array\.from\(\{ length: concealedHandCount \}, \(_, index\) => \(/,
+    /renderedHandValue !== null\s*\?\s*renderedHand\.map\(\(card, index\) => \([\s\S]{0,220}key=\{card\.id\}[\s\S]{0,220}\sconcealed\s/,
+  );
+  assert.match(
+    onlinePage,
+    /Array\.from\(\s*\{ length: concealedHandCount \},\s*\(_, index\) => \(/,
   );
   assert.match(onlinePage, /key=\{`local-hand-slot-\$\{index\}`\}/);
-  assert.match(onlinePage, /\sconcealed\s*\n\s*disabled/);
   assert.match(
+    onlinePage,
+    /loading="eager"[\s\S]{0,80}decoding="async"/,
+  );
+  assert.doesNotMatch(
     onlinePage,
     /isHandRevealing\s*\? `local-hand-slot-\$\{index\}`\s*: card\.id/,
   );
+  assert.match(
+    onlinePage,
+    /Math\.min\(\s*MAX_EVENT_CATCHUP_MS,[\s\S]{0,140}HAND_REVEAL_PRESENTATION_MS/,
+  );
   assert.match(onlineStyles, /\.cardBack\s*\{[^}]*back\.webp/s);
+  assert.match(onlineStyles, /\.cardBack img\s*\{[^}]*opacity: 0;/s);
   assert.match(
     onlineStyles,
     /animation: onlineHandCardReveal 0\.84s[\s\S]{0,180}var\(--card-index, 0\) \* 26ms/,
@@ -576,8 +588,11 @@ test("online mode exposes synchronized reveal, tax, Dalmuti, and exit states", a
     page,
     /length: Math\.max\(1, displayedMe\?\.handCount \?\? 14\)/,
   );
-  assert.match(page, /Array\.from\(\{ length: concealedHandCount \}/);
-  assert.match(page, /renderedHandValue !== null &&\s*renderedHand\.map/);
+  assert.match(
+    page,
+    /Array\.from\(\s*\{ length: concealedHandCount \}/,
+  );
+  assert.match(page, /renderedHandValue !== null[\s\S]*renderedHand\.map/);
   assert.match(page, /"--card-index": index/);
   assert.match(styles, /\.ownDockFinished \.playerSeatSelf/);
   assert.match(page, /className=\{`\$\{styles\.ownStatus\}/);
@@ -585,7 +600,7 @@ test("online mode exposes synchronized reveal, tax, Dalmuti, and exit states", a
   assert.match(styles, /@media \(min-width: 821px\)[\s\S]*\.ownStatus\s*\{/);
   assert.match(
     styles,
-    /@media \(min-width: 821px\)[\s\S]{0,180}\.ownDock\s*\{[^}]*grid-template-columns: clamp\(238px, 18vw, 270px\) minmax\(0, 1fr\);/,
+    /Desktop hand parity with quick match[\s\S]{0,600}\.ownStatus\s*\{[^}]*width: 154px;[^}]*max-width: 154px;/,
   );
   assert.match(
     styles,
