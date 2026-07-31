@@ -32,14 +32,13 @@ DAgger로 개선됐지만 아직 기존 normal보다 약하므로 프로덕션�
 ## GPU 다음 실행
 
 GPU 번들에는 기본 데이터와 DAgger 1·2차 데이터가 모두 포함된다. 기본
-명령은 256×256 모델, 60 epoch, DAgger 감독 샘플 5배 가중치다. GPU 학습
+명령은 256×256 모델, 최대 80 epoch, DAgger 감독 샘플 5배 가중치다. GPU 학습
 후 반환된 가중치는 이 컴퓨터에서 다시 4·6·8·10인 대전 평가한다.
 
 전송 파일:
 
-`artifacts/rl/dalmuti-gpu-bundle-v2.zip`
+`artifacts/rl/dalmuti-gpu-handoff-v3.zip`
 
-- 압축 크기: 34.55 MiB
-- 압축 해제 데이터와 코드: 949.75 MiB
+- 압축 크기: 34.56 MiB
+- 압축 해제 데이터와 코드: 949.77 MiB
 - 내부 SHA-256 manifest와 `verify_bundle.py` 검증 완료
-

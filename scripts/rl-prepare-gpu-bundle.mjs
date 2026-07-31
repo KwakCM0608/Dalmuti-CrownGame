@@ -5,7 +5,7 @@ import { basename, join, resolve } from "node:path";
 const projectRoot = resolve(new URL("..", import.meta.url).pathname.slice(1));
 const packageRoot = join(projectRoot, "gpu-training");
 const rolloutRoot = join(projectRoot, "artifacts", "rl");
-const bundleRoot = join(rolloutRoot, "gpu-bundle-v2");
+const bundleRoot = join(rolloutRoot, "gpu-bundle-v3");
 const bundleDataRoot = join(bundleRoot, "data");
 
 const packageFiles = [
@@ -17,6 +17,10 @@ const packageFiles = [
   "train_bc.py",
   "verify_data.py",
   "verify_bundle.py",
+  "preflight.py",
+  "package_results.py",
+  "run_gpu_training.py",
+  "PROMPT_FOR_GPU_CODEX.md",
 ];
 const behaviorFiles = Array.from(
   { length: 7 },
@@ -58,7 +62,7 @@ for (const filename of rolloutFiles) {
 
 const bundleManifest = {
   format: "dalmuti-gpu-bundle",
-  version: 2,
+  version: 3,
   createdAt: new Date().toISOString(),
   teacherPolicy: "normal",
   files: manifestFiles,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 
 from dataset import iter_action_histogram, load_rollouts
 
@@ -14,6 +15,7 @@ def main() -> None:
     parser.add_argument("--validation-fraction", type=float, default=0.1)
     parser.add_argument("--max-samples", type=int)
     parser.add_argument("--supervised-weight", type=float, default=5.0)
+    parser.add_argument("--output")
     args = parser.parse_args()
     loaded = load_rollouts(
         args.data,
@@ -41,7 +43,12 @@ def main() -> None:
             for action, count in histogram[:10]
         ],
     }
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    payload = json.dumps(result, ensure_ascii=False, indent=2)
+    print(payload)
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(f"{payload}\n", encoding="utf-8")
 
 
 if __name__ == "__main__":
