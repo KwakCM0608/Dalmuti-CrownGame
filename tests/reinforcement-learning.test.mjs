@@ -23,6 +23,12 @@ const {
 const { simulateMatch } = await import(
   new URL("../training/simulator.ts", import.meta.url)
 );
+const {
+  parseMlpPolicyModel,
+  selectMaskedMlpAction,
+} = await import(
+  new URL("../training/model-policy.ts", import.meta.url)
+);
 
 function card(id, rank) {
   return { id, rank };
@@ -160,7 +166,7 @@ test("semantic masks exactly match the production bot legal-play rules", () => {
   }
 });
 
-test("observation V1 has fixed size and only accepts the actor hand", () => {
+test("observation V2 has fixed size and only accepts the actor hand", () => {
   const observation = playObservation(
     [card("one", 1), card("joker", 13)],
     { rank: 10, count: 1, playerId: "leader" },
@@ -178,7 +184,7 @@ test("observation V1 has fixed size and only accepts the actor hand", () => {
     revolution: null,
   });
 
-  assert.equal(OBSERVATION_FEATURE_COUNT, 162);
+  assert.equal(OBSERVATION_FEATURE_COUNT, 172);
   assert.equal(encoded.length, OBSERVATION_FEATURE_COUNT);
   assert.equal(encoded.every(Number.isFinite), true);
   assert.equal("hands" in observation.players[0], false);
@@ -244,4 +250,96 @@ test("headless simulation completes for every supported quick-match player count
       true,
     );
   }
+});
+
+test("MLP policy inference applies ReLU and never selects a masked action", () => {
+  const model = parseMlpPolicyModel({
+    format: "dalmuti-mlp-policy",
+    version: 1,
+    observationFeatures: 2,
+    actionCount: 3,
+    hiddenSizes: [2],
+    activation: "relu",
+    weightLayout: "row-major [out_features, in_features]",
+    layers: [
+      {
+        inFeatures: 2,
+        outFeatures: 2,
+        weight: [1, 0, 0, 1],
+        bias: [0, 0],
+      },
+      {
+        inFeatures: 2,
+        outFeatures: 3,
+        weight: [1, 0, 0, 1, 2, 2],
+        bias: [0, 0, 0],
+      },
+    ],
+  });
+
+  assert.equal(selectMaskedMlpAction(model, [2, 1], [0, 1, 2]), 2);
+  assert.equal(selectMaskedMlpAction(model, [2, 1], [0, 1]), 0);
+});
+
+test("simulation can mix a custom policy with baseline players", () => {
+  let candidateDecisions = 0;
+  const candidatePolicy = ({ legalActionIndices }) => {
+    candidateDecisions += 1;
+    return legalActionIndices[0];
+  };
+  const match = simulateMatch({
+    playerCount: 4,
+    acts: 1,
+    seed: 9191,
+    difficulties: ["normal"],
+    policyByPlayerId: {
+      "player-1": candidatePolicy,
+    },
+  });
+
+  assert.ok(candidateDecisions > 0);
+  assert.equal(match.acts[0].finishOrder.length, 4);
+  assert.equal(
+    match.steps
+      .filter((step) => step.actorId === "player-1")
+      .every((step) => step.behaviorPolicy === "custom"),
+    true,
+  );
+  assert.equal(
+    match.steps
+      .filter((step) => step.actorId !== "player-1")
+      .every((step) => step.behaviorPolicy === "normal"),
+    true,
+  );
+});
+
+test("DAgger supervision labels candidate states without changing behavior", () => {
+  const firstLegalPolicy = ({ legalActionIndices }) =>
+    legalActionIndices[0];
+  const lastLegalSupervisor = ({ legalActionIndices }) =>
+    legalActionIndices.at(-1);
+  const match = simulateMatch({
+    playerCount: 4,
+    acts: 1,
+    seed: 9292,
+    difficulties: ["normal"],
+    policy: firstLegalPolicy,
+    supervisionPolicy: lastLegalSupervisor,
+  });
+
+  assert.equal(
+    match.steps.every(
+      (step) =>
+        step.legalActionIndices.includes(step.actionIndex) &&
+        step.supervisedActionIndex !== null &&
+        step.legalActionIndices.includes(step.supervisedActionIndex),
+    ),
+    true,
+  );
+  assert.equal(
+    match.steps.some(
+      (step) => step.actionIndex !== step.supervisedActionIndex,
+    ),
+    true,
+  );
 });

@@ -3,7 +3,7 @@ import type {
   BotRole,
 } from "../lib/bot-strategy.ts";
 
-export const OBSERVATION_SCHEMA_VERSION = 1;
+export const OBSERVATION_SCHEMA_VERSION = 2;
 export const MAX_TRAINING_PLAYERS = 10;
 export const TRAINING_ROLES = [
   "great-dalmuti",
@@ -43,8 +43,8 @@ const FEATURE_GROUP_DEFINITIONS = [
   ["publicPlayedCounts", 13, "publicly submitted counts by physical rank"],
   [
     "relativePlayers",
-    MAX_TRAINING_PLAYERS * 11,
-    "clockwise public player slots: occupied, hand count, finished, passed, self, score, role one-hot",
+    MAX_TRAINING_PLAYERS * 12,
+    "clockwise public player slots: occupied, hand count, finished, passed, self, table leader, score, role one-hot",
   ],
   ["revolution", 3, "none, normal revolution, great revolution one-hot"],
 ] as const;
@@ -150,7 +150,7 @@ export function encodeTrainingObservation(
   for (let slot = 0; slot < MAX_TRAINING_PLAYERS; slot += 1) {
     const player = relativePlayers[slot];
     if (!player) {
-      features.push(...Array.from({ length: 11 }, () => 0));
+      features.push(...Array.from({ length: 12 }, () => 0));
       continue;
     }
     features.push(
@@ -159,6 +159,7 @@ export function encodeTrainingObservation(
       player.finished ? 1 : 0,
       passed.has(player.id) ? 1 : 0,
       player.id === observation.actorId ? 1 : 0,
+      player.id === observation.table?.playerId ? 1 : 0,
       Math.tanh((scoresByPlayerId[player.id] ?? 0) / 10),
       ...roleOneHot(rolesByPlayerId[player.id]),
     );

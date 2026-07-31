@@ -56,6 +56,8 @@ export type SimulationConfig = {
   difficulties?: readonly BotDifficulty[];
   episodeId?: string;
   policy?: TrainingPolicy;
+  policyByPlayerId?: Readonly<Record<string, TrainingPolicy | undefined>>;
+  supervisionPolicy?: TrainingPolicy;
 };
 
 export type TrainingStep = {
@@ -69,6 +71,7 @@ export type TrainingStep = {
   observation: number[];
   legalActionIndices: number[];
   actionIndex: number;
+  supervisedActionIndex: number | null;
   forced: boolean;
   reward: number;
   actorTerminal: boolean;
@@ -336,6 +339,8 @@ function simulateAct(
   initialPlayers: readonly SimulationPlayer[],
   random: SeededRandom,
   policy?: TrainingPolicy,
+  policyByPlayerId?: Readonly<Record<string, TrainingPolicy | undefined>>,
+  supervisionPolicy?: TrainingPolicy,
 ): {
   act: SimulatedAct;
   players: SimulationPlayer[];
@@ -429,8 +434,19 @@ function simulateAct(
       legalActionIndices,
       round,
       random,
-      policy,
+      policyByPlayerId?.[actor.id] ?? policy,
     );
+    const supervisedActionIndex = supervisionPolicy
+      ? chooseActionIndex(
+          actor,
+          observation,
+          encodedObservation,
+          legalActionIndices,
+          round,
+          random,
+          supervisionPolicy,
+        )
+      : null;
     rawSteps.push({
       episodeId,
       round,
@@ -438,10 +454,14 @@ function simulateAct(
       actorId: actor.id,
       actorSeat: currentIndex,
       actorRole: actor.role,
-      behaviorPolicy: policy ? "custom" : actor.difficulty,
+      behaviorPolicy:
+        policyByPlayerId?.[actor.id] || policy
+          ? "custom"
+          : actor.difficulty,
       observation: encodedObservation,
       legalActionIndices: [...legalActionIndices],
       actionIndex,
+      supervisedActionIndex,
       forced: legalActionIndices.length === 1,
     });
 
@@ -615,6 +635,8 @@ export function simulateMatch(config: SimulationConfig): SimulatedMatch {
       players,
       random,
       config.policy,
+      config.policyByPlayerId,
+      config.supervisionPolicy,
     );
     simulatedActs.push(result.act);
     steps.push(...result.steps);
@@ -631,4 +653,13 @@ export function simulateMatch(config: SimulationConfig): SimulatedMatch {
       players.map((player) => [player.id, player.score]),
     ),
   };
+}
+
+export function createBaselineTrainingPolicy(
+  difficulty: BotDifficulty,
+): TrainingPolicy {
+  return ({ observation }) =>
+    semanticActionIndexFromBotAction(
+      chooseBotPlay(observation, difficulty).action,
+    );
 }

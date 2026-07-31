@@ -65,6 +65,8 @@ export function createRolloutManifest(config: {
       observation: `float[${OBSERVATION_FEATURE_COUNT}]`,
       legalActionIndices: "integer[]",
       actionIndex: "integer",
+      supervisedActionIndex:
+        "integer | null; when present this is the training target",
       forced: "boolean",
       reward: "float",
       actorTerminal: "boolean",

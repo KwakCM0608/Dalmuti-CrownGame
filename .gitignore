@@ -54,4 +54,5 @@ next-env.d.ts
 /work/
 
 # generated caches
-/scripts/__pycache__/
+**/__pycache__/
+*.py[cod]

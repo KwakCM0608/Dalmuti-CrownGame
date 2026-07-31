@@ -3,7 +3,7 @@
 ## 목표
 
 현재 봇을 즉시 교체하지 않고, 게임 규칙과 개인정보 경계를 고정한
-학습 환경부터 만든다. 학습 대상 V1은 매 턴의 `카드 제출/PASS` 결정이다.
+학습 환경부터 만든다. 학습 대상 V2는 매 턴의 `카드 제출/PASS` 결정이다.
 세금 반환과 혁명 선언은 환경에 포함되지만, 우선 기존 봇 정책을 사용한다.
 
 ## 이 컴퓨터(CPU·프로젝트 파일 보유)
@@ -26,12 +26,14 @@ GPU 컴퓨터에는 다음만 전달한다.
 2. 이 문서에 고정된 관측값·행동 manifest
 3. 게임 코드와 분리된 일반 PyTorch 학습 스크립트
 
-첫 단계는 기존 `hard` 봇 rollout으로 행동 모방(behavior cloning)을 해
-네트워크를 안정적으로 초기화한다. 그 다음 action-masked PPO와 league
+첫 단계는 기존 봇 rollout으로 행동 모방(behavior cloning)을 해 네트워크를
+안정적으로 초기화한다. 실제 기준전 결과 `normal`이 `hard`보다 강했으므로
+V2의 교사는 `normal`이다. 교사 분포를 벗어난 상태는 DAgger로
+다시 정답 표시한다. 그 다음 action-masked PPO와 league
 self-play로 넘어간다. PPO는 on-policy이므로 GPU가 만든 최신 가중치를 이
 컴퓨터의 시뮬레이터로 되돌려 새 rollout을 생성하는 반복 과정이 필요하다.
 
-## 규격 V1
+## 규격 V2
 
 ### 행동
 
@@ -47,7 +49,7 @@ self-play로 넘어간다. PPO는 on-policy이므로 GPU가 만든 최신 가중
 
 ### 관측
 
-162개 실수 특성이다. 정확한 offset은 rollout 첫 줄의 manifest에 들어간다.
+172개 실수 특성이다. 정확한 offset은 rollout 첫 줄의 manifest에 들어간다.
 
 - 인원, 막, 현재 계급 좌석
 - 본인의 사회 계급
@@ -55,6 +57,7 @@ self-play로 넘어간다. PPO는 on-policy이므로 GPU가 만든 최신 가중
 - 본인 패의 숫자별 장수
 - 공개되어 제출된 카드의 숫자별 장수
 - 최대 10명 기준 공개 손패 장수, 완주, PASS, 누적 칩, 사회 계급
+- 현재 필드 제출자 표시
 - 혁명 상태
 
 상대의 숨은 패와 당사자가 아닌 세금 카드 정체는 입력 타입 자체에 없다.
@@ -79,17 +82,23 @@ Node.js와 pnpm만 사용하며 GPU는 필요 없다.
 
 ```powershell
 pnpm run rl:evaluate -- --matches 100 --acts 3 --lineup easy,normal,hard,hard
-pnpm run rl:rollouts -- --episodes 1000 --players 4 --acts 3 --difficulty hard
+pnpm run rl:rollouts -- --episodes 1000 --players 4 --acts 3 --difficulty normal
+pnpm run rl:evaluate-model -- --model artifacts/rl/models/bc-v2/policy-weights.json
+pnpm run rl:gpu-bundle
 ```
 
-기본 rollout 경로는 `artifacts/rl/rollouts-v1.ndjson`이며 Git에 포함되지
+기본 rollout 경로는 `artifacts/rl/rollouts-v2.ndjson`이며 Git에 포함되지
 않는다. 각 실행은 초기 seed와 episode 순서가 같으면 동일한 게임 결과를
 만든다. `createdAt`만 실행 시각이라 파일 전체 바이트 비교에서는 제외한다.
+
+행동 모방 모델이 교사와 다른 상태로 이동하면서 오차가 누적되면
+`rl:dagger`로 그 모델이 실제 방문한 상태를 normal 교사가 다시 표시한다.
+GPU 번들은 행동 모방 데이터와 두 차례 DAgger 데이터를 함께 포함한다.
 
 ## 다음 단계
 
 1. CPU에서 충분한 기준전(인원별·계급별)을 실행해 현재 hard 봇 지표 저장
-2. hard 봇 rollout으로 GPU에서 행동 모방 모델 학습
+2. normal 봇 rollout으로 GPU에서 행동 모방 모델 학습
 3. 모델을 ONNX 등 CPU 추론 형식으로 반환
 4. 이 시뮬레이터에 모델 정책 어댑터를 연결해 hard 봇과 블라인드 평가
 5. action-masked PPO + 과거 체크포인트 league self-play 반복
@@ -98,5 +107,5 @@ pnpm run rl:rollouts -- --episodes 1000 --players 4 --acts 3 --difficulty hard
    한 수 추론 지연시간을 통과한 모델만 실제 게임에 적용
 
 현재 rollout에는 행동을 고른 신경망의 `log_prob`과 `value`가 없으므로
-그 자체는 PPO on-policy 데이터가 아니다. V1 데이터는 시뮬레이터 검증,
+그 자체는 PPO on-policy 데이터가 아니다. V2 데이터는 시뮬레이터 검증,
 행동 모방, 데이터 파이프라인 검증용이다.
