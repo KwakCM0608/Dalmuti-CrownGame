@@ -9200,6 +9200,30 @@ input,
   overflow-x: hidden;
 }
 
+/* Desktop quick match only: balance the two rank-draw rows without changing
+ * installed-phone or online layouts. */
+@media (min-width: 821px) and (hover: hover) and (pointer: fine) {
+  .game-shell.game-shell
+    .opening-rank-cards[data-card-count="6"] {
+    grid-template-columns: repeat(3, minmax(0, 82px));
+  }
+
+  .game-shell.game-shell
+    .opening-rank-cards[data-card-count="9"] {
+    --desktop-opening-rank-gap: clamp(7px, 1.4vw, 14px);
+
+    gap: var(--desktop-opening-rank-gap);
+  }
+
+  .game-shell.game-shell
+    .opening-rank-cards[data-card-count="9"]
+    .opening-rank-card:nth-child(n + 6) {
+    transform: translateX(
+      calc(50% + var(--desktop-opening-rank-gap) / 2)
+    );
+  }
+}
+
 /* Desktop rail contract shared with online play. Keep this terminal so older
  * responsive layers cannot restore the legacy quick-match sidebar widths. */
 @media (min-width: 1121px) {

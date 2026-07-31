@@ -187,6 +187,25 @@ test("quick desktop score rail is pinned to the online rail contract", () => {
   );
 });
 
+test("desktop quick rank draw balances six and nine players only on fine pointers", () => {
+  assert.match(
+    quickStyles,
+    /Desktop quick match only: balance the two rank-draw rows[\s\S]*?@media \(min-width: 821px\) and \(hover: hover\) and \(pointer: fine\)/,
+  );
+  assert.match(
+    quickStyles,
+    /\.opening-rank-cards\[data-card-count="6"\]\s*\{[^}]*grid-template-columns: repeat\(3, minmax\(0, 82px\)\);/,
+  );
+  assert.match(
+    quickStyles,
+    /\.opening-rank-cards\[data-card-count="9"\][\s\S]*?--desktop-opening-rank-gap: clamp\(7px, 1\.4vw, 14px\);[\s\S]*?\.opening-rank-card:nth-child\(n \+ 6\)\s*\{[^}]*transform: translateX\([\s\S]*?50% \+ var\(--desktop-opening-rank-gap\) \/ 2/,
+  );
+  assert.doesNotMatch(
+    onlineStyles,
+    /Desktop quick match only: balance the two rank-draw rows/,
+  );
+});
+
 test("desktop opening and phase overlays use one quick-match rhythm", () => {
   const parityCss = desktopParityLayer();
 
