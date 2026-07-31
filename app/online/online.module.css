@@ -3922,8 +3922,8 @@
 .handRevealing .card {
   pointer-events: none;
   transform-style: preserve-3d;
-  animation: onlineHandCardReveal 1700ms cubic-bezier(0.34, 0.02, 0.2, 1) both;
-  animation-delay: calc(var(--card-index, 0) * 42ms);
+  animation: onlineHandCardReveal 0.84s cubic-bezier(0.34, 0.02, 0.2, 1) both;
+  animation-delay: calc(var(--card-index, 0) * 26ms);
 }
 
 .handRevealing .card::after {
@@ -3939,8 +3939,8 @@
   content: "";
   transform: translateZ(1px);
   backface-visibility: hidden;
-  animation: onlineHandBackSwap 1700ms step-end both;
-  animation-delay: calc(var(--card-index, 0) * 42ms);
+  animation: onlineHandBackSwap 0.84s step-end both;
+  animation-delay: calc(var(--card-index, 0) * 26ms);
 }
 
 .ownDockTaxSelection {
@@ -6458,13 +6458,17 @@
 }
 
 .handRevealing .card {
-  animation: onlineHandCardReveal 1.2s cubic-bezier(0.34, 0.02, 0.2, 1) both;
-  animation-delay: calc(var(--phase-elapsed, 0ms) * -1);
+  animation: onlineHandCardReveal 0.84s cubic-bezier(0.34, 0.02, 0.2, 1) both;
+  animation-delay: calc(
+    var(--card-index, 0) * 26ms - var(--phase-elapsed, 0ms)
+  );
 }
 
 .handRevealing .card::after {
-  animation: onlineHandBackSwap 1.2s step-end both;
-  animation-delay: calc(var(--phase-elapsed, 0ms) * -1);
+  animation: onlineHandBackSwap 0.84s step-end both;
+  animation-delay: calc(
+    var(--card-index, 0) * 26ms - var(--phase-elapsed, 0ms)
+  );
 }
 
 .rankChoiceIntro {
@@ -9334,6 +9338,132 @@
   }
 }
 
+/* Quick-match parity: installed mobile seats live in dedicated rails above
+ * and below the felt instead of floating over it. The count column is always
+ * right-aligned, regardless of which rail owns the seat. */
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) {
+  .gameShell .table {
+    margin-block: 43px 45px;
+    overflow: visible;
+    isolation: isolate;
+  }
+
+  .gameShell .seatRing[data-mobile-layout="true"] {
+    inset: -36px 5px -38px;
+    z-index: 18;
+    grid-template-rows: 30px minmax(0, 1fr) 30px;
+    gap: 0 4px;
+    overflow: visible;
+  }
+
+  .gameShell .seatRing[data-mobile-layout="true"] .playerSeat,
+  .gameShell .seatRing[data-mobile-layout="true"] .playerSeatSelf,
+  .gameShell
+    .seatRing[data-mobile-layout="true"]
+    .playerSeat[data-rank-number="5"],
+  .gameShell
+    .seatRing[data-mobile-layout="true"]
+    .playerSeat[data-rank-number="6"],
+  .gameShell
+    .seatRing[data-mobile-layout="true"]
+    .playerSeat[data-rank-number="7"],
+  .gameShell
+    .seatRing[data-mobile-layout="true"]
+    .playerSeat[data-rank-number="8"],
+  .gameShell
+    .seatRing[data-mobile-layout="true"]
+    .playerSeat[data-rank-number="9"],
+  .gameShell
+    .seatRing[data-mobile-layout="true"]
+    .playerSeat[data-rank-number="10"] {
+    min-height: 30px;
+    align-self: center;
+    grid-template-columns: minmax(0, 1fr) max-content;
+    gap: 5px;
+    padding: 5px 7px;
+    border: 1px solid var(--mobile-seat-panel-border);
+    border-radius: var(--mobile-seat-panel-radius);
+    background: var(--mobile-seat-panel);
+    box-shadow: var(--mobile-seat-panel-shadow);
+    backdrop-filter: blur(7px);
+  }
+
+  .gameShell .seatRing[data-mobile-layout="true"] .playerCopy {
+    min-width: 0;
+  }
+
+  .gameShell .seatRing[data-mobile-layout="true"] .playerCopy strong {
+    display: block;
+    overflow: hidden;
+    color: #efe2ca;
+    font-size: 8px;
+    line-height: 1.1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .gameShell .seatRing[data-mobile-layout="true"] .handCount {
+    display: inline-flex;
+    width: max-content;
+    min-width: 24px;
+    align-items: baseline;
+    justify-self: end;
+    justify-content: flex-end;
+    color: #ead4a6;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .gameShell .seatRing[data-mobile-layout="true"] .handCount b {
+    color: #f3dfb1;
+    font-size: 8px;
+    line-height: 1;
+  }
+
+  .gameShell .seatRing[data-mobile-layout="true"] .playerSeatSelf {
+    border-color: rgba(240, 199, 99, 0.82);
+    background:
+      linear-gradient(120deg, rgba(206, 157, 53, 0.2), transparent 68%),
+      var(--mobile-seat-panel);
+    box-shadow:
+      inset 3px 0 #d5aa4e,
+      var(--mobile-seat-panel-shadow);
+  }
+
+  .gameShell .seatRing[data-mobile-layout="true"] .playerSeatSelf::after {
+    display: none;
+  }
+
+  .gameShell .seatRing[data-mobile-layout="true"] .playerSeatCurrent {
+    border-color: rgba(246, 205, 105, 0.94);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 227, 151, 0.15),
+      0 0 0 2px rgba(224, 177, 70, 0.14),
+      0 5px 14px rgba(0, 0, 0, 0.32);
+  }
+}
+
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse) and
+    (orientation: landscape) and (max-height: 500px),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) and
+    (orientation: landscape) and (max-height: 500px) {
+  .gameShell .table {
+    margin-block: 34px 35px;
+  }
+
+  .gameShell .seatRing[data-mobile-layout="true"] {
+    inset-block: -29px -30px;
+    grid-template-rows: 25px minmax(0, 1fr) 25px;
+  }
+
+  .gameShell .seatRing[data-mobile-layout="true"] .playerSeat,
+  .gameShell .seatRing[data-mobile-layout="true"] .playerSeatSelf {
+    min-height: 25px;
+    padding-block: 3px;
+  }
+}
+
 @keyframes onlinePublicCardPlayMobile {
   0% {
     opacity: 0;
@@ -9922,5 +10052,186 @@
   .gameShell .seatRing[data-mobile-layout="true"] .playerSeat,
   .gameShell .seatRing[data-mobile-layout="true"] .playerSeatSelf {
     z-index: 2;
+  }
+}
+
+/* Installed-game presentation parity. Seat rails and the pre-reveal hand are
+ * intentionally owned by their dedicated layout rules above; this terminal
+ * block only synchronizes the settled pile and public action geometry with
+ * quick match. */
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) {
+  .gameShell .tableCards {
+    --table-card-width: 88px;
+    --table-card-step: min(var(--table-card-step-small, 32px), 32px);
+
+    min-height: 147px;
+  }
+
+  .gameShell .tableCards > span {
+    transform:
+      rotate(calc(var(--table-card-offset) * 1.1deg))
+      translateY(var(--table-card-lift));
+  }
+
+  .gameShell .tableCards .card {
+    width: 88px;
+    height: 135px;
+    border-radius: 9px;
+  }
+
+  .gameShell .playOverlay .eventCardWrap {
+    --event-card-half-width: 46px;
+    --event-card-half-height: 71px;
+  }
+
+  .gameShell .playOverlay .eventCards .card {
+    width: 92px;
+    height: 142px;
+    border-radius: 10px;
+  }
+}
+
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse) and
+    (max-width: 520px),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) and
+    (max-width: 520px) {
+  .gameShell .playCaption {
+    --caption-y: 101px;
+  }
+}
+
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse) and
+    (orientation: landscape) and (max-height: 500px),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) and
+    (orientation: landscape) and (max-height: 500px) {
+  .gameShell .tableCards {
+    --table-card-width: 70px;
+
+    min-height: 108px;
+  }
+
+  .gameShell .tableCards .card {
+    width: 70px;
+    height: 108px;
+  }
+}
+
+/* Terminal installed-app seat rail. Keep this after all shared phone rules so
+ * online and quick play use the same clean top/bottom rows and the same
+ * left-name/right-count alignment. */
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) {
+  .gameShell .table {
+    margin-block: 43px 45px;
+    overflow: visible;
+    isolation: isolate;
+  }
+
+  .gameShell .seatRing[data-mobile-layout="true"] {
+    inset: -36px 5px -38px;
+    z-index: 18;
+    grid-template-rows: 30px minmax(0, 1fr) 30px;
+    gap: 0 4px;
+    overflow: visible;
+  }
+
+  .gameShell .seatRing[data-mobile-layout="true"] .playerSeat,
+  .gameShell .seatRing[data-mobile-layout="true"] .playerSeatSelf,
+  .gameShell
+    .seatRing[data-mobile-layout="true"]
+    .playerSeat[data-rank-number="5"],
+  .gameShell
+    .seatRing[data-mobile-layout="true"]
+    .playerSeat[data-rank-number="6"],
+  .gameShell
+    .seatRing[data-mobile-layout="true"]
+    .playerSeat[data-rank-number="7"],
+  .gameShell
+    .seatRing[data-mobile-layout="true"]
+    .playerSeat[data-rank-number="8"],
+  .gameShell
+    .seatRing[data-mobile-layout="true"]
+    .playerSeat[data-rank-number="9"],
+  .gameShell
+    .seatRing[data-mobile-layout="true"]
+    .playerSeat[data-rank-number="10"] {
+    min-height: 30px;
+    align-self: center;
+    grid-template-columns: minmax(0, 1fr) max-content;
+    gap: 5px;
+    padding: 5px 7px;
+    border: 1px solid var(--mobile-seat-panel-border);
+    border-radius: var(--mobile-seat-panel-radius);
+    background: var(--mobile-seat-panel);
+    box-shadow: var(--mobile-seat-panel-shadow);
+    backdrop-filter: blur(7px);
+  }
+
+  .gameShell .seatRing[data-mobile-layout="true"] .playerCopy {
+    min-width: 0;
+  }
+
+  .gameShell .seatRing[data-mobile-layout="true"] .playerCopy strong {
+    display: block;
+    max-width: none;
+    overflow: hidden;
+    color: #efe2ca;
+    font-size: 8px;
+    line-height: 1.1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .gameShell .seatRing[data-mobile-layout="true"] .handCount {
+    display: inline-flex;
+    width: max-content;
+    min-width: 24px;
+    align-items: baseline;
+    justify-self: end;
+    justify-content: flex-end;
+    color: #ead4a6;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .gameShell .seatRing[data-mobile-layout="true"] .handCount b {
+    color: #f3dfb1;
+    font-size: 8px;
+    line-height: 1;
+  }
+
+  .gameShell .seatRing[data-mobile-layout="true"] .playerSeatSelf {
+    border-color: rgba(240, 199, 99, 0.82);
+    background:
+      linear-gradient(120deg, rgba(206, 157, 53, 0.2), transparent 68%),
+      var(--mobile-seat-panel);
+    box-shadow:
+      inset 3px 0 #d5aa4e,
+      var(--mobile-seat-panel-shadow);
+  }
+
+  .gameShell .seatRing[data-mobile-layout="true"] .playerSeatSelf::after {
+    display: none;
+  }
+}
+
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse) and
+    (orientation: landscape) and (max-height: 500px),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) and
+    (orientation: landscape) and (max-height: 500px) {
+  .gameShell .table {
+    margin-block: 34px 35px;
+  }
+
+  .gameShell .seatRing[data-mobile-layout="true"] {
+    inset-block: -29px -30px;
+    grid-template-rows: 25px minmax(0, 1fr) 25px;
+  }
+
+  .gameShell .seatRing[data-mobile-layout="true"] .playerSeat,
+  .gameShell .seatRing[data-mobile-layout="true"] .playerSeatSelf {
+    min-height: 25px;
+    padding-block: 3px;
   }
 }

@@ -10,7 +10,7 @@
     "dev:lan": "vinext dev --hostname 0.0.0.0",
     "build": "vinext build",
     "start": "vinext start",
-    "test": "pnpm run build && node --test tests/rendered-html.test.mjs tests/online-engine.test.mjs tests/quick-dalmuti.test.mjs tests/online-chat-and-score.test.mjs tests/bot-strategy.test.mjs tests/temporary-test-mode.test.mjs tests/online-action-presentation.test.mjs tests/rulebook.test.mjs tests/pwa.test.mjs",
+    "test": "pnpm run build && node --test tests/rendered-html.test.mjs tests/online-engine.test.mjs tests/quick-dalmuti.test.mjs tests/online-chat-and-score.test.mjs tests/bot-strategy.test.mjs tests/temporary-test-mode.test.mjs tests/online-action-presentation.test.mjs tests/mobile-installed-parity.test.mjs tests/rulebook.test.mjs tests/pwa.test.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"

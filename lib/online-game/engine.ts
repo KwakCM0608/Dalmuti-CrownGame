@@ -26,6 +26,7 @@ import {
   forceTwoJokersIntoHand,
 } from "../temporary-test-mode.ts";
 import { roundChipAward } from "../round-score.ts";
+import { assertPresentationTimingParity } from "../game-presentation-parity.ts";
 
 const MIN_PLAYERS = 4;
 const MAX_PLAYERS = 8;
@@ -56,6 +57,24 @@ const DEFAULT_DURATIONS: OnlinePhaseDurations = {
   taxReturnMs: 6_000,
   playIntroMs: 2_600,
 };
+
+assertPresentationTimingParity("online engine", {
+  rankIntro: DEFAULT_DURATIONS.rankChoiceIntroMs,
+  rankSelectionPause: DEFAULT_DURATIONS.rankRevealDelayMs,
+  rankReveal: DEFAULT_DURATIONS.rankRevealMs,
+  rankConfirm: DEFAULT_DURATIONS.rankConfirmMs,
+  revealIntro: DEFAULT_DURATIONS.revealIntroMs,
+  handReveal: DEFAULT_DURATIONS.handRevealMs,
+  revolutionIntro: DEFAULT_DURATIONS.revolutionIntroMs,
+  greatRevolutionSwap: DEFAULT_DURATIONS.greatRevolutionSwapMs,
+  taxIntro: DEFAULT_DURATIONS.taxIntroMs,
+  taxStage: DEFAULT_DURATIONS.taxTributeMs,
+  playIntro: DEFAULT_DURATIONS.playIntroMs,
+  publicPlay: PLAY_ACTION_LOCK_MS,
+  publicPass: PASS_ACTION_LOCK_MS,
+  dalmuti: DALMUTI_ACTION_LOCK_MS,
+  turn: TURN_DURATION_MS,
+});
 
 export class OnlineGameError extends Error {
   readonly code: string;

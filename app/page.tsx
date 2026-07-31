@@ -18,6 +18,11 @@ import {
   toggleWholePlayableRankSelection,
 } from "@/lib/selection";
 import {
+  INSTALLED_MOBILE_PRESENTATION,
+  assertPresentationTimingParity,
+  cappedPresentationStep,
+} from "@/lib/game-presentation-parity";
+import {
   BOT_DIFFICULTIES,
   chooseBotCardIds,
   chooseBotRevolution,
@@ -188,6 +193,26 @@ const TURN_LIMIT_MS = 30_000;
 const RANK_TRANSITION_DURATION_MS = 2300;
 const RANK_RESULT_REVEAL_DELAY_MS = 280;
 const CARD_ART_VERSION = "2026-07-24-2x";
+
+assertPresentationTimingParity("quick match", {
+  rankCountdownStep: RANK_COUNTDOWN_STEP_MS,
+  rankSelectionPause: RANK_ALL_SELECTED_PAUSE_MS,
+  rankReveal: RANK_REVEAL_DURATION_MS,
+  rankConfirm: RANK_CONFIRM_DURATION_MS,
+  revealIntro: REVEAL_INTRO_DURATION_MS,
+  handReveal: HAND_REVEAL_DURATION_MS,
+  taxIntro: TAX_INTRO_DURATION_MS,
+  taxStage: TAX_STAGE_DURATION_MS,
+  playIntro: PLAY_INTRO_DURATION_MS,
+  revolutionIntro: REVOLUTION_INTRO_DURATION_MS,
+  greatRevolutionSwap: GREAT_REVOLUTION_SWAP_DURATION_MS,
+  publicPlay: PUBLIC_ACTION_DURATION_MS,
+  publicPass: PASS_ACTION_DURATION_MS,
+  dalmuti: DALMUTI_ACTION_DURATION_MS,
+  turn: TURN_LIMIT_MS,
+  rankMove: RANK_TRANSITION_DURATION_MS,
+  rankResultDelay: RANK_RESULT_REVEAL_DELAY_MS,
+});
 
 const BOT_DIFFICULTY_LABELS: Record<BotDifficulty, string> = {
   easy: "쉬움",
@@ -1234,6 +1259,7 @@ function PlayingCard({
   concealed = false,
   displayOnly = false,
   taxSourcePlaceholder = false,
+  revealIndex,
 }: {
   card: Card;
   selected?: boolean;
@@ -1243,6 +1269,7 @@ function PlayingCard({
   concealed?: boolean;
   displayOnly?: boolean;
   taxSourcePlaceholder?: boolean;
+  revealIndex?: number;
 }) {
   const isJoker = card.rank === 13;
   const [artLoaded, setArtLoaded] = useState(false);
@@ -1302,6 +1329,13 @@ function PlayingCard({
           : `${RANK_NAMES[card.rank]} 카드 ${selected ? "선택됨" : ""}`
       }
       data-concealed={concealed || undefined}
+      style={
+        revealIndex === undefined
+          ? undefined
+          : ({
+              "--hand-reveal-index": revealIndex,
+            } as React.CSSProperties)
+      }
       onClick={onClick}
       onDoubleClick={onDoubleClick}
     >
@@ -1465,15 +1499,27 @@ function PublicTurnActionLayer({
   const expandedStep =
     cardCount <= 1 ? 0 : Math.min(112, 430 / Math.max(1, cardCount - 1));
   const mobileExpandedStep =
-    cardCount <= 1 ? 0 : Math.min(54, 190 / Math.max(1, cardCount - 1));
+    cappedPresentationStep(
+      cardCount,
+      INSTALLED_MOBILE_PRESENTATION.actionExpandedMaxStep,
+      INSTALLED_MOBILE_PRESENTATION.actionExpandedSpread,
+    );
   const mobileSettledStep =
-    cardCount <= 1 ? 0 : Math.min(24, 190 / Math.max(1, cardCount - 1));
+    cappedPresentationStep(
+      cardCount,
+      INSTALLED_MOBILE_PRESENTATION.actionSettledMaxStep,
+      INSTALLED_MOBILE_PRESENTATION.actionSettledSpread,
+    );
   const delayStep =
     cardCount <= 1
       ? 0
       : fastForward
         ? Math.min(7, 20 / Math.max(1, cardCount - 1))
-        : Math.min(36, 100 / Math.max(1, cardCount - 1));
+        : cappedPresentationStep(
+            cardCount,
+            INSTALLED_MOBILE_PRESENTATION.actionDelayMaxStep,
+            INSTALLED_MOBILE_PRESENTATION.actionDelaySpread,
+          );
   const routeStyle = {
     "--from-x": `${from.x}px`,
     "--from-y": `${from.y}px`,
@@ -1532,11 +1578,15 @@ function PublicTurnActionLayer({
             "--pass-to-x": `${to.x}px`,
             "--pass-to-y": `${to.y}px`,
             "--pass-offset-x": `${passOffset * 104}px`,
-            "--pass-offset-x-mobile": `${passOffset * 34}px`,
+            "--pass-offset-x-mobile": `${
+              passOffset * INSTALLED_MOBILE_PRESENTATION.dalmutiAutoPassOffset
+            }px`,
             "--pass-delay": `${
               fastForward
                 ? 55 + playerIndex * 14
-                : 360 + playerIndex * 90
+                : INSTALLED_MOBILE_PRESENTATION.dalmutiAutoPassInitialDelay +
+                  playerIndex *
+                    INSTALLED_MOBILE_PRESENTATION.dalmutiAutoPassStagger
             }ms`,
           } as React.CSSProperties;
 
@@ -1567,7 +1617,9 @@ function PublicTurnActionLayer({
             const centerOffset = cardIndex - (cardCount - 1) / 2;
             const cardStyle = {
               ...routeStyle,
-              "--from-spread": `${centerOffset * 9}px`,
+              "--from-spread": `${
+                centerOffset * INSTALLED_MOBILE_PRESENTATION.actionOriginSpread
+              }px`,
               "--expanded-x": `${centerOffset * expandedStep}px`,
               "--expanded-x-mobile": `${centerOffset * mobileExpandedStep}px`,
               "--settled-x": `${centerOffset * 46}px`,
@@ -3083,9 +3135,11 @@ export default function Home() {
       ? 0
       : Math.min(54, 460 / Math.max(1, tablePreview.length - 1));
   const mobileTableCardStep =
-    tablePreview.length <= 1
-      ? 0
-      : Math.min(32, 160 / Math.max(1, tablePreview.length - 1));
+    cappedPresentationStep(
+      tablePreview.length,
+      INSTALLED_MOBILE_PRESENTATION.tableCardMaxStep,
+      INSTALLED_MOBILE_PRESENTATION.tableCardSpread,
+    );
 
   return (
     <main className="game-shell">
@@ -3756,10 +3810,14 @@ export default function Home() {
                               "--table-card-lift": `${
                                 Math.abs(
                                   index - (tablePreview.length - 1) / 2,
-                                ) * 0.9
+                                ) *
+                                INSTALLED_MOBILE_PRESENTATION.tableCardLift
                               }px`,
                               "--table-card-overlap": `${tableCardStep - 140}px`,
-                              "--table-card-overlap-mobile": `${mobileTableCardStep - 88}px`,
+                              "--table-card-overlap-mobile": `${
+                                mobileTableCardStep -
+                                INSTALLED_MOBILE_PRESENTATION.tableCardWidth
+                              }px`,
                             } as React.CSSProperties
                           }
                         >
@@ -3885,6 +3943,28 @@ export default function Home() {
                       </em>
                     </span>
                   </div>
+                ) : game &&
+                  (isHandConcealed || isHandRevealing) &&
+                  hasDealtHands ? (
+                  humanHand.map((card, cardIndex) => (
+                    <span
+                      key={`human-hand-slot-${cardIndex}`}
+                      className="hand-reveal-slot"
+                    >
+                      {isHandConcealed ? (
+                        <span
+                          className="playing-card-back"
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <PlayingCard
+                          card={card}
+                          disabled
+                          revealIndex={cardIndex}
+                        />
+                      )}
+                    </span>
+                  ))
                 ) : (
                   (game
                     ? humanHand
@@ -3898,7 +3978,7 @@ export default function Home() {
                         { id: "demo-6", rank: 6 },
                         { id: "demo-5", rank: 5 },
                       ]
-                  ).map((card) => (
+                  ).map((card, cardIndex) => (
                     <PlayingCard
                       key={card.id}
                       card={card}
@@ -3907,6 +3987,7 @@ export default function Home() {
                         !game || (!isHumanTurn && !isHumanTaxSelecting)
                       }
                       concealed={isHandConcealed}
+                      revealIndex={isHandRevealing ? cardIndex : undefined}
                       taxSourcePlaceholder={humanSourceIds.has(card.id)}
                       onClick={() => toggleCard(card.id)}
                       onDoubleClick={() => selectAllOfRank(card)}

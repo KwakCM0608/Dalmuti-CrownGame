@@ -11,6 +11,16 @@
   --gold-soft: #ead8a7;
   --red: #9e3b30;
   --line: rgba(40, 44, 35, 0.14);
+  --mobile-seat-panel: linear-gradient(
+    180deg,
+    rgba(45, 19, 25, 0.97),
+    rgba(25, 10, 14, 0.98)
+  );
+  --mobile-seat-panel-border: rgba(221, 190, 125, 0.34);
+  --mobile-seat-panel-radius: 9px;
+  --mobile-seat-panel-shadow:
+    inset 0 1px rgba(255, 239, 204, 0.045),
+    0 5px 12px rgba(0, 0, 0, 0.28);
 }
 
 * {
@@ -3475,6 +3485,16 @@ button:focus-visible {
   user-select: none;
 }
 
+.hand-reveal-slot {
+  display: block;
+  flex: 0 0 auto;
+  transform-style: preserve-3d;
+}
+
+.hand .hand-reveal-slot + .hand-reveal-slot {
+  margin-left: -34px;
+}
+
 .hand .playing-card-back + .playing-card-back {
   margin-left: -34px;
 }
@@ -3513,11 +3533,13 @@ button:focus-visible {
 }
 
 .hand.is-revealing .playing-card {
-  animation: handCardReveal 1.2s cubic-bezier(0.34, 0.02, 0.2, 1) both;
+  animation: handCardReveal 0.84s cubic-bezier(0.34, 0.02, 0.2, 1) both;
+  animation-delay: calc(var(--hand-reveal-index, 0) * 26ms);
 }
 
 .hand.is-revealing .playing-card::after {
-  animation: handCardBackSwap 1.2s step-end both;
+  animation: handCardBackSwap 0.84s step-end both;
+  animation-delay: calc(var(--hand-reveal-index, 0) * 26ms);
 }
 
 .hand.is-revealing .playing-card-back {
@@ -4686,7 +4708,8 @@ button:focus-visible {
   }
 
   .hand .playing-card + .playing-card,
-  .hand .playing-card-back + .playing-card-back {
+  .hand .playing-card-back + .playing-card-back,
+  .hand .hand-reveal-slot + .hand-reveal-slot {
     margin-left: -31px;
   }
 
@@ -5626,6 +5649,141 @@ button:focus-visible {
     text-align: center;
     white-space: nowrap;
     animation-name: quickDalmutiAutoPassBannerMobile;
+  }
+}
+
+/* Installed mobile play keeps the public rank seats completely outside the
+ * felt. Both rows use one compact panel treatment and the same left-name /
+ * right-count alignment, so rank order stays clear without covering play. */
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) {
+  .game-shell.game-shell .felt-table {
+    margin-block: 43px 45px;
+    overflow: visible;
+  }
+
+  .game-shell.game-shell .opponent-row {
+    inset: -36px 5px -38px;
+    z-index: 10;
+    grid-template-rows: 30px minmax(0, 1fr) 30px;
+    gap: 0 4px;
+    overflow: visible;
+  }
+
+  .game-shell.game-shell .opponent-row .player-seat,
+  .game-shell.game-shell .opponent-row .player-seat.is-human-seat,
+  .game-shell.game-shell
+    .opponent-row:is(
+      [data-player-count="6"],
+      [data-player-count="7"],
+      [data-player-count="8"],
+      [data-player-count="9"],
+      [data-player-count="10"]
+    )
+    .player-seat {
+    min-height: 30px;
+    align-self: center;
+    grid-template-columns: minmax(0, 1fr) max-content;
+    gap: 5px;
+    padding: 5px 7px;
+    border: 1px solid var(--mobile-seat-panel-border);
+    border-radius: var(--mobile-seat-panel-radius);
+    background: var(--mobile-seat-panel);
+    box-shadow: var(--mobile-seat-panel-shadow);
+    backdrop-filter: blur(7px);
+  }
+
+  .game-shell.game-shell .opponent-row .player-copy {
+    min-width: 0;
+  }
+
+  .game-shell.game-shell .opponent-row .player-copy strong {
+    display: block;
+    overflow: hidden;
+    color: #efe2ca;
+    font-size: 8px;
+    line-height: 1.1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .game-shell.game-shell .opponent-row .player-count {
+    display: inline-flex;
+    width: max-content;
+    min-width: 24px;
+    align-items: baseline;
+    justify-self: end;
+    justify-content: flex-end;
+    gap: 1px;
+    color: #ead4a6;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .game-shell.game-shell .opponent-row .player-count b {
+    color: #f3dfb1;
+    font-size: 8px;
+    line-height: 1;
+  }
+
+  .game-shell.game-shell .opponent-row .player-count span {
+    color: #b9a47d;
+    font-size: 6px;
+    line-height: 1;
+  }
+
+  .game-shell.game-shell .opponent-row .player-seat.is-human-seat {
+    border-color: rgba(240, 199, 99, 0.82);
+    background:
+      linear-gradient(120deg, rgba(206, 157, 53, 0.2), transparent 68%),
+      var(--mobile-seat-panel);
+    box-shadow:
+      inset 3px 0 #d5aa4e,
+      var(--mobile-seat-panel-shadow);
+  }
+
+  .game-shell.game-shell .opponent-row .player-seat.is-human-seat::before {
+    display: none;
+  }
+
+  .game-shell.game-shell .opponent-row .player-seat.is-current {
+    border-color: rgba(246, 205, 105, 0.94);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 227, 151, 0.15),
+      0 0 0 2px rgba(224, 177, 70, 0.14),
+      0 5px 14px rgba(0, 0, 0, 0.32);
+  }
+
+  .game-shell.game-shell .opponent-row .player-seat.is-tax-source {
+    background:
+      linear-gradient(120deg, rgba(145, 46, 47, 0.34), transparent 72%),
+      var(--mobile-seat-panel);
+  }
+
+  .game-shell.game-shell .opponent-row .player-seat.is-tax-destination {
+    background:
+      linear-gradient(120deg, rgba(31, 111, 78, 0.32), transparent 72%),
+      var(--mobile-seat-panel);
+  }
+}
+
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse) and
+    (orientation: landscape) and (max-height: 500px),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) and
+    (orientation: landscape) and (max-height: 500px) {
+  .game-shell.game-shell .felt-table {
+    margin-block: 34px 35px;
+  }
+
+  .game-shell.game-shell .opponent-row {
+    inset-block: -29px -30px;
+    grid-template-rows: 25px minmax(0, 1fr) 25px;
+  }
+
+  .game-shell.game-shell .opponent-row .player-seat,
+  .game-shell.game-shell .opponent-row .player-seat.is-human-seat {
+    min-height: 25px;
+    padding-block: 3px;
   }
 }
 
@@ -6749,7 +6907,8 @@ input,
   }
 
   .game-shell .hand .playing-card + .playing-card,
-  .game-shell .hand .playing-card-back + .playing-card-back {
+  .game-shell .hand .playing-card-back + .playing-card-back,
+  .game-shell .hand .hand-reveal-slot + .hand-reveal-slot {
     margin-left: -24px;
   }
 
@@ -8515,5 +8674,111 @@ input,
     width: min(92px, 25vw);
     height: auto;
     aspect-ratio: 92 / 142;
+  }
+}
+
+/* Terminal installed-app seat rail. This intentionally follows every generic
+ * phone override: the public seats reserve their own space above and below
+ * the felt and never straddle the playing surface. */
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) {
+  .game-shell.game-shell .felt-table {
+    margin-block: 43px 45px;
+    overflow: visible;
+  }
+
+  .game-shell.game-shell .opponent-row {
+    inset: -36px 5px -38px;
+    z-index: 18;
+    grid-template-rows: 30px minmax(0, 1fr) 30px;
+    gap: 0 4px;
+    overflow: visible;
+  }
+
+  .game-shell.game-shell .opponent-row .player-seat,
+  .game-shell.game-shell .opponent-row .player-seat.is-human-seat {
+    min-height: 30px;
+    align-self: center;
+    grid-template-columns: minmax(0, 1fr) max-content;
+    gap: 5px;
+    padding: 5px 7px;
+    border: 1px solid var(--mobile-seat-panel-border);
+    border-radius: var(--mobile-seat-panel-radius);
+    background: var(--mobile-seat-panel);
+    box-shadow: var(--mobile-seat-panel-shadow);
+    backdrop-filter: blur(7px);
+  }
+
+  .game-shell.game-shell .opponent-row .player-copy {
+    min-width: 0;
+  }
+
+  .game-shell.game-shell .opponent-row .player-copy strong {
+    display: block;
+    overflow: hidden;
+    color: #efe2ca;
+    font-size: 8px;
+    line-height: 1.1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .game-shell.game-shell .opponent-row .player-count {
+    display: inline-flex;
+    width: max-content;
+    min-width: 24px;
+    align-items: baseline;
+    justify-self: end;
+    justify-content: flex-end;
+    gap: 1px;
+    color: #ead4a6;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .game-shell.game-shell .opponent-row .player-count b {
+    color: #f3dfb1;
+    font-size: 8px;
+    line-height: 1;
+  }
+
+  .game-shell.game-shell .opponent-row .player-count span {
+    color: #b9a47d;
+    font-size: 6px;
+    line-height: 1;
+  }
+
+  .game-shell.game-shell .opponent-row .player-seat.is-human-seat {
+    border-color: rgba(240, 199, 99, 0.82);
+    background:
+      linear-gradient(120deg, rgba(206, 157, 53, 0.2), transparent 68%),
+      var(--mobile-seat-panel);
+    box-shadow:
+      inset 3px 0 #d5aa4e,
+      var(--mobile-seat-panel-shadow);
+  }
+
+  .game-shell.game-shell .opponent-row .player-seat.is-human-seat::before {
+    display: none;
+  }
+}
+
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse) and
+    (orientation: landscape) and (max-height: 500px),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) and
+    (orientation: landscape) and (max-height: 500px) {
+  .game-shell.game-shell .felt-table {
+    margin-block: 34px 35px;
+  }
+
+  .game-shell.game-shell .opponent-row {
+    inset-block: -29px -30px;
+    grid-template-rows: 25px minmax(0, 1fr) 25px;
+  }
+
+  .game-shell.game-shell .opponent-row .player-seat,
+  .game-shell.game-shell .opponent-row .player-seat.is-human-seat {
+    min-height: 25px;
+    padding-block: 3px;
   }
 }

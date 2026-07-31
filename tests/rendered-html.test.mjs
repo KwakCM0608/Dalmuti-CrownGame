@@ -209,7 +209,10 @@ test("ships without the disposable starter preview", async () => {
     page,
     /game\.phase === "round-end"[\s\S]*game\.finishOrder\.map/,
   );
-  assert.match(page, /160 \/ Math\.max\(1, tablePreview\.length - 1\)/);
+  assert.match(
+    page,
+    /cappedPresentationStep\(\s*tablePreview\.length,\s*INSTALLED_MOBILE_PRESENTATION\.tableCardMaxStep,\s*INSTALLED_MOBILE_PRESENTATION\.tableCardSpread/s,
+  );
   assert.match(page, /index - \(tablePreview\.length - 1\) \/ 2/);
   assert.match(styles, /rotate\(calc\(var\(--table-card-offset\) \* 1\.1deg\)\)/);
   assert.match(page, /data-rank-seat=\{rankSeat\}/);
@@ -255,7 +258,7 @@ test("ships without the disposable starter preview", async () => {
   assert.match(page, /if \(!shouldUseInstalledMobileTransition\(\)\) \{\s*action\(\)/);
   assert.match(
     page,
-    /const mobileSettledStep =[\s\S]{0,120}190 \/ Math\.max/,
+    /const mobileSettledStep =[\s\S]{0,220}INSTALLED_MOBILE_PRESENTATION\.actionSettledMaxStep[\s\S]{0,100}INSTALLED_MOBILE_PRESENTATION\.actionSettledSpread/,
   );
   assert.match(
     styles,
@@ -407,6 +410,82 @@ test("ships one normalized artwork asset for every card rank", async () => {
   await access(new URL("../public/cards/back.webp", import.meta.url));
 });
 
+test("quick and online hands preserve every assigned face-down slot through reveal", async () => {
+  const [
+    quickPage,
+    quickStyles,
+    onlinePage,
+    onlineStyles,
+    onlineEngine,
+    dealing,
+  ] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/online/page.tsx", import.meta.url), "utf8"),
+    readFile(
+      new URL("../app/online/online.module.css", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../lib/online-game/engine.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/dealing.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(
+    quickPage,
+    /\(isHandConcealed \|\| isHandRevealing\)[\s\S]{0,120}hasDealtHands[\s\S]{0,100}humanHand\.map\(\(card, cardIndex\)/,
+  );
+  assert.match(quickPage, /key=\{`human-hand-slot-\$\{cardIndex\}`\}/);
+  assert.match(quickPage, /className="playing-card-back"/);
+  assert.match(quickPage, /revealIndex=\{cardIndex\}/);
+  assert.match(quickStyles, /\.hand-reveal-slot\s*\{/);
+  assert.match(
+    quickStyles,
+    /animation: handCardReveal 0\.84s[\s\S]{0,160}var\(--hand-reveal-index, 0\) \* 26ms/,
+  );
+
+  assert.match(
+    onlinePage,
+    /const concealedHandCount =\s*snapshot\?\.dealSealed && isHandConcealed\s*\? \(me\?\.handCount \?\? 0\)\s*: 0;/,
+  );
+  assert.match(
+    onlinePage,
+    /Array\.from\(\{ length: concealedHandCount \}, \(_, index\) => \(/,
+  );
+  assert.match(onlinePage, /key=\{`local-hand-slot-\$\{index\}`\}/);
+  assert.match(onlinePage, /\sconcealed\s*\n\s*disabled/);
+  assert.match(
+    onlinePage,
+    /isHandRevealing\s*\? `local-hand-slot-\$\{index\}`\s*: card\.id/,
+  );
+  assert.match(onlineStyles, /\.cardBack\s*\{[^}]*back\.webp/s);
+  assert.match(
+    onlineStyles,
+    /animation: onlineHandCardReveal 0\.84s[\s\S]{0,180}var\(--card-index, 0\) \* 26ms/,
+  );
+  assert.match(
+    onlineStyles,
+    /var\(--card-index, 0\) \* 26ms - var\(--phase-elapsed, 0ms\)/,
+  );
+
+  assert.doesNotMatch(
+    onlinePage,
+    /length: Math\.max\(1, displayedMe\?\.handCount \?\? 14\)/,
+  );
+  assert.match(
+    onlineEngine,
+    /handCount: state\.hands\[player\.id\]\?\.length \?\? 0/,
+  );
+  assert.match(
+    onlineEngine,
+    /hand: handIsVisible\(state\.phase\) \? \[\.\.\.state\.hands\[actorId\]\] : null/,
+  );
+  assert.match(
+    onlineEngine,
+    /"HAND_REVEALED"[\s\S]{0,180}\[player\.id\]/,
+  );
+  assert.match(dealing, /const bonusStart = playerCount - remainder/);
+});
+
 test("online mode exposes synchronized reveal, tax, Dalmuti, and exit states", async () => {
   const [page, styles] = await Promise.all([
     readFile(new URL("../app/online/page.tsx", import.meta.url), "utf8"),
@@ -493,10 +572,8 @@ test("online mode exposes synchronized reveal, tax, Dalmuti, and exit states", a
     page,
     /length: Math\.max\(1, displayedMe\?\.handCount \?\? 14\)/,
   );
-  assert.match(
-    page,
-    /renderedHandValue !== null &&\s*!isHandConcealed/,
-  );
+  assert.match(page, /Array\.from\(\{ length: concealedHandCount \}/);
+  assert.match(page, /renderedHandValue !== null &&\s*renderedHand\.map/);
   assert.match(page, /"--card-index": index/);
   assert.match(styles, /\.ownDockFinished \.playerSeatSelf/);
   assert.match(page, /className=\{`\$\{styles\.ownStatus\}/);
@@ -875,7 +952,7 @@ test("online phase locks and visual animation timing mirror quick match", async 
     /animation: onlineOpeningRankCountdown 1\.05s/,
     /animation: rankCardReveal 1\.25s/,
     /animation: onlineRankConfirmation 2\.6s/,
-    /animation: onlineHandCardReveal 1\.2s/,
+    /animation: onlineHandCardReveal 0\.84s/,
     /animation: seatHandReveal 1\.15s/,
     /animation: onlinePhaseIntroReveal var\(--event-duration, 2400ms\)/,
     /\.playIntroOverlay \.eventCenterCopy\s*\{[^}]*animation-duration: var\(--event-duration, 2600ms\);/s,

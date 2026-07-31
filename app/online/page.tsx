@@ -37,6 +37,12 @@ import {
   toggleWholePlayableRankSelection,
 } from "@/lib/selection";
 import {
+  GAME_PRESENTATION_TIMING_MS,
+  INSTALLED_MOBILE_PRESENTATION,
+  assertPresentationTimingParity,
+  cappedPresentationStep,
+} from "@/lib/game-presentation-parity";
+import {
   applyPhysicalRoomCodeKey,
   normalizeRoomCodeInput,
 } from "@/lib/room-code-input";
@@ -260,6 +266,16 @@ const GREAT_REVOLUTION_MOVE_PRELUDE_MS = 180;
 const GREAT_REVOLUTION_MOVE_SETTLE_MS = 60;
 const ROUND_END_MOVE_PRELUDE_MS = 380;
 const ROUND_END_MOVE_SETTLE_MS = 520;
+
+assertPresentationTimingParity("online presentation", {
+  handReveal: HAND_REVEAL_PRESENTATION_MS,
+  publicPlay: defaultEventDuration("CARDS_PLAYED"),
+  publicPass: defaultEventDuration("PLAYER_PASSED"),
+  dalmuti: defaultEventDuration("DALMUTI_EFFECT"),
+  turn: TURN_DURATION_MS,
+  rankMove: RANK_MOVE_DURATION_MS,
+});
+
 const BOT_DIFFICULTY_LABELS: Record<BotDifficulty, string> = {
   easy: "쉬움",
   normal: "보통",
@@ -1372,7 +1388,14 @@ function RankSelectionField({
     rankSelection.countdownEndsAt !== null &&
     effectiveClock >= rankSelection.countdownEndsAt
       ? 0
-      : Math.max(1, 3 - Math.floor(countdownElapsed / 1_050));
+      : Math.max(
+          1,
+          3 -
+            Math.floor(
+              countdownElapsed /
+                GAME_PRESENTATION_TIMING_MS.rankCountdownStep,
+            ),
+        );
   const cards = [...rankSelection.cards].sort(
     (a, b) => a.slotIndex - b.slotIndex,
   );
@@ -1892,17 +1915,23 @@ function EventOverlayView({
         ? 0
         : Math.min(112, 430 / Math.max(1, dalmutiCards.length - 1));
     const delayStep =
-      dalmutiCards.length <= 1
-        ? 0
-        : Math.min(36, 100 / Math.max(1, dalmutiCards.length - 1));
+      cappedPresentationStep(
+        dalmutiCards.length,
+        INSTALLED_MOBILE_PRESENTATION.actionDelayMaxStep,
+        INSTALLED_MOBILE_PRESENTATION.actionDelaySpread,
+      );
     const mobileExpandedStep =
-      dalmutiCards.length <= 1
-        ? 0
-        : Math.min(54, 210 / Math.max(1, dalmutiCards.length - 1));
+      cappedPresentationStep(
+        dalmutiCards.length,
+        INSTALLED_MOBILE_PRESENTATION.actionExpandedMaxStep,
+        INSTALLED_MOBILE_PRESENTATION.actionExpandedSpread,
+      );
     const mobileStackStep =
-      dalmutiCards.length <= 1
-        ? 0
-        : Math.min(34, 190 / Math.max(1, dalmutiCards.length - 1));
+      cappedPresentationStep(
+        dalmutiCards.length,
+        INSTALLED_MOBILE_PRESENTATION.actionSettledMaxStep,
+        INSTALLED_MOBILE_PRESENTATION.actionSettledSpread,
+      );
     return (
       <div
         className={`${styles.eventOverlay} ${styles.playOverlay} ${styles.dalmutiEffectOverlay}`}
@@ -1933,7 +1962,8 @@ function EventOverlayView({
                     (index - (dalmutiCards.length - 1) / 2) * mobileStackStep
                   }px`,
                   "--event-card-from-spread": `${
-                    (index - (dalmutiCards.length - 1) / 2) * 9
+                    (index - (dalmutiCards.length - 1) / 2) *
+                    INSTALLED_MOBILE_PRESENTATION.actionOriginSpread
                   }px`,
                   "--event-card-angle": `${
                     (index - (dalmutiCards.length - 1) / 2) * 3
@@ -1967,9 +1997,14 @@ function EventOverlayView({
                     (playerIndex - (autoPassedIds.length - 1) / 2) * 104
                   }px`,
                   "--pass-mobile-offset-x": `${
-                    (playerIndex - (autoPassedIds.length - 1) / 2) * 28
+                    (playerIndex - (autoPassedIds.length - 1) / 2) *
+                    INSTALLED_MOBILE_PRESENTATION.dalmutiAutoPassOffset
                   }px`,
-                  "--pass-delay": `${260 + playerIndex * 55}ms`,
+                  "--pass-delay": `${
+                    INSTALLED_MOBILE_PRESENTATION.dalmutiAutoPassInitialDelay +
+                    playerIndex *
+                      INSTALLED_MOBILE_PRESENTATION.dalmutiAutoPassStagger
+                  }ms`,
                 } as CSSProperties
               }
             >
@@ -2012,17 +2047,23 @@ function EventOverlayView({
         ? 0
         : Math.min(112, 430 / Math.max(1, cards.length - 1));
     const delayStep =
-      cards.length <= 1
-        ? 0
-        : Math.min(36, 100 / Math.max(1, cards.length - 1));
+      cappedPresentationStep(
+        cards.length,
+        INSTALLED_MOBILE_PRESENTATION.actionDelayMaxStep,
+        INSTALLED_MOBILE_PRESENTATION.actionDelaySpread,
+      );
     const mobileExpandedStep =
-      cards.length <= 1
-        ? 0
-        : Math.min(54, 210 / Math.max(1, cards.length - 1));
+      cappedPresentationStep(
+        cards.length,
+        INSTALLED_MOBILE_PRESENTATION.actionExpandedMaxStep,
+        INSTALLED_MOBILE_PRESENTATION.actionExpandedSpread,
+      );
     const mobileStackStep =
-      cards.length <= 1
-        ? 0
-        : Math.min(34, 190 / Math.max(1, cards.length - 1));
+      cappedPresentationStep(
+        cards.length,
+        INSTALLED_MOBILE_PRESENTATION.actionSettledMaxStep,
+        INSTALLED_MOBILE_PRESENTATION.actionSettledSpread,
+      );
     return (
       <div
         className={`${styles.eventOverlay} ${styles.playOverlay}`}
@@ -2050,7 +2091,8 @@ function EventOverlayView({
                     (index - (cards.length - 1) / 2) * mobileStackStep
                   }px`,
                   "--event-card-from-spread": `${
-                    (index - (cards.length - 1) / 2) * 9
+                    (index - (cards.length - 1) / 2) *
+                    INSTALLED_MOBILE_PRESENTATION.actionOriginSpread
                   }px`,
                   "--event-card-angle": `${(index - 1) * 3}deg`,
                   "--event-card-delay": `${index * delayStep}ms`,
@@ -3611,6 +3653,8 @@ export default function OnlinePage() {
     snapshot &&
       (snapshot.phase === "reveal-intro" || snapshot.hand === null),
   );
+  const concealedHandCount =
+    snapshot?.dealSealed && isHandConcealed ? (me?.handCount ?? 0) : 0;
   const selectedCards = hand.filter((card) => selectedIds.includes(card.id));
   const selectedNormalRanks = [
     ...new Set(
@@ -5363,8 +5407,8 @@ export default function OnlinePage() {
                             Math.max(1, visibleTable.cards.length - 1),
                         )}px`,
                         "--table-card-step-small": `${Math.min(
-                          51,
-                          170 /
+                          INSTALLED_MOBILE_PRESENTATION.tableCardMaxStep,
+                          INSTALLED_MOBILE_PRESENTATION.tableCardSpread /
                             Math.max(1, visibleTable.cards.length - 1),
                         )}px`,
                       } as CSSProperties
@@ -5379,7 +5423,10 @@ export default function OnlinePage() {
                           style={
                             {
                               "--table-card-offset": offset,
-                              "--table-card-lift": `${Math.abs(offset) * 1.25}px`,
+                              "--table-card-lift": `${
+                                Math.abs(offset) *
+                                INSTALLED_MOBILE_PRESENTATION.tableCardLift
+                              }px`,
                             } as CSSProperties
                           }
                         >
@@ -5451,11 +5498,31 @@ export default function OnlinePage() {
                   } as CSSProperties
                 }
               >
-                {renderedHandValue !== null &&
-                  !isHandConcealed &&
-                  renderedHand.map((card, index) => (
+                {isHandConcealed
+                  ? Array.from({ length: concealedHandCount }, (_, index) => (
                       <PlayingCard
-                        key={card.id}
+                        key={`local-hand-slot-${index}`}
+                        card={{
+                          id: `concealed-local-hand-${index}`,
+                          rank: 13,
+                        }}
+                        concealed
+                        disabled
+                        style={
+                          {
+                            "--card-index": index,
+                          } as CSSProperties
+                        }
+                      />
+                    ))
+                  : renderedHandValue !== null &&
+                    renderedHand.map((card, index) => (
+                      <PlayingCard
+                        key={
+                          isHandRevealing
+                            ? `local-hand-slot-${index}`
+                            : card.id
+                        }
                         card={card}
                         selected={selectedIds.includes(card.id)}
                         disabled={
