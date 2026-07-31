@@ -476,6 +476,14 @@ test("quick and online hands preserve every assigned face-down slot through reve
   assert.match(onlineStyles, /\.cardBack img\s*\{[^}]*opacity: 0;/s);
   assert.match(
     onlineStyles,
+    /\.card:not\(\.cardBack\):has\(> img\[src\*="\/cards\/01\.webp"\]\),\s*\.card:not\(\.cardBack\):has\(> img\[src\*="\/cards\/joker\.webp"\]\)/s,
+  );
+  assert.doesNotMatch(
+    onlineStyles,
+    /\.card:has\(> img\[src\*="\/cards\/(?:01|joker)\.webp"\]\)/,
+  );
+  assert.match(
+    onlineStyles,
     /animation: onlineHandCardReveal 0\.84s[\s\S]{0,180}var\(--card-index, 0\) \* 26ms/,
   );
   assert.match(

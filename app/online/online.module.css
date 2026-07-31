@@ -3433,14 +3433,14 @@
   user-select: none;
 }
 
-.card:has(> img[src*="/cards/01.webp"]),
-.card:has(> img[src*="/cards/joker.webp"]) {
+.card:not(.cardBack):has(> img[src*="/cards/01.webp"]),
+.card:not(.cardBack):has(> img[src*="/cards/joker.webp"]) {
   border-color: #080808;
   background: #080808;
 }
 
-.card:has(> img[src*="/cards/01.webp"]) > img,
-.card:has(> img[src*="/cards/joker.webp"]) > img {
+.card:not(.cardBack):has(> img[src*="/cards/01.webp"]) > img,
+.card:not(.cardBack):has(> img[src*="/cards/joker.webp"]) > img {
   background: #080808;
 }
 
@@ -11448,6 +11448,23 @@
     (orientation: portrait),
   (display-mode: fullscreen) and (hover: none) and (pointer: coarse) and
     (orientation: portrait) {
+  .gameShell.gameShell .tableRankSelection .tableCenter {
+    right: 0;
+    left: 0;
+    width: 100%;
+    max-width: none;
+    margin-inline: auto;
+    transform: translateY(-50%);
+  }
+
+  .gameShell.gameShell
+    :is(.rankChoiceField, .rankChoiceFieldRevealed) {
+    width: 100%;
+    max-width: calc(100vw - 34px);
+    justify-self: center;
+    margin-inline: auto;
+  }
+
   .gameShell.gameShell .rankChoiceCards[data-card-count] {
     display: flex;
     width: calc(
@@ -11465,7 +11482,7 @@
     justify-content: center;
     justify-self: center;
     gap: 6px var(--installed-pregame-rank-gap);
-    margin-inline: 0;
+    margin-inline: auto;
     overflow: visible;
   }
 

@@ -355,9 +355,18 @@ test("installed online rank draw stays mounted and centred while choices lock", 
   assert.notEqual(markerIndex, -1);
   const terminalRankCss = onlineStyles.slice(markerIndex);
 
+  assert.match(
+    terminalRankCss,
+    /\.tableRankSelection \.tableCenter\s*\{[^}]*right: 0;[^}]*left: 0;[^}]*width: 100%;[^}]*transform: translateY\(-50%\);/,
+  );
+  assert.match(
+    terminalRankCss,
+    /:is\(\.rankChoiceField, \.rankChoiceFieldRevealed\)\s*\{[^}]*width: 100%;[^}]*justify-self: center;[^}]*margin-inline: auto;/,
+  );
   assert.match(terminalRankCss, /display: flex;/);
   assert.match(terminalRankCss, /flex-wrap: wrap;/);
   assert.match(terminalRankCss, /justify-content: center;/);
+  assert.match(terminalRankCss, /margin-inline: auto;/);
   assert.match(
     terminalRankCss,
     /\.rankChoiceCards\[data-card-count\][\s\S]*?> \.rankChoiceSlot\s*\{[\s\S]*?flex: 0 0 var\(--installed-pregame-rank-card-width\);[\s\S]*?transform: none;/,

@@ -9187,6 +9187,19 @@ input,
   }
 }
 
+/* Quick-match hierarchy rail keeps vertical scrolling without exposing a
+ * horizontal scroll track. The inset padding absorbs the highlighted row's
+ * deliberate negative margin. */
+.game-shell.game-shell .score-rail {
+  overflow-x: hidden;
+}
+
+.game-shell.game-shell .score-rail ol {
+  margin-inline: -5px;
+  padding-inline: 5px;
+  overflow-x: hidden;
+}
+
 /* Desktop rail contract shared with online play. Keep this terminal so older
  * responsive layers cannot restore the legacy quick-match sidebar widths. */
 @media (min-width: 1121px) {

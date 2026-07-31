@@ -177,6 +177,14 @@ test("quick desktop score rail is pinned to the online rail contract", () => {
     quickStyles,
     /@media \(min-width: 821px\) and \(max-width: 1120px\)[\s\S]*?grid-template-columns: 158px minmax\(570px, 1fr\);[\s\S]*?width: 158px;/,
   );
+  assert.match(
+    quickStyles,
+    /Quick-match hierarchy rail keeps vertical scrolling[\s\S]*?\.game-shell\.game-shell \.score-rail\s*\{[^}]*overflow-x: hidden;[^}]*\}[\s\S]*?\.game-shell\.game-shell \.score-rail ol\s*\{[^}]*margin-inline: -5px;[^}]*padding-inline: 5px;[^}]*overflow-x: hidden;/,
+  );
+  assert.doesNotMatch(
+    quickStyles,
+    /\.game-shell(?:\.game-shell)? \.score-rail(?: ol)?\s*\{[^}]*overflow-x:\s*auto;/,
+  );
 });
 
 test("desktop opening and phase overlays use one quick-match rhythm", () => {
