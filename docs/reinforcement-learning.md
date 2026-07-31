@@ -97,15 +97,18 @@ GPU 번들은 행동 모방 데이터와 두 차례 DAgger 데이터를 함께 �
 
 ## 다음 단계
 
-1. CPU에서 충분한 기준전(인원별·계급별)을 실행해 현재 hard 봇 지표 저장
-2. normal 봇 rollout으로 GPU에서 행동 모방 모델 학습
-3. 모델을 ONNX 등 CPU 추론 형식으로 반환
-4. 이 시뮬레이터에 모델 정책 어댑터를 연결해 hard 봇과 블라인드 평가
-5. action-masked PPO + 과거 체크포인트 league self-play 반복
+1. normal 봇 rollout으로 GPU에서 행동 모방 워밍업 모델 학습
+2. 반환 모델을 4~10인 `normal` 상대 기준전으로 평가
+3. 최신 모델의 `logProbability`와 `valueEstimate`를 포함한 on-policy
+   rollout 생성
+4. `normal`과 과거 체크포인트를 상대 좌석에 섞어 action-masked PPO 반복
+5. 모든 인원수에서 평균 칩 차이의 95% 신뢰구간 하한이 0보다 큰 모델만 승격
 6. 카드 제출 정책이 안정된 뒤 혁명·세금 반환 head를 별도로 학습
 7. 불법 행동 0건, 평균 칩, 1위/꼴찌 비율, 4~10인·계급별 편향과
    한 수 추론 지연시간을 통과한 모델만 실제 게임에 적용
 
-현재 rollout에는 행동을 고른 신경망의 `log_prob`과 `value`가 없으므로
-그 자체는 PPO on-policy 데이터가 아니다. V2 데이터는 시뮬레이터 검증,
-행동 모방, 데이터 파이프라인 검증용이다.
+기존 V2 BC/DAgger 파일에는 `logProbability`와 `valueEstimate`가 없으므로
+그 자체는 PPO 데이터가 아니다. PPO용 파일은 반드시
+`rl:ppo-rollouts` 또는 `rl:ppo-prepare`로 최신 behavior model에서 새로
+생성한다. 전체 반복 절차는
+[`ppo-self-play-pipeline.md`](ppo-self-play-pipeline.md)에 정리되어 있다.

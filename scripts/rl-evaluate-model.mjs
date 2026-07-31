@@ -2,8 +2,10 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-import { createMlpTrainingPolicy } from "../training/model-policy.ts";
 import { simulateMatch } from "../training/simulator.ts";
+import {
+  createGreedyInferenceTrainingPolicy,
+} from "../training/stochastic-policy.ts";
 
 const cliArgs = process.argv.slice(2);
 if (cliArgs[0] === "--") cliArgs.shift();
@@ -38,7 +40,7 @@ if (playerCount < 4 || playerCount > 10 || playerCount % 2 !== 0) {
 
 const modelPath = resolve(values.model);
 const model = JSON.parse(await readFile(modelPath, "utf8"));
-const candidatePolicy = createMlpTrainingPolicy(model);
+const candidatePolicy = createGreedyInferenceTrainingPolicy(model);
 const candidateCount = playerCount / 2;
 const policyByPlayerId = Object.fromEntries(
   Array.from({ length: candidateCount }, (_, index) => [
@@ -127,4 +129,3 @@ if (values.json) {
     `${totalSteps} decisions in ${result.elapsedSeconds.toFixed(3)}s`,
   );
 }
-

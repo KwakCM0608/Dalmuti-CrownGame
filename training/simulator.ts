@@ -47,7 +47,16 @@ export type TrainingPolicyContext = {
   random: () => number;
 };
 
-export type TrainingPolicy = (context: TrainingPolicyContext) => number;
+export type TrainingPolicyDecision = {
+  actionIndex: number;
+  logProbability?: number;
+  valueEstimate?: number;
+  policyVersion?: string;
+};
+
+export type TrainingPolicy = (
+  context: TrainingPolicyContext,
+) => number | TrainingPolicyDecision;
 
 export type SimulationConfig = {
   playerCount: number;
@@ -72,6 +81,9 @@ export type TrainingStep = {
   legalActionIndices: number[];
   actionIndex: number;
   supervisedActionIndex: number | null;
+  behaviorLogProbability: number | null;
+  behaviorValueEstimate: number | null;
+  behaviorPolicyVersion: string | null;
   forced: boolean;
   reward: number;
   actorTerminal: boolean;
@@ -285,7 +297,7 @@ function createPlayObservation(
   };
 }
 
-function chooseActionIndex(
+function choosePolicyDecision(
   player: SimulationPlayer,
   observation: BotPlayObservation,
   encodedObservation: readonly number[],
@@ -293,8 +305,9 @@ function chooseActionIndex(
   round: number,
   random: SeededRandom,
   policy?: TrainingPolicy,
-): number {
-  const actionIndex = policy
+): Required<Pick<TrainingPolicyDecision, "actionIndex">> &
+  Omit<TrainingPolicyDecision, "actionIndex"> {
+  const selected = policy
     ? policy({
         observation,
         encodedObservation,
@@ -307,12 +320,37 @@ function chooseActionIndex(
     : semanticActionIndexFromBotAction(
         chooseBotPlay(observation, player.difficulty).action,
       );
+  const decision =
+    typeof selected === "number"
+      ? { actionIndex: selected }
+      : selected;
+  const { actionIndex } = decision;
   if (!legalActionIndices.includes(actionIndex)) {
     throw new RangeError(
       `policy selected illegal action ${actionIndex} for ${player.id}`,
     );
   }
-  return actionIndex;
+  if (
+    decision.logProbability !== undefined &&
+    (!Number.isFinite(decision.logProbability) ||
+      decision.logProbability > 1e-9)
+  ) {
+    throw new RangeError("policy logProbability must be finite and <= 0");
+  }
+  if (
+    decision.valueEstimate !== undefined &&
+    !Number.isFinite(decision.valueEstimate)
+  ) {
+    throw new RangeError("policy valueEstimate must be finite");
+  }
+  if (
+    decision.policyVersion !== undefined &&
+    (typeof decision.policyVersion !== "string" ||
+      decision.policyVersion.length < 1)
+  ) {
+    throw new TypeError("policyVersion must be a non-empty string");
+  }
+  return decision;
 }
 
 function applyPlay(
@@ -427,7 +465,7 @@ function simulateAct(
       scoresByPlayerId,
       revolution,
     });
-    const actionIndex = chooseActionIndex(
+    const behaviorDecision = choosePolicyDecision(
       actor,
       observation,
       encodedObservation,
@@ -436,8 +474,9 @@ function simulateAct(
       random,
       policyByPlayerId?.[actor.id] ?? policy,
     );
+    const actionIndex = behaviorDecision.actionIndex;
     const supervisedActionIndex = supervisionPolicy
-      ? chooseActionIndex(
+      ? choosePolicyDecision(
           actor,
           observation,
           encodedObservation,
@@ -445,7 +484,7 @@ function simulateAct(
           round,
           random,
           supervisionPolicy,
-        )
+        ).actionIndex
       : null;
     rawSteps.push({
       episodeId,
@@ -462,6 +501,12 @@ function simulateAct(
       legalActionIndices: [...legalActionIndices],
       actionIndex,
       supervisedActionIndex,
+      behaviorLogProbability:
+        behaviorDecision.logProbability ?? null,
+      behaviorValueEstimate:
+        behaviorDecision.valueEstimate ?? null,
+      behaviorPolicyVersion:
+        behaviorDecision.policyVersion ?? null,
       forced: legalActionIndices.length === 1,
     });
 

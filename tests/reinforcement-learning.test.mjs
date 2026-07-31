@@ -29,6 +29,18 @@ const {
 } = await import(
   new URL("../training/model-policy.ts", import.meta.url)
 );
+const {
+  evaluateActorCritic,
+  parseActorCriticModel,
+} = await import(
+  new URL("../training/actor-critic.ts", import.meta.url)
+);
+const {
+  createStochasticTrainingPolicy,
+  sampleMaskedLogits,
+} = await import(
+  new URL("../training/stochastic-policy.ts", import.meta.url)
+);
 
 function card(id, rank) {
   return { id, rank };
@@ -279,6 +291,122 @@ test("MLP policy inference applies ReLU and never selects a masked action", () =
 
   assert.equal(selectMaskedMlpAction(model, [2, 1], [0, 1, 2]), 2);
   assert.equal(selectMaskedMlpAction(model, [2, 1], [0, 1]), 0);
+});
+
+test("masked stochastic sampling reports the exact behavior log probability", () => {
+  const first = sampleMaskedLogits(
+    [Math.log(1), Math.log(3), 100],
+    [0, 1],
+    () => 0.1,
+    0.75,
+  );
+  const second = sampleMaskedLogits(
+    [Math.log(1), Math.log(3), 100],
+    [0, 1],
+    () => 0.9,
+    0.75,
+  );
+
+  assert.equal(first.actionIndex, 0);
+  assert.ok(Math.abs(first.logProbability - Math.log(0.25)) < 1e-12);
+  assert.equal(first.valueEstimate, 0.75);
+  assert.equal(second.actionIndex, 1);
+  assert.ok(Math.abs(second.logProbability - Math.log(0.75)) < 1e-12);
+});
+
+test("actor-critic inference shares a trunk and emits policy plus value", () => {
+  const policyBias = Array.from({ length: ACTION_SPACE_SIZE }, () => -5);
+  policyBias[0] = 0;
+  policyBias[1] = 1;
+  const model = parseActorCriticModel({
+    format: "dalmuti-actor-critic",
+    version: 1,
+    observationFeatures: OBSERVATION_FEATURE_COUNT,
+    actionCount: ACTION_SPACE_SIZE,
+    hiddenSizes: [2],
+    activation: "relu",
+    weightLayout: "row-major [out_features, in_features]",
+    trunkLayers: [
+      {
+        inFeatures: OBSERVATION_FEATURE_COUNT,
+        outFeatures: 2,
+        weight: Array.from(
+          { length: OBSERVATION_FEATURE_COUNT * 2 },
+          () => 0,
+        ),
+        bias: [2, -1],
+      },
+    ],
+    policyLayer: {
+      inFeatures: 2,
+      outFeatures: ACTION_SPACE_SIZE,
+      weight: Array.from(
+        { length: ACTION_SPACE_SIZE * 2 },
+        () => 0,
+      ),
+      bias: policyBias,
+    },
+    valueLayer: {
+      inFeatures: 2,
+      outFeatures: 1,
+      weight: [0.5, 10],
+      bias: [0.25],
+    },
+  });
+  const output = evaluateActorCritic(
+    model,
+    Array.from({ length: OBSERVATION_FEATURE_COUNT }, () => 0),
+  );
+
+  assert.equal(output.logits[0], 0);
+  assert.equal(output.logits[1], 1);
+  assert.equal(output.value, 1.25);
+});
+
+test("stochastic policy metadata is preserved on simulator steps", () => {
+  const zeroWeights = Array.from(
+    { length: OBSERVATION_FEATURE_COUNT * ACTION_SPACE_SIZE },
+    () => 0,
+  );
+  const zeroBias = Array.from({ length: ACTION_SPACE_SIZE }, () => 0);
+  const policy = createStochasticTrainingPolicy(
+    {
+      format: "dalmuti-mlp-policy",
+      version: 1,
+      observationFeatures: OBSERVATION_FEATURE_COUNT,
+      actionCount: ACTION_SPACE_SIZE,
+      hiddenSizes: [],
+      activation: "relu",
+      weightLayout: "row-major [out_features, in_features]",
+      layers: [
+        {
+          inFeatures: OBSERVATION_FEATURE_COUNT,
+          outFeatures: ACTION_SPACE_SIZE,
+          weight: zeroWeights,
+          bias: zeroBias,
+        },
+      ],
+    },
+    "test-policy-v1",
+  );
+  const match = simulateMatch({
+    playerCount: 4,
+    acts: 1,
+    seed: 9393,
+    difficulties: ["normal"],
+    policy,
+  });
+
+  assert.equal(
+    match.steps.every(
+      (step) =>
+        step.behaviorPolicyVersion === "test-policy-v1" &&
+        step.behaviorLogProbability !== null &&
+        step.behaviorLogProbability <= 0 &&
+        step.behaviorValueEstimate === 0,
+    ),
+    true,
+  );
 });
 
 test("simulation can mix a custom policy with baseline players", () => {

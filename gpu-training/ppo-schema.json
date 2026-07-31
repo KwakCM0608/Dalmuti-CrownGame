@@ -1,0 +1,23 @@
+{
+  "format": "dalmuti-ppo-training-schema",
+  "version": 1,
+  "rolloutFormat": "dalmuti-ppo-ndjson",
+  "rolloutFormatVersion": 1,
+  "observationFeatures": 172,
+  "observationVersion": 2,
+  "actionCount": 506,
+  "algorithm": {
+    "name": "action-masked PPO",
+    "gamma": 0.99,
+    "gaeLambda": 0.95,
+    "clipCoefficient": 0.2,
+    "valueCoefficient": 0.5,
+    "entropyCoefficient": 0.01
+  },
+  "modelFormat": {
+    "name": "dalmuti-actor-critic",
+    "version": 1,
+    "activation": "relu",
+    "weightLayout": "row-major [out_features, in_features]"
+  }
+}
