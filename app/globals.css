@@ -21,6 +21,20 @@
   --mobile-seat-panel-shadow:
     inset 0 1px rgba(255, 239, 204, 0.045),
     0 5px 12px rgba(0, 0, 0, 0.28);
+  --installed-pregame-rank-card-width: clamp(46px, 13vw, 54px);
+  --installed-pregame-rank-gap: 5px;
+  --installed-pregame-confirm-card-width: 42px;
+  --installed-pregame-reveal-card-width: 40px;
+  --installed-pregame-reveal-card-height: 62px;
+  --installed-pregame-hand-card-width: 56px;
+  --installed-pregame-hand-card-height: 86px;
+  --installed-pregame-hand-overlap: -27px;
+  --installed-pregame-tax-public-width: 72px;
+  --installed-pregame-tax-public-height: 111px;
+  --installed-pregame-tax-private-width: 92px;
+  --installed-pregame-tax-private-height: 142px;
+  --installed-pregame-joker-width: 46px;
+  --installed-pregame-joker-height: 71px;
 }
 
 * {
@@ -5796,6 +5810,384 @@ button:focus-visible {
   .game-shell.game-shell .opponent-row .player-seat.is-human-seat {
     min-height: 25px;
     padding-block: 3px;
+  }
+}
+
+/* Installed-app opening presentation. Player count changes the row count, not
+ * the physical card size, so 5 -> 6 players can no longer inflate the draw. */
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) {
+  .game-shell.game-shell .opening-rank-intro {
+    width: min(400px, 84vw);
+    min-height: 180px;
+    padding: 18px 24px;
+  }
+
+  .game-shell.game-shell .opening-rank-intro::before {
+    width: min(350px, 78vw);
+    height: 158px;
+  }
+
+  .game-shell.game-shell .opening-rank-intro strong {
+    font-size: clamp(28px, 7vw, 38px);
+  }
+
+  .game-shell.game-shell .opening-rank-intro span {
+    margin-top: 6px;
+    font-size: 10px;
+  }
+
+  .game-shell.game-shell .opening-rank-intro b {
+    width: 52px;
+    height: 52px;
+    margin-top: 11px;
+    font-size: 31px;
+  }
+
+  .game-shell.game-shell .opening-rank-board {
+    width: min(420px, 90%);
+  }
+
+  .game-shell.game-shell .opening-rank-heading {
+    margin-bottom: 6px;
+  }
+
+  .game-shell.game-shell .opening-rank-heading strong {
+    font-size: clamp(20px, 5.4vw, 28px);
+  }
+
+  .game-shell.game-shell .opening-rank-cards[data-card-count] {
+    --installed-rank-columns: 4;
+
+    display: grid;
+    width: max-content;
+    max-width: calc(100vw - 34px);
+    grid-template-columns: repeat(
+      var(--installed-rank-columns),
+      var(--installed-pregame-rank-card-width)
+    );
+    justify-content: center;
+    gap: 6px var(--installed-pregame-rank-gap);
+    margin-inline: auto;
+    overflow: visible;
+  }
+
+  .game-shell.game-shell
+    .opening-rank-cards:is(
+      [data-card-count="5"],
+      [data-card-count="9"],
+      [data-card-count="10"]
+    ) {
+    --installed-rank-columns: 5;
+  }
+
+  .game-shell.game-shell .opening-rank-cards[data-card-count="6"] {
+    --installed-rank-columns: 3;
+  }
+
+  .game-shell.game-shell
+    .opening-rank-cards[data-card-count]
+    .opening-rank-card {
+    width: var(--installed-pregame-rank-card-width);
+    min-width: 0;
+    max-width: var(--installed-pregame-rank-card-width);
+    transform: none;
+  }
+
+  .game-shell.game-shell
+    .opening-rank-cards[data-card-count="7"]
+    .opening-rank-card:nth-child(n + 5),
+  .game-shell.game-shell
+    .opening-rank-cards[data-card-count="9"]
+    .opening-rank-card:nth-child(n + 6) {
+    transform: translateX(
+      calc(50% + var(--installed-pregame-rank-gap) / 2)
+    );
+  }
+
+  .game-shell.game-shell .opening-rank-card {
+    gap: 3px;
+  }
+
+  .game-shell.game-shell .opening-rank-card > em {
+    max-width: var(--installed-pregame-rank-card-width);
+    font-size: 7px;
+  }
+
+  .game-shell.game-shell .opening-rank-confirmation {
+    width: min(350px, 86vw);
+    min-height: 190px;
+    padding: 18px 22px;
+  }
+
+  .game-shell.game-shell .opening-rank-confirmation-body {
+    width: min(270px, 80vw);
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: 8px;
+    margin-top: 9px;
+  }
+
+  .game-shell.game-shell .opening-rank-confirmation-card {
+    width: var(--installed-pregame-confirm-card-width);
+  }
+
+  .game-shell.game-shell .opening-rank-confirmation-copy {
+    justify-items: center;
+    text-align: center;
+  }
+
+  .game-shell.game-shell .opening-rank-confirmation-copy strong {
+    margin-top: 2px;
+    font-size: clamp(28px, 8vw, 36px);
+  }
+
+  .game-shell.game-shell .opening-rank-confirmation-copy em {
+    margin-top: 5px;
+    font-size: 8px;
+  }
+
+  .game-shell.game-shell .hand-reveal-intro {
+    width: min(380px, 82vw);
+    min-height: 150px;
+    padding: 68px 16px 16px;
+  }
+
+  .game-shell.game-shell .hand-reveal-intro::before {
+    top: 1px;
+    width: var(--installed-pregame-reveal-card-width);
+    height: var(--installed-pregame-reveal-card-height);
+  }
+
+  .game-shell.game-shell .hand-reveal-intro::after {
+    width: min(330px, 76vw);
+    height: 132px;
+  }
+
+  .game-shell.game-shell .hand-reveal-intro strong {
+    font-size: 28px;
+  }
+
+  .game-shell.game-shell .hand-reveal-intro span {
+    margin-top: 6px;
+    font-size: 9px;
+  }
+
+  .game-shell.game-shell
+    .hand:is(.is-concealed, .is-revealing)
+    :is(.playing-card, .playing-card-back) {
+    width: var(--installed-pregame-hand-card-width);
+    height: var(--installed-pregame-hand-card-height);
+  }
+
+  .game-shell.game-shell
+    .hand:is(.is-concealed, .is-revealing)
+    .hand-reveal-slot
+    + .hand-reveal-slot {
+    margin-left: var(--installed-pregame-hand-overlap);
+  }
+
+  .game-shell.game-shell .phase-intro:not(.is-ready) {
+    min-width: min(380px, 80vw);
+    min-height: 132px;
+    padding: 16px 24px;
+  }
+
+  .game-shell.game-shell .phase-intro:not(.is-ready)::before {
+    width: min(320px, 72vw);
+    height: 116px;
+  }
+
+  .game-shell.game-shell .phase-intro:not(.is-ready) strong {
+    max-width: calc(100vw - 48px);
+    font-size: clamp(28px, 7.5vw, 38px);
+    white-space: normal;
+    word-break: keep-all;
+  }
+
+  .game-shell.game-shell .phase-intro:not(.is-ready) span {
+    margin-top: 7px;
+    font-size: 9px;
+  }
+
+  .game-shell.game-shell .revolution-announcement {
+    min-width: min(380px, 82vw);
+    min-height: 174px;
+    padding: 22px 28px;
+  }
+
+  .game-shell.game-shell .revolution-announcement::before {
+    width: min(350px, 76vw);
+    height: 152px;
+  }
+
+  .game-shell.game-shell .revolution-announcement > strong {
+    font-size: clamp(34px, 10vw, 46px);
+  }
+
+  .game-shell.game-shell .revolution-joker-pair::before {
+    width: min(360px, 78vw);
+    height: 170px;
+  }
+
+  .game-shell.game-shell .revolution-joker-card {
+    width: var(--installed-pregame-joker-width);
+    height: var(--installed-pregame-joker-height);
+  }
+
+  .game-shell.game-shell .tax-transfer-card .playing-card,
+  .game-shell.game-shell .private-card-back {
+    width: var(--installed-pregame-tax-public-width);
+    height: var(--installed-pregame-tax-public-height);
+  }
+
+  .game-shell.game-shell
+    .tax-transfer-card.is-face-up
+    .playing-card {
+    width: var(--installed-pregame-tax-private-width);
+    height: var(--installed-pregame-tax-private-height);
+  }
+}
+
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse) and
+    (orientation: landscape) and (max-height: 500px),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) and
+    (orientation: landscape) and (max-height: 500px) {
+  .game-shell.game-shell {
+    --installed-pregame-rank-card-width: 42px;
+    --installed-pregame-rank-gap: 4px;
+    --installed-pregame-confirm-card-width: 36px;
+    --installed-pregame-reveal-card-width: 32px;
+    --installed-pregame-reveal-card-height: 49px;
+    --installed-pregame-hand-card-width: 44px;
+    --installed-pregame-hand-card-height: 68px;
+    --installed-pregame-hand-overlap: -21px;
+    --installed-pregame-tax-public-width: 60px;
+    --installed-pregame-tax-public-height: 92px;
+    --installed-pregame-tax-private-width: 78px;
+    --installed-pregame-tax-private-height: 120px;
+    --installed-pregame-joker-width: 38px;
+    --installed-pregame-joker-height: 59px;
+  }
+
+  .game-shell.game-shell
+    .opening-rank-cards[data-card-count="4"] {
+    --installed-rank-columns: 4;
+  }
+
+  .game-shell.game-shell
+    .opening-rank-cards[data-card-count="5"] {
+    --installed-rank-columns: 5;
+  }
+
+  .game-shell.game-shell
+    .opening-rank-cards[data-card-count="6"] {
+    --installed-rank-columns: 6;
+  }
+
+  .game-shell.game-shell
+    .opening-rank-cards[data-card-count="7"] {
+    --installed-rank-columns: 7;
+  }
+
+  .game-shell.game-shell
+    .opening-rank-cards[data-card-count="8"] {
+    --installed-rank-columns: 8;
+  }
+
+  .game-shell.game-shell
+    .opening-rank-cards[data-card-count="9"] {
+    --installed-rank-columns: 9;
+  }
+
+  .game-shell.game-shell
+    .opening-rank-cards[data-card-count="10"] {
+    --installed-rank-columns: 10;
+  }
+
+  .game-shell.game-shell
+    .opening-rank-cards:is(
+      [data-card-count="7"],
+      [data-card-count="9"]
+    )
+    .opening-rank-card:nth-child(n) {
+    transform: none;
+  }
+
+  .game-shell.game-shell .opening-rank-intro {
+    width: min(360px, 74vw);
+    min-height: 126px;
+    padding: 10px 20px;
+  }
+
+  .game-shell.game-shell .opening-rank-intro::before {
+    width: min(330px, 68vw);
+    height: 112px;
+  }
+
+  .game-shell.game-shell .opening-rank-intro strong {
+    font-size: clamp(25px, 8vh, 32px);
+  }
+
+  .game-shell.game-shell .opening-rank-intro b {
+    width: 43px;
+    height: 43px;
+    margin-top: 7px;
+    font-size: 26px;
+  }
+
+  .game-shell.game-shell .opening-rank-confirmation {
+    min-height: 132px;
+    padding-block: 9px;
+  }
+
+  .game-shell.game-shell .opening-rank-confirmation-body {
+    gap: 5px;
+    margin-top: 5px;
+  }
+
+  .game-shell.game-shell .opening-rank-confirmation-copy strong {
+    font-size: clamp(24px, 8vh, 31px);
+  }
+
+  .game-shell.game-shell .hand-reveal-intro {
+    width: min(340px, 72vw);
+    min-height: 116px;
+    padding: 53px 14px 11px;
+  }
+
+  .game-shell.game-shell .hand-reveal-intro::after {
+    height: 104px;
+  }
+
+  .game-shell.game-shell .hand-reveal-intro strong {
+    font-size: 24px;
+  }
+
+  .game-shell.game-shell .phase-intro:not(.is-ready) {
+    min-height: 106px;
+    padding-block: 10px;
+  }
+
+  .game-shell.game-shell .phase-intro:not(.is-ready)::before {
+    height: 94px;
+  }
+
+  .game-shell.game-shell .phase-intro:not(.is-ready) strong {
+    font-size: clamp(25px, 8vh, 33px);
+  }
+
+  .game-shell.game-shell .revolution-announcement {
+    min-height: 126px;
+    padding-block: 12px;
+  }
+
+  .game-shell.game-shell .revolution-announcement::before {
+    height: 112px;
+  }
+
+  .game-shell.game-shell .revolution-announcement > strong {
+    font-size: clamp(29px, 9vh, 38px);
   }
 }
 

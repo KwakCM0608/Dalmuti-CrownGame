@@ -262,10 +262,10 @@ const REMOTE_ACTION_PRESENTATION_GRACE_MS = 300;
 const MAX_REMOTE_ACTION_QUEUE_LENGTH = 3;
 const TURN_DURATION_MS = 30_000;
 const RANK_MOVE_DURATION_MS = 2_300;
-const GREAT_REVOLUTION_MOVE_PRELUDE_MS = 180;
+const GREAT_REVOLUTION_MOVE_PRELUDE_MS = 0;
 const GREAT_REVOLUTION_MOVE_SETTLE_MS = 60;
-const ROUND_END_MOVE_PRELUDE_MS = 380;
-const ROUND_END_MOVE_SETTLE_MS = 520;
+const ROUND_END_MOVE_PRELUDE_MS = 0;
+const ROUND_END_MOVE_SETTLE_MS = 280;
 
 assertPresentationTimingParity("online presentation", {
   handReveal: HAND_REVEAL_PRESENTATION_MS,
@@ -1698,6 +1698,8 @@ function EventOverlayView({
         <div className={styles.revolutionJokers} aria-hidden="true">
           <span />
           <span />
+          <i />
+          <i />
         </div>
         <div className={styles.eventCenterCopy}>
           <small>{isGreatRevolution ? "GREAT REVOLUTION" : "REVOLUTION"}</small>
@@ -1937,6 +1939,21 @@ function EventOverlayView({
         className={`${styles.eventOverlay} ${styles.playOverlay} ${styles.dalmutiEffectOverlay}`}
         style={overlayStyle}
       >
+        <div className={styles.dalmutiSpectacle} aria-hidden="true">
+          <i />
+          <i />
+          {Array.from({ length: 12 }, (_, sparkIndex) => (
+            <span
+              key={sparkIndex}
+              style={
+                {
+                  "--spark-angle": `${sparkIndex * 30}deg`,
+                  "--spark-delay": `${180 + sparkIndex * 42}ms`,
+                } as CSSProperties
+              }
+            />
+          ))}
+        </div>
         <small>DALMUTI</small>
         <div className={styles.eventCards}>
           {dalmutiCards.map((card, index) => (
@@ -2720,6 +2737,7 @@ export default function OnlinePage() {
   const seatRectsRef = useRef(new Map<string, DOMRect>());
   const tableColumnRef = useRef<HTMLDivElement | null>(null);
   const tableCenterRef = useRef<HTMLDivElement | null>(null);
+  const handScrollerRef = useRef<HTMLDivElement | null>(null);
 
   const bindSeatElement = useCallback(
     (playerId: string, element: HTMLElement | null) => {
@@ -3655,6 +3673,46 @@ export default function OnlinePage() {
   );
   const concealedHandCount =
     snapshot?.dealSealed && isHandConcealed ? (me?.handCount ?? 0) : 0;
+  const desktopHandLayoutKey = isHandConcealed
+    ? `concealed:${concealedHandCount}`
+    : renderedHand.map((card) => card.id).join("|");
+
+  useLayoutEffect(() => {
+    const scroller = handScrollerRef.current;
+    if (!scroller) return;
+
+    const desktopQuery = window.matchMedia("(min-width: 821px)");
+    if (!desktopQuery.matches) return;
+
+    const centerHand = () => {
+      scroller.scrollLeft = Math.max(
+        0,
+        (scroller.scrollWidth - scroller.clientWidth) / 2,
+      );
+    };
+
+    let secondFrame: number | null = null;
+    const firstFrame = window.requestAnimationFrame(() => {
+      centerHand();
+      secondFrame = window.requestAnimationFrame(centerHand);
+    });
+    const observer = new ResizeObserver(centerHand);
+    observer.observe(scroller);
+    if (scroller.firstElementChild instanceof HTMLElement) {
+      observer.observe(scroller.firstElementChild);
+    }
+    window.addEventListener("resize", centerHand);
+
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame !== null) {
+        window.cancelAnimationFrame(secondFrame);
+      }
+      observer.disconnect();
+      window.removeEventListener("resize", centerHand);
+    };
+  }, [desktopHandLayoutKey]);
+
   const selectedCards = hand.filter((card) => selectedIds.includes(card.id));
   const selectedNormalRanks = [
     ...new Set(
@@ -4203,30 +4261,50 @@ export default function OnlinePage() {
         const deltaY = previousRect.top - nextRect.top;
         if (Math.abs(deltaX) < 1 && Math.abs(deltaY) < 1) continue;
         if (reducedMotion) continue;
+        const distance = Math.max(1, Math.hypot(deltaX, deltaY));
+        const playerIndex = tableRankedPlayers.findIndex(
+          (candidate) => candidate.id === playerId,
+        );
+        const direction = playerIndex % 2 === 0 ? 1 : -1;
+        const arc = Math.min(78, Math.max(30, distance * 0.2)) * direction;
+        const arcX = (-deltaY / distance) * arc;
+        const arcY = (deltaX / distance) * arc;
         animations.push(
           element.animate(
             [
               {
                 translate: `${deltaX}px ${deltaY}px`,
-                scale: "1",
+                scale: "0.92",
+                rotate: `${direction * -2.4}deg`,
+                opacity: 0.46,
+                filter: "brightness(0.88) saturate(0.82)",
               },
               {
-                offset: 0.3,
-                translate: `${deltaX * 0.7 + Math.sign(deltaY || 1) * 34}px ${
-                  deltaY * 0.7 - 22
+                offset: 0.46,
+                translate: `${deltaX * 0.55 + arcX}px ${
+                  deltaY * 0.55 + arcY
                 }px`,
-                scale: "1.07",
+                scale: "1.075",
+                rotate: `${direction * 1.8}deg`,
+                opacity: 1,
+                filter: "brightness(1.48) saturate(1.32)",
               },
               {
-                offset: 0.72,
-                translate: `${deltaX * 0.24 - Math.sign(deltaY || 1) * 18}px ${
-                  deltaY * 0.24 + 8
+                offset: 0.78,
+                translate: `${deltaX * 0.1 - arcX * 0.28}px ${
+                  deltaY * 0.1 - arcY * 0.28
                 }px`,
                 scale: "1.035",
+                rotate: `${direction * -0.7}deg`,
+                opacity: 1,
+                filter: "brightness(1.22) saturate(1.18)",
               },
               {
                 translate: "0 0",
                 scale: "1",
+                rotate: "0deg",
+                opacity: 1,
+                filter: "brightness(1) saturate(1)",
               },
             ],
             {
@@ -5487,7 +5565,7 @@ export default function OnlinePage() {
                 <em>{ownStatusBadge}</em>
               </div>
             )}
-            <div className={styles.handScroller}>
+            <div className={styles.handScroller} ref={handScrollerRef}>
               <div
                 className={`${styles.hand} ${
                   isHandConcealed ? styles.handConcealed : ""

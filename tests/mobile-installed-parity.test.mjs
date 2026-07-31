@@ -253,3 +253,93 @@ test("installed quick and online seats use matching exterior rails and count ali
     /Terminal installed-app seat rail[\s\S]*?\.playerSeatSelf[\s\S]*?inset 3px 0 #d5aa4e/,
   );
 });
+
+test("installed quick and online openings share fixed card geometry for every player count", () => {
+  const sharedVariables = {
+    "--installed-pregame-rank-card-width": "clamp\\(46px, 13vw, 54px\\)",
+    "--installed-pregame-rank-gap": "5px",
+    "--installed-pregame-confirm-card-width": "42px",
+    "--installed-pregame-reveal-card-width": "40px",
+    "--installed-pregame-reveal-card-height": "62px",
+    "--installed-pregame-hand-card-width": "56px",
+    "--installed-pregame-hand-card-height": "86px",
+    "--installed-pregame-tax-public-width": "72px",
+    "--installed-pregame-tax-public-height": "111px",
+    "--installed-pregame-tax-private-width": "92px",
+    "--installed-pregame-tax-private-height": "142px",
+    "--installed-pregame-joker-width": "46px",
+    "--installed-pregame-joker-height": "71px",
+  };
+
+  for (const [name, value] of Object.entries(sharedVariables)) {
+    assert.match(
+      quickStyles,
+      new RegExp(`${name}: ${value};`),
+      `missing shared installed opening variable ${name}`,
+    );
+    for (const source of [quickStyles, onlineStyles]) {
+      assert.match(
+        source,
+        new RegExp(`var\\(${name}\\)`),
+        `${name} is not consumed by both installed clients`,
+      );
+    }
+  }
+
+  assert.match(
+    quickStyles,
+    /Installed-app opening presentation[\s\S]*?\.opening-rank-cards\[data-card-count\][\s\S]*?var\(--installed-pregame-rank-card-width\)/,
+  );
+  assert.match(
+    onlineStyles,
+    /Installed-app opening presentation[\s\S]*?\.rankChoiceCards\[data-card-count\][\s\S]*?var\(--installed-pregame-rank-card-width\)/,
+  );
+
+  for (const count of [4, 5, 6, 7, 8, 9, 10]) {
+    assert.match(
+      quickStyles,
+      new RegExp(
+        `opening-rank-cards\\[data-card-count="${count}"\\][\\s\\S]{0,120}--installed-rank-columns: ${count};`,
+      ),
+      `quick short-landscape rank draw is not one fixed row at ${count} players`,
+    );
+    assert.match(
+      onlineStyles,
+      new RegExp(
+        `rankChoiceCards\\[data-card-count="${count}"\\][\\s\\S]{0,120}--installed-rank-columns: ${count};`,
+      ),
+      `online short-landscape rank draw is not one fixed row at ${count} players`,
+    );
+  }
+
+  for (const source of [quickStyles, onlineStyles]) {
+    assert.match(
+      source,
+      /display-mode: standalone[\s\S]*?display-mode: fullscreen[\s\S]*?hover: none[\s\S]*?pointer: coarse/,
+    );
+  }
+});
+
+test("desktop online hand recentres on its full dock after every hand mutation", () => {
+  assert.match(onlinePage, /const handScrollerRef = useRef<HTMLDivElement/);
+  assert.match(
+    onlinePage,
+    /const desktopHandLayoutKey[\s\S]*?useLayoutEffect\(\(\) => \{[\s\S]*?\(scroller\.scrollWidth - scroller\.clientWidth\) \/ 2[\s\S]*?\[desktopHandLayoutKey\]/,
+  );
+  assert.match(
+    onlinePage,
+    /className=\{styles\.handScroller\} ref=\{handScrollerRef\}/,
+  );
+  assert.match(
+    onlineStyles,
+    /Desktop hand parity with quick match[\s\S]*?\.gameShell \.ownDock \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/,
+  );
+  assert.match(
+    onlineStyles,
+    /\.gameShell \.ownStatus \{[\s\S]*?position: absolute;[\s\S]*?left: 13px;/,
+  );
+  assert.match(
+    onlineStyles,
+    /\.gameShell \.ownDock > \.handScroller \.hand \{[\s\S]*?min-width: 100%;[\s\S]*?justify-content: center;/,
+  );
+});
