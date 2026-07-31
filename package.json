@@ -15,6 +15,7 @@
     "rl:evaluate": "node scripts/rl-evaluate.mjs",
     "rl:evaluate-model": "node scripts/rl-evaluate-model.mjs",
     "rl:benchmark-model": "node scripts/rl-benchmark-model.mjs",
+    "rl:compare-models": "node scripts/rl-compare-models.mjs",
     "rl:verify-result": "node scripts/rl-verify-training-result.mjs",
     "rl:rollouts": "node scripts/rl-generate-rollouts.mjs",
     "rl:dagger": "node scripts/rl-generate-dagger.mjs",
