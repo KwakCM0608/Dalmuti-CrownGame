@@ -440,6 +440,10 @@ test("quick and online hands preserve every assigned face-down slot through reve
   assert.match(quickStyles, /\.hand-reveal-slot\s*\{/);
   assert.match(
     quickStyles,
+    /\.hand\.is-concealed \.hand-reveal-slot\s*\{[^}]*animation: handBackDeal 520ms ease both;[^}]*var\(--hand-reveal-index, 0\) \* 30ms/s,
+  );
+  assert.match(
+    quickStyles,
     /animation: handCardReveal 0\.84s[\s\S]{0,160}var\(--hand-reveal-index, 0\) \* 26ms/,
   );
 

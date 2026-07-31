@@ -3504,6 +3504,11 @@ button:focus-visible {
   user-select: none;
 }
 
+.hand.is-concealed .hand-reveal-slot {
+  animation: handBackDeal 520ms ease both;
+  animation-delay: calc(var(--hand-reveal-index, 0) * 30ms);
+}
+
 .hand.is-concealed .playing-card,
 .hand.is-revealing .playing-card {
   pointer-events: none;
@@ -3544,6 +3549,13 @@ button:focus-visible {
 
 .hand.is-revealing .playing-card-back {
   animation: looseCardBackReveal 1.2s cubic-bezier(0.34, 0.02, 0.2, 1) both;
+}
+
+@keyframes handBackDeal {
+  from {
+    opacity: 0;
+    transform: translateY(45px) rotate(3deg);
+  }
 }
 
 @keyframes handCardReveal {

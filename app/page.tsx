@@ -3950,6 +3950,11 @@ export default function Home() {
                     <span
                       key={`human-hand-slot-${cardIndex}`}
                       className="hand-reveal-slot"
+                      style={
+                        {
+                          "--hand-reveal-index": cardIndex,
+                        } as React.CSSProperties
+                      }
                     >
                       {isHandConcealed ? (
                         <span
