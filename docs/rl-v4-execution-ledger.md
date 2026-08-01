@@ -473,3 +473,79 @@ not authorize product integration or deployment.
 - No final-reservation seed is consumed until a candidate passes two fresh
   development families with the stricter all-p gates `+0.30` mean chip
   difference, `+0.20` clustered 95% lower bound, and `0.57` pairwise rate.
+
+## Fixed-identity PPO preflight evidence and remote-run amendment
+
+The following work validates the production plan without changing its data,
+training, screening, or promotion thresholds.
+
+- The first remote directory,
+  `/home/pangmin/dalmuti/v4-fixedid-ppo-i001-s530000001-run-001`, was created,
+  but its initial source transfer reset before extraction. No rollout, merge,
+  training, or evaluation process started there. Ten subsequent key-based SSH
+  probes to `220.70.2.226:2222` all timed out before authentication. The
+  directory is preserved as abandoned evidence and must not be reused. The
+  next remote attempt uses the fresh suffix `run-002`.
+- A real p4-p10 local smoke exposed that JSON `sort_keys=True` serializes
+  `matchCounts` as p10,p4,... while the strict loader previously trusted map
+  insertion order. Commit `6da5a8d` now validates the exact p4-p10 key set
+  independently of input order, reconstructs numeric order, and reloads its
+  own strict merged artifact. The focused collector suite passed `19/19`; the
+  then-current V4 suite passed `174/174` with five optional skips.
+- The local end-to-end CPU smoke preserved 7 complete matches, 35 learner-act
+  trajectories, and 769 samples. Merged NPZ SHA-256 is
+  `9c83ae70f6efb8f809704071d5a83911d309fb0967a3b80a83b2808dab37b333`;
+  canonical plan SHA-256 is
+  `62c7a2236b4f3e3e7414b313179cf10c0064d99ba2423b18554c025cd2b64573`.
+  One 18-step CPU epoch passed the full initial-policy replay with maximum
+  absolute selected-log-probability error `4.0531158e-6`.
+- A larger local CPU pilot preserved 28 complete matches, 140 learner-act
+  trajectories, and 3,007 samples. Merged NPZ SHA-256 is
+  `692969eac71b7c557168d9ca82be3376e222e008e44eed7c8e685641d9c0b221`;
+  canonical plan SHA-256 is
+  `b262becc4bf0b25d3c08823f6e03f23e4de64d7223e72fe7a549fd1ad46b0d7e`.
+  Its production-hyperparameter CPU epoch completed 70 optimizer steps. An
+  independent full-policy replay measured final KL `0.00226305`, clip
+  fraction `0.0789652`, entropy `0.472475`, and maximum absolute log ratio
+  `0.489123`, demonstrating that the earlier streaming minibatch diagnostics
+  were not a sufficient final-policy gate.
+- Fixed-identity training now performs a full FP32 Actor replay after every
+  epoch. Non-forced PPO rows use the exact p4-p10 equal-weight reduction in
+  float64; forced singleton rows are reported separately. The final Actor
+  KL, clip fraction, entropy, entropy retention, per-player-count evidence,
+  and maximum log ratio replace the streaming values used by stop decisions.
+  The old streaming values remain only under `optimizationPassDiagnostics`.
+- The versioned post-epoch audit is bound through metrics, checkpoint,
+  `latest.json`, resume, candidate manifest, and result. It includes a
+  deterministic, canonical little-endian semantic Actor-state SHA-256; exact
+  forced-row counts by player count; CUDA/CPU audit batch selection; and the
+  fixed checkpoint RNG contract. Every new fixed checkpoint has an atomically
+  written `.pt.sha256` sidecar, and both explicit and `latest` resume verify
+  the whole checkpoint before deserialization. Fixed checkpoints preserve CPU
+  Torch, all CUDA-device, NumPy, and Python RNG state. Resume rejects
+  Actor-state splicing, stale checkpoint bytes, missing or type-changed
+  training settings, altered p-specific forced evidence, and incompatible
+  CUDA RNG state. Failed resume and full replay restore Actor mode, model
+  weights, and every optimizer RNG source transactionally. Legacy BC/DAGGER
+  checkpoint shape and explicit-resume compatibility remain unchanged.
+  `resume=latest` additionally accepts only the exact canonical
+  `checkpoints/epoch-N.pt` path derived from the recorded epoch and proves the
+  resolved file remains inside that run's checkpoint directory before any
+  checksum lookup or PyTorch deserialization.
+- A same-seed local diagnostic rerun completed in `1,291.8` seconds. Its
+  optimization-pass metrics matched the earlier pilot within approximately
+  `2e-8`, and its final replay measured KL `0.002263054`, clip fraction
+  `0.0789652`, and entropy `0.472475`. The two CPU runs used different thread
+  execution environments and therefore were not tensor-byte identical
+  (maximum parameter difference `0.00013943`). The rerun also began before
+  the final Actor-state/RNG binding patch loaded, so it is diagnostic evidence
+  only and cannot be promoted or resumed as the production candidate.
+- After the final audit and resume hardening, the focused balance/training
+  tests pass `17/17` and the complete V4 suite passes `180/180` with five
+  CUDA-only skips on this CPU host. Python static compilation and
+  `git diff --check` pass.
+- The source archive prepared from commit `6da5a8d` predates the final audit
+  hardening and is stale. A new compact archive and checksum must be generated
+  from the final committed source before any `run-002` transfer. No candidate
+  from this preflight has been evaluated against Normal, integrated into the
+  game, or deployed.

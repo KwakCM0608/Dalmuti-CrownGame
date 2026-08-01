@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import fields
+import hashlib
 from itertools import combinations
 import json
 import math
 from pathlib import Path
+import random
+import sys
 import tempfile
 import unittest
 from unittest import mock
 
+import numpy as np
 import torch
 
 from v4_dataset import (
@@ -23,16 +27,26 @@ from v4_dataset import (
     create_v4_smoke_dataset,
 )
 from v4_collect_ppo import masked_categorical_probabilities
-from v4_export import export_v4_actor_bundle
+from v4_export import (
+    canonical_json_bytes,
+    export_v4_actor_bundle,
+    load_v4_actor_checkpoint,
+    sha256_file,
+)
 from v4_model import V4ActorConfig, V4CriticConfig, V4PublicActor
 from v4_objectives import masked_behavior_cloning_loss as real_bc_loss
 from v4_train import (
     V4TrainingConfig,
+    _actor_state_sha256,
     _audit_initial_policy_reproduction,
     _balanced_batch_estimator_multiplier,
     _parser,
     _player_count_balance_contract,
+    _policy_audit_batch_size,
     _resolve_training_contract,
+    _resolve_resume,
+    _resume_training,
+    _validated_checkpoint_cuda_rng_states,
     train_v4,
 )
 
@@ -243,6 +257,20 @@ def export_bound_actor(
     return actor, bundle, str(manifest["files"]["actor.pt"]["sha256"])
 
 
+def save_checkpoint_with_sidecar(
+    path: Path,
+    payload: object,
+    *,
+    sidecar_checksum: str | None = None,
+) -> None:
+    torch.save(payload, path)
+    checksum = sidecar_checksum or sha256_file(path)
+    path.with_name(f"{path.name}.sha256").write_text(
+        f"{checksum}  {path.name}\n",
+        encoding="ascii",
+    )
+
+
 class V4BalancedTrainingTests(unittest.TestCase):
     def test_balance_counts_exclude_forced_actor_rows_but_not_critic(self) -> None:
         dataset = fixed_dataset(
@@ -429,12 +457,46 @@ class V4BalancedTrainingTests(unittest.TestCase):
                 behavior_actor=actor,
                 behavior_actor_sha256=actor_sha,
             )
+            torch.manual_seed(123456)
+            np.random.seed(234567)
+            random.seed(345678)
+            torch_rng_before = torch.get_rng_state().clone()
+            numpy_rng_before = np.random.get_state()
+            python_rng_before = random.getstate()
+            actor_state_before = {
+                name: tensor.detach().clone()
+                for name, tensor in actor.state_dict().items()
+            }
             audit = _audit_initial_policy_reproduction(
                 actor,
                 dataset,
                 device=torch.device("cpu"),
                 batch_size=3,
                 num_workers=0,
+            )
+            self.assertTrue(torch.equal(torch_rng_before, torch.get_rng_state()))
+            numpy_rng_after = np.random.get_state()
+            self.assertEqual(numpy_rng_before[0], numpy_rng_after[0])
+            self.assertTrue(
+                np.array_equal(numpy_rng_before[1], numpy_rng_after[1])
+            )
+            self.assertEqual(numpy_rng_before[2:], numpy_rng_after[2:])
+            self.assertEqual(python_rng_before, random.getstate())
+            for name, tensor in actor.state_dict().items():
+                self.assertTrue(torch.equal(actor_state_before[name], tensor))
+            self.assertFalse(actor.training)
+            actor.train()
+            training_mode_audit = _audit_initial_policy_reproduction(
+                actor,
+                dataset,
+                device=torch.device("cpu"),
+                batch_size=3,
+                num_workers=0,
+            )
+            self.assertTrue(actor.training)
+            self.assertEqual(
+                training_mode_audit["maximumAbsoluteLogProbabilityError"],
+                audit["maximumAbsoluteLogProbabilityError"],
             )
             self.assertEqual(audit["ppoEligibleRowCount"], sum(lengths))
             self.assertLessEqual(
@@ -446,6 +508,7 @@ class V4BalancedTrainingTests(unittest.TestCase):
             )
             self.assertFalse(audit["actorAutocastEnabled"])
             self.assertEqual(audit["actorForwardDtype"], "torch.float32")
+            self.assertEqual(audit["auditBatchSize"], 3)
 
             dataset.tensors.old_action_log_probs[0, 0] += 1.0e-3
             output = root / "reproduction-rejected"
@@ -457,6 +520,372 @@ class V4BalancedTrainingTests(unittest.TestCase):
                     initialize_actor_bundle=bundle,
                 )
             self.assertFalse(output.exists())
+
+    def test_policy_audit_batch_selection_is_device_bound(self) -> None:
+        config = V4TrainingConfig(batch_size=3, amp=False)
+        self.assertEqual(
+            _policy_audit_batch_size(config, torch.device("cpu")), 3
+        )
+        self.assertEqual(
+            _policy_audit_batch_size(config, torch.device("cuda")), 64
+        )
+
+    def test_actor_state_sha_is_order_stable_and_x86_byte_compatible(self) -> None:
+        torch.manual_seed(820)
+        actor_config, _ = tiny_configs()
+        actor = V4PublicActor(actor_config)
+        state = actor.state_dict()
+        actual = _actor_state_sha256(state)
+        self.assertEqual(
+            actual,
+            _actor_state_sha256(dict(reversed(list(state.items())))),
+        )
+        if sys.byteorder == "little":
+            digest = hashlib.sha256()
+            digest.update(b"dalmuti-v4-actor-state-v1\0")
+            for name in sorted(state):
+                tensor = state[name].detach().cpu().contiguous()
+                metadata = canonical_json_bytes(
+                    {
+                        "name": name,
+                        "dtype": str(tensor.dtype),
+                        "shape": list(tensor.shape),
+                    }
+                )
+                raw = tensor.reshape(-1).view(torch.uint8).numpy().tobytes()
+                digest.update(len(metadata).to_bytes(8, "big"))
+                digest.update(metadata)
+                digest.update(len(raw).to_bytes(8, "big"))
+                digest.update(raw)
+            self.assertEqual(actual, digest.hexdigest())
+
+    def test_cuda_rng_state_count_is_validated_before_restore(self) -> None:
+        states = [torch.arange(8, dtype=torch.uint8) for _ in range(2)]
+        with mock.patch("torch.cuda.device_count", return_value=2):
+            restored = _validated_checkpoint_cuda_rng_states(
+                states, torch.device("cuda")
+            )
+            assert restored is not None
+            self.assertEqual(len(restored), 2)
+            with self.assertRaisesRegex(ValueError, "CUDA RNG states"):
+                _validated_checkpoint_cuda_rng_states(
+                    states[:1], torch.device("cuda")
+                )
+        self.assertIsNone(
+            _validated_checkpoint_cuda_rng_states(None, torch.device("cpu"))
+        )
+        with self.assertRaisesRegex(ValueError, "CPU fixed"):
+            _validated_checkpoint_cuda_rng_states(states, torch.device("cpu"))
+
+    def test_resume_rng_transaction_rolls_back_every_rng_on_exception(self) -> None:
+        torch.manual_seed(821)
+        np.random.seed(822)
+        random.seed(823)
+        torch_before = torch.get_rng_state().clone()
+        numpy_before = np.random.get_state()
+        python_before = random.getstate()
+        cuda_holder = [torch.arange(16, dtype=torch.uint8)]
+        cuda_before = [state.clone() for state in cuda_holder]
+
+        def get_cuda_states():
+            return [state.clone() for state in cuda_holder]
+
+        def set_cuda_states(states):
+            cuda_holder[:] = [state.clone() for state in states]
+
+        def fail_after_mutating_rng(*args, **kwargs):
+            torch.manual_seed(999)
+            np.random.seed(998)
+            random.seed(997)
+            set_cuda_states([torch.full((16,), 7, dtype=torch.uint8)])
+            raise ValueError("synthetic resume failure")
+
+        with (
+            mock.patch("torch.cuda.is_available", return_value=True),
+            mock.patch(
+                "torch.cuda.get_rng_state_all", side_effect=get_cuda_states
+            ),
+            mock.patch(
+                "torch.cuda.set_rng_state_all", side_effect=set_cuda_states
+            ),
+            mock.patch(
+                "v4_train._resume_training_impl",
+                side_effect=fail_after_mutating_rng,
+            ),
+        ):
+            with self.assertRaisesRegex(ValueError, "synthetic resume"):
+                _resume_training(
+                    Path("unused.pt"),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    V4TrainingConfig(amp=False),
+                    torch.device("cpu"),
+                )
+        self.assertTrue(torch.equal(torch_before, torch.get_rng_state()))
+        numpy_after = np.random.get_state()
+        self.assertEqual(numpy_before[0], numpy_after[0])
+        self.assertTrue(np.array_equal(numpy_before[1], numpy_after[1]))
+        self.assertEqual(numpy_before[2:], numpy_after[2:])
+        self.assertEqual(python_before, random.getstate())
+        self.assertTrue(torch.equal(cuda_before[0], cuda_holder[0]))
+
+    def test_latest_checkpoint_path_and_record_are_canonical_before_io(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            actor, bundle, actor_sha = export_bound_actor(root, seed=824)
+            dataset = fixed_dataset(
+                list(range(4, 11)),
+                behavior_actor=actor,
+                behavior_actor_sha256=actor_sha,
+            )
+            output = root / "latest-path"
+            train_v4(
+                dataset,
+                output,
+                fixed_training_config(
+                    epochs=1,
+                    batch_size=7,
+                    amp=False,
+                    seed=825,
+                ),
+                initialize_actor_bundle=bundle,
+            )
+            latest_path = output / "latest.json"
+            original = json.loads(latest_path.read_text(encoding="utf-8"))
+            checkpoint = output / original["checkpoint"]
+            legacy_shaped = {
+                key: value
+                for key, value in original.items()
+                if key
+                in {
+                    "format",
+                    "version",
+                    "completedEpoch",
+                    "globalStep",
+                    "datasetFingerprint",
+                    "lossContractFingerprint",
+                    "checkpoint",
+                    "sha256",
+                }
+            }
+            cases = (
+                (
+                    "parent",
+                    {**original, "checkpoint": "checkpoints/../checkpoints/epoch-0001.pt"},
+                    "path is not canonical",
+                    True,
+                ),
+                (
+                    "absolute",
+                    {**original, "checkpoint": checkpoint.resolve().as_posix()},
+                    "path is not canonical",
+                    True,
+                ),
+                (
+                    "backslash",
+                    {**original, "checkpoint": "checkpoints\\epoch-0001.pt"},
+                    "path is not canonical",
+                    True,
+                ),
+                (
+                    "alternate",
+                    {**original, "checkpoint": "checkpoints/alternate.pt"},
+                    "path is not canonical",
+                    True,
+                ),
+                (
+                    "extra-key",
+                    {**original, "unexpected": True},
+                    "key set",
+                    True,
+                ),
+                (
+                    "missing-key",
+                    {key: value for key, value in original.items() if key != "globalStep"},
+                    "key set",
+                    True,
+                ),
+                (
+                    "bool-epoch",
+                    {**original, "completedEpoch": True},
+                    "fields are non-canonical",
+                    True,
+                ),
+                (
+                    "bool-step",
+                    {**original, "globalStep": True},
+                    "fields are non-canonical",
+                    True,
+                ),
+                (
+                    "fixed-as-legacy",
+                    original,
+                    "variant does not match",
+                    False,
+                ),
+                (
+                    "legacy-as-fixed",
+                    legacy_shaped,
+                    "variant does not match",
+                    True,
+                ),
+                (
+                    "balance-sha-type",
+                    {**original, "balanceContractFingerprint": 1},
+                    "fingerprints are non-canonical",
+                    True,
+                ),
+                (
+                    "fixed-plan-uppercase",
+                    {
+                        **original,
+                        "fixedCollectionPlanSha256": original[
+                            "fixedCollectionPlanSha256"
+                        ].upper(),
+                    },
+                    "fingerprints are non-canonical",
+                    True,
+                ),
+                (
+                    "execution-sha-short",
+                    {**original, "fixedPpoExecutionContractFingerprint": "0" * 63},
+                    "fingerprints are non-canonical",
+                    True,
+                ),
+                (
+                    "initial-audit-not-object",
+                    {**original, "initialPolicyReproductionAudit": []},
+                    "initial policy reproduction audit must be an object",
+                    True,
+                ),
+                (
+                    "initial-audit-fingerprint-type",
+                    {**original, "initialPolicyReproductionAuditFingerprint": False},
+                    "fingerprints are non-canonical",
+                    True,
+                ),
+                (
+                    "rng-contract-bool",
+                    {**original, "fixedCheckpointRngContractVersion": True},
+                    "RNG contract version is non-canonical",
+                    True,
+                ),
+                (
+                    "rng-contract-version",
+                    {**original, "fixedCheckpointRngContractVersion": 2},
+                    "RNG contract version is non-canonical",
+                    True,
+                ),
+                (
+                    "cuda-count-bool",
+                    {**original, "cudaRngStateCount": False},
+                    "CUDA RNG state count is non-canonical",
+                    True,
+                ),
+                (
+                    "cuda-count-negative",
+                    {**original, "cudaRngStateCount": -1},
+                    "CUDA RNG state count is non-canonical",
+                    True,
+                ),
+                (
+                    "post-contract-uppercase",
+                    {
+                        **original,
+                        "postEpochPolicyDriftAuditContractFingerprint": (
+                            original[
+                                "postEpochPolicyDriftAuditContractFingerprint"
+                            ].upper()
+                        ),
+                    },
+                    "fingerprints are non-canonical",
+                    True,
+                ),
+                (
+                    "post-audit-not-object",
+                    {**original, "postEpochPolicyDriftAudit": []},
+                    "post-epoch policy drift audit must be an object",
+                    True,
+                ),
+                (
+                    "post-audit-fingerprint-type",
+                    {**original, "postEpochPolicyDriftAuditFingerprint": None},
+                    "fingerprints are non-canonical",
+                    True,
+                ),
+            )
+            for label, tampered, pattern, require_sidecar in cases:
+                with self.subTest(label=label):
+                    latest_path.write_text(
+                        json.dumps(
+                            tampered, sort_keys=True, separators=(",", ":")
+                        ),
+                        encoding="utf-8",
+                    )
+                    with (
+                        mock.patch("v4_train.sha256_file") as checksum,
+                        mock.patch(
+                            "v4_train._verify_checkpoint_sha256_sidecar"
+                        ) as sidecar,
+                        mock.patch("v4_train._torch_load") as torch_load,
+                    ):
+                        with self.assertRaisesRegex(ValueError, pattern):
+                            _resolve_resume(
+                                output,
+                                "latest",
+                                require_checkpoint_sidecar=require_sidecar,
+                            )
+                        checksum.assert_not_called()
+                        sidecar.assert_not_called()
+                        torch_load.assert_not_called()
+            latest_path.write_text(
+                json.dumps(original, sort_keys=True, separators=(",", ":")),
+                encoding="utf-8",
+            )
+            alias_cases = (
+                ("checkpoints-junction", (output / "checkpoints").resolve()),
+                ("epoch-symlink", checkpoint.resolve()),
+            )
+            for label, aliased_path in alias_cases:
+                with self.subTest(label=label):
+                    with (
+                        mock.patch(
+                            "v4_train._path_is_link_or_reparse_alias",
+                            side_effect=lambda path, target=aliased_path: (
+                                path == target
+                            ),
+                        ),
+                        mock.patch("v4_train.sha256_file") as checksum,
+                        mock.patch(
+                            "v4_train._verify_checkpoint_sha256_sidecar"
+                        ) as sidecar,
+                        mock.patch("v4_train._torch_load") as torch_load,
+                    ):
+                        with self.assertRaisesRegex(ValueError, "path alias"):
+                            _resolve_resume(
+                                output,
+                                "latest",
+                                require_checkpoint_sidecar=True,
+                            )
+                        checksum.assert_not_called()
+                        sidecar.assert_not_called()
+                        torch_load.assert_not_called()
+            latest_path.write_text(
+                json.dumps(original, sort_keys=True, separators=(",", ":")),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                _resolve_resume(
+                    output,
+                    "latest",
+                    require_checkpoint_sidecar=True,
+                ),
+                checkpoint.resolve(),
+            )
 
     def test_missing_player_count_qboost_and_mixed_sources_fail_before_output(self) -> None:
         valid_counts = [player_count for player_count in range(4, 11) for _ in range(2)]
@@ -595,6 +1024,32 @@ class V4BalancedTrainingTests(unittest.TestCase):
                     output / "checkpoints" / "epoch-0001.pt",
                     map_location="cpu",
                 )
+            self.assertFalse(
+                (output / "checkpoints" / "epoch-0001.pt.sha256").exists()
+            )
+            self.assertEqual(
+                _resolve_resume(
+                    output,
+                    "latest",
+                    require_checkpoint_sidecar=False,
+                ),
+                (output / "checkpoints" / "epoch-0001.pt").resolve(),
+            )
+            legacy_resumed = train_v4(
+                dataset,
+                output,
+                V4TrainingConfig(
+                    epochs=2,
+                    batch_size=1,
+                    amp=False,
+                    seed=827,
+                ),
+                resume=output / "checkpoints" / "epoch-0001.pt",
+            )
+            self.assertEqual(legacy_resumed["completedEpochs"], 2)
+            self.assertFalse(
+                (output / "checkpoints" / "epoch-0002.pt.sha256").exists()
+            )
         self.assertTrue(observed_weights)
         self.assertTrue(all(value is None for value in observed_weights))
         self.assertNotIn("playerCountBalancedLoss", manifest["trainingContract"])
@@ -609,6 +1064,9 @@ class V4BalancedTrainingTests(unittest.TestCase):
         )
         self.assertNotIn("initialPolicyReproductionAudit", latest)
         self.assertNotIn("initialPolicyReproductionAudit", checkpoint)
+        self.assertNotIn("postEpochPolicyDriftAudit", manifest["trainingContract"])
+        self.assertNotIn("postEpochPolicyDriftAudit", latest)
+        self.assertNotIn("postEpochPolicyDriftAudit", checkpoint)
 
     def test_epoch_diagnostic_is_one_global_weighted_reduction(self) -> None:
         player_counts = [
@@ -662,6 +1120,15 @@ class V4BalancedTrainingTests(unittest.TestCase):
                     output / "checkpoints" / "epoch-0001.pt",
                     map_location="cpu",
                 )
+            candidate_actor, _ = load_v4_actor_checkpoint(
+                output / "candidate" / "actor.pt"
+            )
+            candidate_actor_state_sha256 = _actor_state_sha256(
+                candidate_actor.state_dict()
+            )
+            checkpoint_sidecar = (
+                output / "checkpoints" / "epoch-0001.pt.sha256"
+            ).read_text(encoding="ascii")
         training_contract = result["trainingContract"]
         balance = training_contract["playerCountBalancedLoss"]
         self.assertEqual(training_contract["version"], 3)
@@ -681,9 +1148,24 @@ class V4BalancedTrainingTests(unittest.TestCase):
                 "actorAutocastEnabled"
             ]
         )
+        post_contract = training_contract["postEpochPolicyDriftAuditContract"]
+        self.assertEqual(post_contract["auditBatchSize"], 4)
+        self.assertEqual(
+            post_contract["auditBatchSelectionRule"],
+            "cuda uses fixed 64; cpu uses trainingConfig.batch_size",
+        )
+        self.assertTrue(post_contract["auditMustNotMutateOptimizationRngOrWeights"])
+        self.assertEqual(
+            post_contract["actorModeRestoration"],
+            "restore exact pre-audit actor.training boolean in finally",
+        )
+        self.assertEqual(post_contract["checkpointRngContractVersion"], 1)
+        self.assertEqual(post_contract["actorStateSha256ContractVersion"], 1)
         audit = training_contract["initialPolicyReproductionAudit"]
         self.assertTrue(audit["passed"])
         self.assertGreater(audit["ppoEligibleRowCount"], 0)
+        self.assertGreater(audit["effectiveNonforcedPpoRowCount"], 0)
+        self.assertGreater(audit["nonforcedBalancedEntropy"], 0.0)
         self.assertIn("maximumAbsoluteLogProbabilityError", audit)
         self.assertIn("meanAbsoluteLogProbabilityError", audit)
         for record in (latest, checkpoint):
@@ -699,6 +1181,14 @@ class V4BalancedTrainingTests(unittest.TestCase):
                     "initialPolicyReproductionAuditFingerprint"
                 ],
             )
+        self.assertIsNone(checkpoint["cudaRngStates"])
+        self.assertEqual(checkpoint["fixedCheckpointRngContractVersion"], 1)
+        self.assertEqual(latest["cudaRngStateCount"], 0)
+        self.assertEqual(latest["fixedCheckpointRngContractVersion"], 1)
+        self.assertEqual(
+            checkpoint_sidecar,
+            f'{latest["sha256"]}  epoch-0001.pt\n',
+        )
         self.assertEqual(training_contract["ppoRewardContracts"], [FIXED_REWARD_ID])
         self.assertEqual(
             training_contract["ppoBehaviorPolicyContracts"],
@@ -723,6 +1213,71 @@ class V4BalancedTrainingTests(unittest.TestCase):
             for player_count in counts
         )
         metric = result["metrics"][0]
+        post_audit = metric["postEpochPolicyDriftAudit"]
+        post_fingerprint = metric["postEpochPolicyDriftAuditFingerprint"]
+        self.assertEqual(metric["approxKl"], post_audit["approxKl"])
+        self.assertEqual(metric["clipFraction"], post_audit["clipFraction"])
+        self.assertEqual(metric["entropy"], post_audit["entropy"])
+        self.assertEqual(post_audit["auditBatchSize"], 4)
+        self.assertIn("approxKl", metric["optimizationPassDiagnostics"])
+        self.assertIn("clipFraction", metric["optimizationPassDiagnostics"])
+        self.assertIn("entropy", metric["optimizationPassDiagnostics"])
+        self.assertEqual(
+            post_audit["initialBehaviorEntropy"],
+            audit["nonforcedBalancedEntropy"],
+        )
+        self.assertAlmostEqual(
+            post_audit["entropyRetentionRatio"],
+            post_audit["entropy"] / post_audit["initialBehaviorEntropy"],
+            places=12,
+        )
+        self.assertEqual(
+            post_audit["entropyCollapseExceeds30Percent"],
+            post_audit["entropyCollapseFraction"] > 0.30,
+        )
+        ppo_masses = balance["runtimeWeightMassByLossAndPlayerCount"]["ppo"]
+        total_ppo_mass = sum(ppo_masses.values())
+        for name in (
+            "approxKl",
+            "clipFraction",
+            "entropy",
+            "meanLogRatio",
+            "meanAbsoluteLogRatio",
+        ):
+            reconstructed = sum(
+                post_audit["perPlayerCount"][key][name] * ppo_masses[key]
+                for key in ppo_masses
+            ) / total_ppo_mass
+            self.assertAlmostEqual(post_audit[name], reconstructed, places=12)
+        for record in (latest, checkpoint):
+            self.assertEqual(record["postEpochPolicyDriftAudit"], post_audit)
+            self.assertEqual(
+                record["postEpochPolicyDriftAuditFingerprint"],
+                post_fingerprint,
+            )
+            self.assertEqual(
+                record["postEpochPolicyDriftAuditContractFingerprint"],
+                training_contract[
+                    "postEpochPolicyDriftAuditContractFingerprint"
+                ],
+            )
+        self.assertEqual(result["finalPostEpochPolicyDriftAudit"], post_audit)
+        self.assertEqual(
+            result["finalPostEpochPolicyDriftAuditFingerprint"],
+            post_fingerprint,
+        )
+        candidate_metadata = result["candidate"]["metadata"]
+        self.assertEqual(
+            candidate_metadata["finalPostEpochPolicyDriftAudit"], post_audit
+        )
+        self.assertEqual(
+            candidate_metadata["finalPostEpochPolicyDriftAuditFingerprint"],
+            post_fingerprint,
+        )
+        self.assertEqual(
+            post_audit["actorStateSha256"],
+            candidate_actor_state_sha256,
+        )
         self.assertAlmostEqual(
             metric["behaviorCloningLoss"],
             expected_numerator / expected_denominator,
@@ -742,12 +1297,62 @@ class V4BalancedTrainingTests(unittest.TestCase):
             balance["runtimeWeightMassByLossAndPlayerCount"],
         )
 
+    def test_post_epoch_audit_excludes_forced_rows_and_keeps_p_equal_evidence(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            actor, bundle, actor_sha = export_bound_actor(root, seed=834)
+            dataset = fixed_dataset(
+                list(range(4, 11)),
+                lengths=[2] * 7,
+                force_first_row=True,
+                behavior_actor=actor,
+                behavior_actor_sha256=actor_sha,
+            )
+            result = train_v4(
+                dataset,
+                root / "forced-evidence",
+                fixed_training_config(
+                    epochs=1,
+                    batch_size=7,
+                    amp=False,
+                    seed=835,
+                ),
+                initialize_actor_bundle=bundle,
+            )
+        initial = result["trainingContract"]["initialPolicyReproductionAudit"]
+        post = result["metrics"][0]["postEpochPolicyDriftAudit"]
+        self.assertEqual(initial["ppoEligibleRowCount"], 14)
+        self.assertEqual(initial["effectiveNonforcedPpoRowCount"], 7)
+        self.assertEqual(initial["forcedSingletonPpoRowCount"], 7)
+        self.assertEqual(post["ppoEligibleRowCount"], 14)
+        self.assertEqual(post["effectiveNonforcedPpoRowCount"], 7)
+        self.assertEqual(post["forcedSingletonPpoRowCount"], 7)
+        self.assertLessEqual(
+            post["forcedMaximumAbsoluteLogRatio"], 2.0e-5
+        )
+        for player_count in range(4, 11):
+            key = str(player_count)
+            self.assertEqual(post["nonforcedRowsByPlayerCount"][key], 1)
+            self.assertEqual(post["forcedSingletonRowsByPlayerCount"][key], 1)
+            self.assertEqual(post["perPlayerCount"][key]["count"], 1)
+        self.assertAlmostEqual(
+            post["maximumAbsoluteLogRatio"],
+            max(
+                record["maximumAbsoluteLogRatio"]
+                for record in post["perPlayerCount"].values()
+            ),
+            places=12,
+        )
+
     def test_resume_is_bound_to_balance_contract_fingerprint(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             actor, bundle, actor_sha = export_bound_actor(root, seed=838)
             dataset = fixed_dataset(
                 list(range(4, 11)),
+                force_first_row=True,
                 behavior_actor=actor,
                 behavior_actor_sha256=actor_sha,
             )
@@ -764,6 +1369,9 @@ class V4BalancedTrainingTests(unittest.TestCase):
                 initialize_actor_bundle=bundle,
             )
             checkpoint_path = output / "checkpoints" / "epoch-0001.pt"
+            epoch_one_metric_bytes = (
+                output / "metrics" / "epoch-0001.json"
+            ).read_bytes()
             try:
                 checkpoint = torch.load(
                     checkpoint_path,
@@ -776,12 +1384,46 @@ class V4BalancedTrainingTests(unittest.TestCase):
                 checkpoint["balanceContractFingerprint"],
                 result["trainingContract"]["balanceContractFingerprint"],
             )
+            original_checkpoint_sha256 = sha256_file(checkpoint_path)
+            stale_checksum_mutations = {
+                "critic": ("criticState", {}),
+                "optimizer": ("actorOptimizerState", {}),
+                "scaler": ("scalerState", {"tampered": True}),
+                "rng": (
+                    "torchRngState",
+                    checkpoint["torchRngState"].clone(),
+                ),
+            }
+            stale_checksum_mutations["rng"][1][0] ^= 1
+            for label, (field, replacement) in stale_checksum_mutations.items():
+                checksum_tampered = dict(checkpoint)
+                checksum_tampered[field] = replacement
+                tampered_checksum_path = (
+                    output / "checkpoints" / f"tampered-checksum-{label}.pt"
+                )
+                save_checkpoint_with_sidecar(
+                    tampered_checksum_path,
+                    checksum_tampered,
+                    sidecar_checksum=original_checkpoint_sha256,
+                )
+                with self.assertRaisesRegex(ValueError, "sidecar checksum"):
+                    train_v4(
+                        dataset,
+                        output,
+                        fixed_training_config(
+                            epochs=2,
+                            batch_size=7,
+                            amp=False,
+                            seed=839,
+                        ),
+                        resume=tampered_checksum_path,
+                    )
             original_balance_fingerprint = checkpoint[
                 "balanceContractFingerprint"
             ]
             checkpoint["balanceContractFingerprint"] = "0" * 64
             tampered = output / "checkpoints" / "tampered.pt"
-            torch.save(checkpoint, tampered)
+            save_checkpoint_with_sidecar(tampered, checkpoint)
             with self.assertRaisesRegex(ValueError, "balance contract"):
                 train_v4(
                     dataset,
@@ -800,7 +1442,7 @@ class V4BalancedTrainingTests(unittest.TestCase):
             )
             checkpoint["fixedCollectionPlanSha256"] = "0" * 64
             tampered_plan = output / "checkpoints" / "tampered-plan.pt"
-            torch.save(checkpoint, tampered_plan)
+            save_checkpoint_with_sidecar(tampered_plan, checkpoint)
             with self.assertRaisesRegex(ValueError, "fixed collection plan"):
                 train_v4(
                     dataset,
@@ -815,9 +1457,244 @@ class V4BalancedTrainingTests(unittest.TestCase):
                 )
 
             checkpoint["fixedCollectionPlanSha256"] = FIXED_PLAN_SHA256
+            original_actor_state = checkpoint["actorState"]
+            tampered_actor_state = dict(original_actor_state)
+            first_actor_state_name = next(
+                name
+                for name, tensor in tampered_actor_state.items()
+                if tensor.is_floating_point()
+            )
+            tampered_actor_tensor = tampered_actor_state[
+                first_actor_state_name
+            ].clone()
+            tampered_actor_tensor.reshape(-1)[0] += 1.0e-3
+            tampered_actor_state[first_actor_state_name] = tampered_actor_tensor
+            checkpoint["actorState"] = tampered_actor_state
+            tampered_actor_checkpoint = (
+                output / "checkpoints" / "tampered-actor-state.pt"
+            )
+            save_checkpoint_with_sidecar(tampered_actor_checkpoint, checkpoint)
+            with self.assertRaisesRegex(ValueError, "Actor state SHA-256"):
+                train_v4(
+                    dataset,
+                    output,
+                    fixed_training_config(
+                        epochs=2,
+                        batch_size=7,
+                        amp=False,
+                        seed=839,
+                    ),
+                    resume=tampered_actor_checkpoint,
+                )
+            checkpoint["actorState"] = original_actor_state
+
+            checkpoint.pop("cudaRngStates")
+            tampered_rng_contract = (
+                output / "checkpoints" / "tampered-rng-contract.pt"
+            )
+            save_checkpoint_with_sidecar(tampered_rng_contract, checkpoint)
+            with self.assertRaisesRegex(ValueError, "RNG contract"):
+                train_v4(
+                    dataset,
+                    output,
+                    fixed_training_config(
+                        epochs=2,
+                        batch_size=7,
+                        amp=False,
+                        seed=839,
+                    ),
+                    resume=tampered_rng_contract,
+                )
+            checkpoint["cudaRngStates"] = None
+
+            original_training_config = checkpoint["trainingConfig"]
+            deleted_key_training_config = dict(original_training_config)
+            deleted_key_training_config.pop("actor_learning_rate")
+            checkpoint["trainingConfig"] = deleted_key_training_config
+            tampered_training_keys = (
+                output / "checkpoints" / "tampered-training-keys.pt"
+            )
+            save_checkpoint_with_sidecar(tampered_training_keys, checkpoint)
+            with self.assertRaisesRegex(ValueError, "key set"):
+                train_v4(
+                    dataset,
+                    output,
+                    fixed_training_config(
+                        epochs=2,
+                        batch_size=7,
+                        amp=False,
+                        seed=839,
+                    ),
+                    resume=tampered_training_keys,
+                )
+            checkpoint["trainingConfig"] = original_training_config
+            for label, field, replacement, pattern in (
+                ("float-int", "bc_weight", 1, "training setting"),
+                ("int-bool", "num_workers", False, "training setting"),
+                ("epochs-float", "epochs", 1.0, "epochs type"),
+            ):
+                type_tampered_training_config = dict(original_training_config)
+                type_tampered_training_config[field] = replacement
+                checkpoint["trainingConfig"] = type_tampered_training_config
+                tampered_training_type = (
+                    output
+                    / "checkpoints"
+                    / f"tampered-training-type-{label}.pt"
+                )
+                save_checkpoint_with_sidecar(
+                    tampered_training_type, checkpoint
+                )
+                with self.assertRaisesRegex(ValueError, pattern):
+                    train_v4(
+                        dataset,
+                        output,
+                        fixed_training_config(
+                            epochs=2,
+                            batch_size=7,
+                            amp=False,
+                            seed=839,
+                        ),
+                        resume=tampered_training_type,
+                    )
+            checkpoint["trainingConfig"] = original_training_config
+
+            original_initial_audit = checkpoint[
+                "initialPolicyReproductionAudit"
+            ]
+            redistributed_initial_forced = dict(
+                original_initial_audit["forcedSingletonRowsByPlayerCount"]
+            )
+            redistributed_initial_forced["4"] -= 1
+            redistributed_initial_forced["5"] += 1
+            checkpoint["initialPolicyReproductionAudit"] = {
+                **original_initial_audit,
+                "forcedSingletonRowsByPlayerCount": (
+                    redistributed_initial_forced
+                ),
+            }
+            tampered_initial_forced = (
+                output / "checkpoints" / "tampered-initial-forced.pt"
+            )
+            save_checkpoint_with_sidecar(tampered_initial_forced, checkpoint)
+            with self.assertRaisesRegex(ValueError, "initial policy.*failed"):
+                train_v4(
+                    dataset,
+                    output,
+                    fixed_training_config(
+                        epochs=2,
+                        batch_size=7,
+                        amp=False,
+                        seed=839,
+                    ),
+                    resume=tampered_initial_forced,
+                )
+            checkpoint["initialPolicyReproductionAudit"] = original_initial_audit
+
+            original_post_forced_audit = checkpoint[
+                "postEpochPolicyDriftAudit"
+            ]
+            redistributed_post_forced = dict(
+                original_post_forced_audit[
+                    "forcedSingletonRowsByPlayerCount"
+                ]
+            )
+            redistributed_post_forced["4"] -= 1
+            redistributed_post_forced["5"] += 1
+            checkpoint["postEpochPolicyDriftAudit"] = {
+                **original_post_forced_audit,
+                "forcedSingletonRowsByPlayerCount": redistributed_post_forced,
+            }
+            tampered_post_forced = (
+                output / "checkpoints" / "tampered-post-forced.pt"
+            )
+            save_checkpoint_with_sidecar(tampered_post_forced, checkpoint)
+            with self.assertRaisesRegex(ValueError, "forced-row evidence"):
+                train_v4(
+                    dataset,
+                    output,
+                    fixed_training_config(
+                        epochs=2,
+                        batch_size=7,
+                        amp=False,
+                        seed=839,
+                    ),
+                    resume=tampered_post_forced,
+                )
+            checkpoint["postEpochPolicyDriftAudit"] = original_post_forced_audit
+
+            original_post_contract_fingerprint = checkpoint[
+                "postEpochPolicyDriftAuditContractFingerprint"
+            ]
+            checkpoint["postEpochPolicyDriftAuditContractFingerprint"] = "0" * 64
+            tampered_post_contract = (
+                output / "checkpoints" / "tampered-post-contract.pt"
+            )
+            save_checkpoint_with_sidecar(tampered_post_contract, checkpoint)
+            with self.assertRaisesRegex(ValueError, "post-epoch.*contract"):
+                train_v4(
+                    dataset,
+                    output,
+                    fixed_training_config(
+                        epochs=2,
+                        batch_size=7,
+                        amp=False,
+                        seed=839,
+                    ),
+                    resume=tampered_post_contract,
+                )
+            checkpoint["postEpochPolicyDriftAuditContractFingerprint"] = (
+                original_post_contract_fingerprint
+            )
+            original_post_fingerprint = checkpoint[
+                "postEpochPolicyDriftAuditFingerprint"
+            ]
+            checkpoint["postEpochPolicyDriftAuditFingerprint"] = "0" * 64
+            tampered_post_fingerprint = (
+                output / "checkpoints" / "tampered-post-fingerprint.pt"
+            )
+            save_checkpoint_with_sidecar(tampered_post_fingerprint, checkpoint)
+            with self.assertRaisesRegex(ValueError, "post-epoch.*fingerprint"):
+                train_v4(
+                    dataset,
+                    output,
+                    fixed_training_config(
+                        epochs=2,
+                        batch_size=7,
+                        amp=False,
+                        seed=839,
+                    ),
+                    resume=tampered_post_fingerprint,
+                )
+
+            checkpoint["postEpochPolicyDriftAuditFingerprint"] = (
+                original_post_fingerprint
+            )
+            original_post_audit = checkpoint["postEpochPolicyDriftAudit"]
+            checkpoint["postEpochPolicyDriftAudit"] = {
+                **original_post_audit,
+                "approxKl": original_post_audit["approxKl"] + 0.1,
+            }
+            tampered_post_value = (
+                output / "checkpoints" / "tampered-post-value.pt"
+            )
+            save_checkpoint_with_sidecar(tampered_post_value, checkpoint)
+            with self.assertRaisesRegex(ValueError, "p-balanced approxKl"):
+                train_v4(
+                    dataset,
+                    output,
+                    fixed_training_config(
+                        epochs=2,
+                        batch_size=7,
+                        amp=False,
+                        seed=839,
+                    ),
+                    resume=tampered_post_value,
+                )
+
+            checkpoint["postEpochPolicyDriftAudit"] = original_post_audit
             checkpoint["initialPolicyReproductionAuditFingerprint"] = "0" * 64
             tampered_audit = output / "checkpoints" / "tampered-audit.pt"
-            torch.save(checkpoint, tampered_audit)
+            save_checkpoint_with_sidecar(tampered_audit, checkpoint)
             with self.assertRaisesRegex(ValueError, "audit fingerprint"):
                 train_v4(
                     dataset,
@@ -843,8 +1720,55 @@ class V4BalancedTrainingTests(unittest.TestCase):
                 resume="latest",
             )
             self.assertEqual(resumed["completedEpochs"], 2)
+            self.assertEqual(
+                (output / "metrics" / "epoch-0001.json").read_bytes(),
+                epoch_one_metric_bytes,
+            )
             latest_path = output / "latest.json"
             latest = json.loads(latest_path.read_text(encoding="utf-8"))
+            latest["cudaRngStateCount"] = 1
+            latest_path.write_text(
+                json.dumps(latest, sort_keys=True, separators=(",", ":")),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "latest fixed checkpoint RNG"):
+                train_v4(
+                    dataset,
+                    output,
+                    fixed_training_config(
+                        epochs=3,
+                        batch_size=7,
+                        amp=False,
+                        seed=839,
+                    ),
+                    resume="latest",
+                )
+            latest["cudaRngStateCount"] = 0
+            original_latest_post_fingerprint = latest[
+                "postEpochPolicyDriftAuditFingerprint"
+            ]
+            latest["postEpochPolicyDriftAuditFingerprint"] = "0" * 64
+            latest_path.write_text(
+                json.dumps(latest, sort_keys=True, separators=(",", ":")),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                ValueError, "latest post-epoch.*fingerprint"
+            ):
+                train_v4(
+                    dataset,
+                    output,
+                    fixed_training_config(
+                        epochs=3,
+                        batch_size=7,
+                        amp=False,
+                        seed=839,
+                    ),
+                    resume="latest",
+                )
+            latest["postEpochPolicyDriftAuditFingerprint"] = (
+                original_latest_post_fingerprint
+            )
             latest["initialPolicyReproductionAuditFingerprint"] = "0" * 64
             latest_path.write_text(
                 json.dumps(latest, sort_keys=True, separators=(",", ":")),

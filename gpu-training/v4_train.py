@@ -9,6 +9,7 @@ import math
 import os
 from pathlib import Path
 import random
+import sys
 import tempfile
 from typing import Mapping, Sequence
 
@@ -56,8 +57,90 @@ V4_TRAINING_CHECKPOINT_VERSION = 2
 V4_BALANCED_PLAYER_COUNTS = tuple(range(4, 11))
 V4_PLAYER_COUNT_BALANCE_VERSION = 1
 V4_FIXED_PPO_EXECUTION_CONTRACT_VERSION = 1
-V4_INITIAL_POLICY_REPRODUCTION_AUDIT_VERSION = 1
+V4_INITIAL_POLICY_REPRODUCTION_AUDIT_VERSION = 2
+V4_POST_EPOCH_POLICY_DRIFT_AUDIT_VERSION = 1
+V4_POST_EPOCH_POLICY_DRIFT_AUDIT_CONTRACT_VERSION = 1
 V4_FIXED_INITIAL_LOG_PROBABILITY_ABSOLUTE_TOLERANCE = 2.0e-5
+V4_ENTROPY_COLLAPSE_FRACTION = 0.30
+V4_CUDA_POLICY_AUDIT_BATCH_SIZE = 64
+V4_ACTOR_STATE_SHA256_CONTRACT_VERSION = 1
+V4_FIXED_CHECKPOINT_RNG_CONTRACT_VERSION = 1
+V4_LATEST_COMMON_FIELDS = frozenset(
+    {
+        "format",
+        "version",
+        "completedEpoch",
+        "globalStep",
+        "datasetFingerprint",
+        "lossContractFingerprint",
+        "checkpoint",
+        "sha256",
+    }
+)
+V4_LATEST_FIXED_FIELDS = frozenset(
+    {
+        "balanceContractFingerprint",
+        "fixedCollectionPlanSha256",
+        "fixedPpoExecutionContractFingerprint",
+        "initialPolicyReproductionAudit",
+        "initialPolicyReproductionAuditFingerprint",
+        "fixedCheckpointRngContractVersion",
+        "cudaRngStateCount",
+        "postEpochPolicyDriftAuditContractFingerprint",
+        "postEpochPolicyDriftAudit",
+        "postEpochPolicyDriftAuditFingerprint",
+    }
+)
+
+
+def _is_lower_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _actor_state_sha256(state_dict: Mapping[str, object]) -> str:
+    """Hash exact tensor names, dtypes, shapes, and contiguous CPU bytes."""
+
+    digest = hashlib.sha256()
+    digest.update(
+        f"dalmuti-v4-actor-state-v{V4_ACTOR_STATE_SHA256_CONTRACT_VERSION}\0".encode(
+            "ascii"
+        )
+    )
+    if not state_dict:
+        raise ValueError("V4 Actor state dictionary is empty")
+    if any(not isinstance(name, str) for name in state_dict):
+        raise ValueError("V4 Actor state dictionary keys are non-canonical")
+    for name in sorted(state_dict):
+        tensor = state_dict[name]
+        if not isinstance(name, str) or not isinstance(tensor, torch.Tensor):
+            raise ValueError("V4 Actor state dictionary is non-canonical")
+        contiguous = tensor.detach().cpu().contiguous()
+        metadata = canonical_json_bytes(
+            {
+                "name": name,
+                "dtype": str(contiguous.dtype),
+                "shape": list(contiguous.shape),
+            }
+        )
+        raw_octets = contiguous.reshape(-1).view(torch.uint8).reshape(
+            -1, contiguous.element_size()
+        )
+        if sys.byteorder == "big" and contiguous.element_size() > 1:
+            component_size = {
+                torch.complex64: 4,
+                torch.complex128: 8,
+            }.get(contiguous.dtype, contiguous.element_size())
+            raw_octets = raw_octets.reshape(-1, component_size).flip(-1)
+        raw = raw_octets.numpy().tobytes()
+        digest.update(len(metadata).to_bytes(8, "big"))
+        digest.update(metadata)
+        digest.update(len(raw).to_bytes(8, "big"))
+        digest.update(raw)
+    return digest.hexdigest()
 
 
 @dataclass(frozen=True)
@@ -448,108 +531,237 @@ def _configure_fixed_ppo_execution(device: torch.device) -> dict[str, object]:
     return contract
 
 
-def _validate_initial_policy_reproduction_audit(
-    value: object,
+def _fixed_nonforced_ppo_balance_spec(
     dataset: V4TrajectoryDataset,
 ) -> dict[str, object]:
-    if not isinstance(value, Mapping):
-        raise ValueError("fixed PPO initial policy reproduction audit is missing")
-    expected_fields = {
-        "version",
-        "ppoEligibleRowCount",
-        "actorMode",
-        "actorForwardDtype",
-        "actorAutocastEnabled",
-        "storedOldActionLogProbabilityDtype",
-        "absoluteTolerance",
-        "maximumAbsoluteLogProbabilityError",
-        "meanAbsoluteLogProbabilityError",
-        "passed",
-    }
-    if set(value) != expected_fields:
-        raise ValueError(
-            "fixed PPO initial policy reproduction audit fields are non-canonical"
-        )
+    """Reconstruct the fixed-policy p4..p10 reduction without trusting metadata."""
+
     eligibility = dataset.loss_eligibility
-    assert eligibility is not None
-    expected_count = int(
-        (eligibility.ppo & dataset.tensors.valid_masks).sum().item()
+    if eligibility is None:
+        raise ValueError("fixed PPO policy audit requires loss eligibility")
+    valid = dataset.tensors.valid_masks
+    eligible = eligibility.ppo & valid
+    nonforced = nonforced_policy_eligibility(
+        dataset.tensors.legal_masks,
+        eligible,
     )
-    count = value.get("ppoEligibleRowCount")
-    maximum = value.get("maximumAbsoluteLogProbabilityError")
-    mean = value.get("meanAbsoluteLogProbabilityError")
-    tolerance = value.get("absoluteTolerance")
-    if (
-        value.get("version") != V4_INITIAL_POLICY_REPRODUCTION_AUDIT_VERSION
-        or isinstance(count, bool)
-        or not isinstance(count, int)
-        or count != expected_count
-        or count < 1
-        or value.get("actorMode") != "eval"
-        or value.get("actorForwardDtype") != "torch.float32"
-        or value.get("actorAutocastEnabled") is not False
-        or value.get("storedOldActionLogProbabilityDtype") != "torch.float32"
-        or isinstance(tolerance, bool)
-        or not isinstance(tolerance, (int, float))
-        or float(tolerance)
-        != V4_FIXED_INITIAL_LOG_PROBABILITY_ABSOLUTE_TOLERANCE
-        or isinstance(maximum, bool)
-        or not isinstance(maximum, (int, float))
-        or not math.isfinite(float(maximum))
-        or float(maximum) < 0.0
-        or isinstance(mean, bool)
-        or not isinstance(mean, (int, float))
-        or not math.isfinite(float(mean))
-        or float(mean) < 0.0
-        or float(mean) > float(maximum) + 1.0e-12
-        or float(maximum) > float(tolerance)
-        or value.get("passed") is not True
-    ):
-        raise ValueError(
-            "fixed PPO initial policy reproduction audit is non-canonical or failed"
+    forced = eligible & ~nonforced
+    player_counts = dataset.tensors.player_mask.sum(dim=-1).to(torch.long)
+    counts = {
+        str(player_count): int(
+            (nonforced & (player_counts == player_count)).sum().item()
         )
-    return dict(value)
+        for player_count in V4_BALANCED_PLAYER_COUNTS
+    }
+    if any(count < 1 for count in counts.values()):
+        raise ValueError(
+            "fixed PPO policy audit requires nonforced rows for every p4..p10"
+        )
+    total = sum(counts.values())
+    weights = {
+        name: float(np.float32(total / (len(V4_BALANCED_PLAYER_COUNTS) * count)))
+        for name, count in counts.items()
+    }
+    masses = {
+        name: float(counts[name] * weights[name]) for name in counts
+    }
+    forced_counts = {
+        str(player_count): int(
+            (forced & (player_counts == player_count)).sum().item()
+        )
+        for player_count in V4_BALANCED_PLAYER_COUNTS
+    }
+    return {
+        "counts": counts,
+        "total": total,
+        "weights": weights,
+        "masses": masses,
+        "totalMass": float(sum(masses.values())),
+        "eligibleTotal": int(eligible.sum().item()),
+        "forcedCounts": forced_counts,
+        "forcedTotal": sum(forced_counts.values()),
+    }
 
 
-def _audit_initial_policy_reproduction(
+def _validate_policy_balance_spec(
+    dataset: V4TrajectoryDataset,
+    balance_contract: Mapping[str, object] | None,
+) -> dict[str, object]:
+    spec = _fixed_nonforced_ppo_balance_spec(dataset)
+    if balance_contract is None:
+        return spec
+    if (
+        balance_contract.get("eligibleRowCountsByLossAndPlayerCount", {}).get(
+            "ppo"
+        )
+        != spec["counts"]
+        or balance_contract.get("totalEligibleRowsByLoss", {}).get("ppo")
+        != spec["total"]
+        or balance_contract.get("runtimeFloat32WeightsByLossAndPlayerCount", {}).get(
+            "ppo"
+        )
+        != spec["weights"]
+        or balance_contract.get("runtimeWeightMassByLossAndPlayerCount", {}).get(
+            "ppo"
+        )
+        != spec["masses"]
+        or balance_contract.get("runtimeTotalWeightMassByLoss", {}).get("ppo")
+        != spec["totalMass"]
+    ):
+        raise ValueError("fixed PPO policy audit balance contract drifted")
+    return spec
+
+
+def _policy_audit_batch_size(
+    training_config: V4TrainingConfig,
+    device: torch.device,
+) -> int:
+    return (
+        V4_CUDA_POLICY_AUDIT_BATCH_SIZE
+        if device.type == "cuda"
+        else training_config.batch_size
+    )
+
+
+def _post_epoch_policy_drift_audit_contract(
+    training_config: V4TrainingConfig,
+    device: torch.device,
+) -> dict[str, object]:
+    audit_batch_size = _policy_audit_batch_size(training_config, device)
+    contract: dict[str, object] = {
+        "version": V4_POST_EPOCH_POLICY_DRIFT_AUDIT_CONTRACT_VERSION,
+        "timing": "after every optimizer update in the epoch and before checkpoint",
+        "actorMode": "eval",
+        "actorForwardDtype": "torch.float32",
+        "actorAutocastEnabled": False,
+        "datasetTraversal": "full dataset; shuffle=false",
+        "auditBatchSelectionRule": (
+            "cuda uses fixed 64; cpu uses trainingConfig.batch_size"
+        ),
+        "auditBatchSize": audit_batch_size,
+        "auditMustNotMutateOptimizationRngOrWeights": True,
+        "actorModeRestoration": (
+            "restore exact pre-audit actor.training boolean in finally"
+        ),
+        "ppoEligibleRows": "ppo loss eligibility AND valid row",
+        "policyMetricRows": (
+            "ppo eligible rows AND legal-action count greater than one"
+        ),
+        "forcedSingletonRows": (
+            "reported separately and excluded from every policy aggregate"
+        ),
+        "playerCountReduction": (
+            "sum(runtime_float32_ppo_weight * row_metric) / "
+            "sum(runtime_float32_ppo_weight)"
+        ),
+        "logRatio": (
+            "current selected-action FP32 log probability minus stored "
+            "behavior selected-action FP32 log probability"
+        ),
+        "approxKl": "expm1(logRatio) - logRatio, evaluated in float64",
+        "clipFraction": (
+            "abs(expm1(logRatio)) greater than configured clip ratio"
+        ),
+        "clipRatio": float(training_config.clip_ratio),
+        "entropy": "current legal-action categorical entropy",
+        "accumulationDtype": "torch.float64",
+        "entropyCollapseThresholdFraction": V4_ENTROPY_COLLAPSE_FRACTION,
+        "initialEntropyBinding": (
+            "initialPolicyReproductionAudit.nonforcedBalancedEntropy"
+        ),
+        "actorStateSha256ContractVersion": (
+            V4_ACTOR_STATE_SHA256_CONTRACT_VERSION
+        ),
+        "actorStateSha256Contract": (
+            "SHA-256 over sorted state tensor name, dtype, shape, and exact "
+            "canonical little-endian contiguous CPU bytes"
+        ),
+        "checkpointRngContractVersion": V4_FIXED_CHECKPOINT_RNG_CONTRACT_VERSION,
+        "checkpointRngContract": (
+            "fixed checkpoints store CPU torch, every CUDA device, NumPy, and "
+            "Python RNG states; CPU fixed checkpoints bind cudaRngStates=null"
+        ),
+    }
+    fingerprint = hashlib.sha256(canonical_json_bytes(contract)).hexdigest()
+    contract["auditContractFingerprint"] = fingerprint
+    return contract
+
+
+def _replay_full_ppo_policy(
     actor: V4PublicActor,
     dataset: V4TrajectoryDataset,
     *,
     device: torch.device,
     batch_size: int,
     num_workers: int,
+    clip_ratio: float,
+    balance_contract: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    """Replay every PPO row with the frozen FP32 Actor before any update."""
+    """Evaluate every fixed PPO row against its stored behavior action log-prob."""
 
     eligibility = dataset.loss_eligibility
     if eligibility is None:
-        raise ValueError("fixed PPO initial policy audit requires loss eligibility")
+        raise ValueError("fixed PPO policy audit requires loss eligibility")
+    spec = _validate_policy_balance_spec(dataset, balance_contract)
+    weights_by_player_count = spec["weights"]
+    assert isinstance(weights_by_player_count, Mapping)
+    audit_generator = torch.Generator()
+    audit_generator.manual_seed(0)
+    torch_rng_state = torch.get_rng_state().clone()
+    cuda_rng_states = (
+        [state.clone() for state in torch.cuda.get_rng_state_all()]
+        if device.type == "cuda"
+        else None
+    )
+    numpy_rng_state = np.random.get_state()
+    python_rng_state = random.getstate()
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
         pin_memory=device.type == "cuda",
+        generator=audit_generator,
     )
+    metric_names = (
+        "approxKl",
+        "clipFraction",
+        "entropy",
+        "meanLogRatio",
+        "meanAbsoluteLogRatio",
+    )
+    weighted_numerators = {name: 0.0 for name in metric_names}
+    weighted_mass = 0.0
+    per_player_count = {
+        str(player_count): {
+            "count": 0,
+            "metricSums": {name: 0.0 for name in metric_names},
+            "maximumAbsoluteLogRatio": 0.0,
+        }
+        for player_count in V4_BALANCED_PLAYER_COUNTS
+    }
+    forced_counts = {str(player_count): 0 for player_count in V4_BALANCED_PLAYER_COUNTS}
+    eligible_count = 0
+    nonforced_count = 0
+    forced_count = 0
+    all_absolute_error_sum = 0.0
+    all_maximum_absolute_error = 0.0
+    forced_maximum_absolute_log_ratio = 0.0
+    maximum_absolute_log_ratio = 0.0
     was_training = actor.training
     actor.eval()
-    count = 0
-    absolute_error_sum = 0.0
-    maximum_absolute_error = 0.0
     try:
         with torch.no_grad():
             for cpu_batch in loader:
-                batch = _batch_to_device(
-                    _trim_public_padding(cpu_batch), device
-                )
+                batch = _batch_to_device(_trim_public_padding(cpu_batch), device)
+                valid = batch["valid_masks"].reshape(-1)
                 eligible = (
-                    batch[V4_LOSS_MASK_NAMES["ppo"]].reshape(-1)
-                    & batch["valid_masks"].reshape(-1)
+                    batch[V4_LOSS_MASK_NAMES["ppo"]].reshape(-1) & valid
                 )
                 if not bool(eligible.any()):
                     continue
                 legal = _flatten_time(batch["legal_masks"]).clone()
-                legal[~batch["valid_masks"].reshape(-1), 0] = True
+                legal[~valid, 0] = True
                 with torch.cuda.amp.autocast(enabled=False):
                     logits = actor(
                         _flatten_time(batch["global_features"]).float(),
@@ -561,42 +773,366 @@ def _audit_initial_policy_reproduction(
                         _flatten_time(batch["history_mask"]),
                         legal,
                     ).float()
-                selected_log_probs = masked_log_probabilities(
-                    logits[eligible], legal[eligible]
-                ).gather(
-                    1,
-                    batch["actions"].reshape(-1)[eligible, None],
+                eligible_legal = legal[eligible]
+                log_probabilities = masked_log_probabilities(
+                    logits[eligible], eligible_legal
+                ).float()
+                actions = batch["actions"].reshape(-1)[eligible]
+                selected_log_probabilities = log_probabilities.gather(
+                    1, actions[:, None]
                 ).squeeze(1)
-                old_log_probs = batch["old_action_log_probs"].reshape(-1)[
+                old_log_probabilities = batch["old_action_log_probs"].reshape(-1)[
                     eligible
                 ].float()
-                errors = (selected_log_probs - old_log_probs).abs()
-                if not torch.isfinite(errors).all():
-                    raise ValueError(
-                        "fixed PPO initial policy reproduction produced non-finite error"
-                    )
-                count += int(errors.numel())
-                absolute_error_sum += float(errors.to(torch.float64).sum().cpu())
-                maximum_absolute_error = max(
-                    maximum_absolute_error,
-                    float(errors.max().cpu()),
+                log_ratios = (
+                    selected_log_probabilities.to(torch.float64)
+                    - old_log_probabilities.to(torch.float64)
                 )
+                if not torch.isfinite(log_ratios).all():
+                    raise ValueError(
+                        "fixed PPO full policy replay produced non-finite log ratios"
+                    )
+                absolute_errors = log_ratios.abs()
+                eligible_rows = int(log_ratios.numel())
+                eligible_count += eligible_rows
+                all_absolute_error_sum += float(absolute_errors.sum().cpu())
+                all_maximum_absolute_error = max(
+                    all_maximum_absolute_error,
+                    float(absolute_errors.max().cpu()),
+                )
+
+                nonforced = eligible_legal.sum(dim=-1) > 1
+                forced = ~nonforced
+                player_counts = _flatten_time(batch["player_mask"])[eligible].sum(
+                    dim=-1
+                ).to(torch.long)
+                if bool(forced.any()):
+                    forced_log_ratios = log_ratios[forced]
+                    forced_count += int(forced.sum().item())
+                    forced_maximum_absolute_log_ratio = max(
+                        forced_maximum_absolute_log_ratio,
+                        float(forced_log_ratios.abs().max().cpu()),
+                    )
+                    forced_player_counts = player_counts[forced]
+                    for player_count in V4_BALANCED_PLAYER_COUNTS:
+                        forced_counts[str(player_count)] += int(
+                            (forced_player_counts == player_count).sum().item()
+                        )
+                if not bool(nonforced.any()):
+                    continue
+
+                nonforced_count += int(nonforced.sum().item())
+                selected_log_ratios = log_ratios[nonforced]
+                selected_legal = eligible_legal[nonforced]
+                selected_log_prob_matrix = log_probabilities[nonforced].to(
+                    torch.float64
+                )
+                probabilities = selected_log_prob_matrix.exp().masked_fill(
+                    ~selected_legal, 0.0
+                )
+                entropy_rows = -(
+                    probabilities
+                    * selected_log_prob_matrix.masked_fill(~selected_legal, 0.0)
+                ).sum(dim=-1)
+                ratio_deltas = torch.expm1(selected_log_ratios)
+                metric_rows = {
+                    "approxKl": ratio_deltas - selected_log_ratios,
+                    "clipFraction": (ratio_deltas.abs() > float(clip_ratio)).to(
+                        torch.float64
+                    ),
+                    "entropy": entropy_rows,
+                    "meanLogRatio": selected_log_ratios,
+                    "meanAbsoluteLogRatio": selected_log_ratios.abs(),
+                }
+                if any(not torch.isfinite(rows).all() for rows in metric_rows.values()):
+                    raise ValueError(
+                        "fixed PPO full policy replay produced non-finite metrics"
+                    )
+                selected_player_counts = player_counts[nonforced]
+                row_weights = torch.zeros_like(selected_log_ratios)
+                for player_count in V4_BALANCED_PLAYER_COUNTS:
+                    row_weights[selected_player_counts == player_count] = float(
+                        weights_by_player_count[str(player_count)]
+                    )
+                if (row_weights <= 0.0).any():
+                    raise ValueError(
+                        "fixed PPO full policy replay encountered an unbound player count"
+                    )
+                weighted_mass += float(row_weights.sum().cpu())
+                for name, rows in metric_rows.items():
+                    weighted_numerators[name] += float(
+                        (row_weights * rows).sum().cpu()
+                    )
+                maximum_absolute_log_ratio = max(
+                    maximum_absolute_log_ratio,
+                    float(selected_log_ratios.abs().max().cpu()),
+                )
+                for player_count in V4_BALANCED_PLAYER_COUNTS:
+                    key = str(player_count)
+                    selected = selected_player_counts == player_count
+                    count = int(selected.sum().item())
+                    if count == 0:
+                        continue
+                    record = per_player_count[key]
+                    record["count"] = int(record["count"]) + count
+                    metric_sums = record["metricSums"]
+                    assert isinstance(metric_sums, dict)
+                    for name, rows in metric_rows.items():
+                        metric_sums[name] = float(metric_sums[name]) + float(
+                            rows[selected].sum().cpu()
+                        )
+                    record["maximumAbsoluteLogRatio"] = max(
+                        float(record["maximumAbsoluteLogRatio"]),
+                        float(selected_log_ratios[selected].abs().max().cpu()),
+                    )
     finally:
         actor.train(was_training)
+        torch.set_rng_state(torch_rng_state)
+        if cuda_rng_states is not None:
+            torch.cuda.set_rng_state_all(cuda_rng_states)
+        np.random.set_state(numpy_rng_state)
+        random.setstate(python_rng_state)
+
+    expected_counts = spec["counts"]
+    expected_total = int(spec["total"])
+    if (
+        nonforced_count != expected_total
+        or {
+            key: int(value["count"])
+            for key, value in per_player_count.items()
+        }
+        != expected_counts
+        or forced_count != spec["forcedTotal"]
+        or forced_counts != spec["forcedCounts"]
+        or eligible_count != spec["eligibleTotal"]
+    ):
+        raise ValueError("fixed PPO full policy replay row counts drifted")
+    expected_mass = float(spec["totalMass"])
+    if not math.isclose(weighted_mass, expected_mass, rel_tol=2.0e-12, abs_tol=2.0e-10):
+        raise ValueError("fixed PPO full policy replay weight mass drifted")
+    serialized_by_player_count: dict[str, object] = {}
+    masses = spec["masses"]
+    assert isinstance(masses, Mapping)
+    for key, record in per_player_count.items():
+        count = int(record["count"])
+        metric_sums = record["metricSums"]
+        assert isinstance(metric_sums, Mapping)
+        serialized_by_player_count[key] = {
+            "count": count,
+            "runtimeFloat32Weight": float(weights_by_player_count[key]),
+            "weightMass": float(masses[key]),
+            **{
+                name: float(metric_sums[name]) / count for name in metric_names
+            },
+            "maximumAbsoluteLogRatio": float(
+                record["maximumAbsoluteLogRatio"]
+            ),
+        }
+    return {
+        "ppoEligibleRowCount": eligible_count,
+        "effectiveNonforcedPpoRowCount": nonforced_count,
+        "forcedSingletonPpoRowCount": forced_count,
+        "forcedSingletonRowsByPlayerCount": forced_counts,
+        "nonforcedRowsByPlayerCount": dict(expected_counts),
+        "nonforcedWeightMassByPlayerCount": dict(masses),
+        "nonforcedTotalWeightMass": expected_mass,
+        "allMeanAbsoluteLogProbabilityError": (
+            all_absolute_error_sum / max(1, eligible_count)
+        ),
+        "allMaximumAbsoluteLogProbabilityError": all_maximum_absolute_error,
+        **{
+            name: weighted_numerators[name] / weighted_mass
+            for name in metric_names
+        },
+        "maximumAbsoluteLogRatio": maximum_absolute_log_ratio,
+        "forcedMaximumAbsoluteLogRatio": forced_maximum_absolute_log_ratio,
+        "perPlayerCount": serialized_by_player_count,
+    }
+
+
+def _validate_initial_policy_reproduction_audit(
+    value: object,
+    dataset: V4TrajectoryDataset,
+) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise ValueError("fixed PPO initial policy reproduction audit is missing")
+    expected_fields = {
+        "version",
+        "ppoEligibleRowCount",
+        "effectiveNonforcedPpoRowCount",
+        "forcedSingletonPpoRowCount",
+        "forcedSingletonRowsByPlayerCount",
+        "nonforcedRowsByPlayerCount",
+        "nonforcedWeightMassByPlayerCount",
+        "nonforcedTotalWeightMass",
+        "nonforcedEntropyByPlayerCount",
+        "nonforcedBalancedEntropy",
+        "auditBatchSize",
+        "actorMode",
+        "actorForwardDtype",
+        "actorAutocastEnabled",
+        "storedOldActionLogProbabilityDtype",
+        "absoluteTolerance",
+        "maximumAbsoluteLogProbabilityError",
+        "meanAbsoluteLogProbabilityError",
+        "forcedMaximumAbsoluteLogProbabilityError",
+        "passed",
+    }
+    if set(value) != expected_fields:
+        raise ValueError(
+            "fixed PPO initial policy reproduction audit fields are non-canonical"
+        )
+    eligibility = dataset.loss_eligibility
+    assert eligibility is not None
+    expected_eligible_count = int(
+        (eligibility.ppo & dataset.tensors.valid_masks).sum().item()
+    )
+    spec = _fixed_nonforced_ppo_balance_spec(dataset)
+    nonforced_count = value.get("effectiveNonforcedPpoRowCount")
+    forced_count = value.get("forcedSingletonPpoRowCount")
+    maximum = value.get("maximumAbsoluteLogProbabilityError")
+    mean = value.get("meanAbsoluteLogProbabilityError")
+    forced_maximum = value.get("forcedMaximumAbsoluteLogProbabilityError")
+    entropy = value.get("nonforcedBalancedEntropy")
+    tolerance = value.get("absoluteTolerance")
+    entropy_by_player_count = value.get("nonforcedEntropyByPlayerCount")
+    forced_rows_by_player_count = value.get(
+        "forcedSingletonRowsByPlayerCount"
+    )
+    if (
+        value.get("version") != V4_INITIAL_POLICY_REPRODUCTION_AUDIT_VERSION
+        or value.get("ppoEligibleRowCount") != expected_eligible_count
+        or isinstance(nonforced_count, bool)
+        or nonforced_count != spec["total"]
+        or isinstance(forced_count, bool)
+        or forced_count != expected_eligible_count - int(spec["total"])
+        or value.get("nonforcedRowsByPlayerCount") != spec["counts"]
+        or value.get("nonforcedWeightMassByPlayerCount") != spec["masses"]
+        or value.get("nonforcedTotalWeightMass") != spec["totalMass"]
+        or not isinstance(forced_rows_by_player_count, Mapping)
+        or set(forced_rows_by_player_count)
+        != {str(player_count) for player_count in V4_BALANCED_PLAYER_COUNTS}
+        or any(
+            isinstance(count, bool)
+            or not isinstance(count, int)
+            or count < 0
+            for count in forced_rows_by_player_count.values()
+        )
+        or dict(forced_rows_by_player_count) != spec["forcedCounts"]
+        or sum(forced_rows_by_player_count.values()) != forced_count
+        or not isinstance(entropy_by_player_count, Mapping)
+        or set(entropy_by_player_count)
+        != {str(player_count) for player_count in V4_BALANCED_PLAYER_COUNTS}
+        or any(
+            isinstance(item, bool)
+            or not isinstance(item, (int, float))
+            or not math.isfinite(float(item))
+            or float(item) < 0.0
+            for item in entropy_by_player_count.values()
+        )
+        or not isinstance(entropy, (int, float))
+        or isinstance(entropy, bool)
+        or not math.isfinite(float(entropy))
+        or float(entropy) <= 0.0
+        or isinstance(value.get("auditBatchSize"), bool)
+        or not isinstance(value.get("auditBatchSize"), int)
+        or int(value["auditBatchSize"]) < 1
+        or value.get("actorMode") != "eval"
+        or value.get("actorForwardDtype") != "torch.float32"
+        or value.get("actorAutocastEnabled") is not False
+        or value.get("storedOldActionLogProbabilityDtype") != "torch.float32"
+        or isinstance(tolerance, bool)
+        or not isinstance(tolerance, (int, float))
+        or float(tolerance)
+        != V4_FIXED_INITIAL_LOG_PROBABILITY_ABSOLUTE_TOLERANCE
+        or any(
+            isinstance(item, bool)
+            or not isinstance(item, (int, float))
+            or not math.isfinite(float(item))
+            or float(item) < 0.0
+            for item in (maximum, mean, forced_maximum)
+        )
+        or float(mean) > float(maximum) + 1.0e-12
+        or float(forced_maximum) > float(maximum) + 1.0e-12
+        or float(maximum) > float(tolerance)
+        or value.get("passed") is not True
+    ):
+        raise ValueError(
+            "fixed PPO initial policy reproduction audit is non-canonical or failed"
+        )
+    masses = spec["masses"]
+    assert isinstance(masses, Mapping)
+    reconstructed_entropy = sum(
+        float(entropy_by_player_count[key]) * float(masses[key])
+        for key in masses
+    ) / float(spec["totalMass"])
+    if not math.isclose(
+        float(entropy), reconstructed_entropy, rel_tol=2.0e-10, abs_tol=2.0e-12
+    ):
+        raise ValueError("fixed PPO initial entropy reduction drifted")
+    return dict(value)
+
+
+def _audit_initial_policy_reproduction(
+    actor: V4PublicActor,
+    dataset: V4TrajectoryDataset,
+    *,
+    device: torch.device,
+    batch_size: int,
+    num_workers: int,
+    balance_contract: Mapping[str, object] | None = None,
+    clip_ratio: float = 0.15,
+) -> dict[str, object]:
+    """Replay every PPO row with the frozen FP32 Actor before any update."""
+
+    replay = _replay_full_ppo_policy(
+        actor,
+        dataset,
+        device=device,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        clip_ratio=clip_ratio,
+        balance_contract=balance_contract,
+    )
+    maximum_absolute_error = float(
+        replay["allMaximumAbsoluteLogProbabilityError"]
+    )
+    per_player_count = replay["perPlayerCount"]
+    assert isinstance(per_player_count, Mapping)
     record: dict[str, object] = {
         "version": V4_INITIAL_POLICY_REPRODUCTION_AUDIT_VERSION,
-        "ppoEligibleRowCount": count,
+        "ppoEligibleRowCount": replay["ppoEligibleRowCount"],
+        "effectiveNonforcedPpoRowCount": replay[
+            "effectiveNonforcedPpoRowCount"
+        ],
+        "forcedSingletonPpoRowCount": replay["forcedSingletonPpoRowCount"],
+        "forcedSingletonRowsByPlayerCount": replay[
+            "forcedSingletonRowsByPlayerCount"
+        ],
+        "nonforcedRowsByPlayerCount": replay["nonforcedRowsByPlayerCount"],
+        "nonforcedWeightMassByPlayerCount": replay[
+            "nonforcedWeightMassByPlayerCount"
+        ],
+        "nonforcedTotalWeightMass": replay["nonforcedTotalWeightMass"],
+        "nonforcedEntropyByPlayerCount": {
+            key: value["entropy"] for key, value in per_player_count.items()
+        },
+        "nonforcedBalancedEntropy": replay["entropy"],
+        "auditBatchSize": batch_size,
         "actorMode": "eval",
         "actorForwardDtype": "torch.float32",
         "actorAutocastEnabled": False,
         "storedOldActionLogProbabilityDtype": "torch.float32",
-        "absoluteTolerance": (
-            V4_FIXED_INITIAL_LOG_PROBABILITY_ABSOLUTE_TOLERANCE
-        ),
+        "absoluteTolerance": V4_FIXED_INITIAL_LOG_PROBABILITY_ABSOLUTE_TOLERANCE,
         "maximumAbsoluteLogProbabilityError": maximum_absolute_error,
-        "meanAbsoluteLogProbabilityError": absolute_error_sum / max(1, count),
+        "meanAbsoluteLogProbabilityError": replay[
+            "allMeanAbsoluteLogProbabilityError"
+        ],
+        "forcedMaximumAbsoluteLogProbabilityError": replay[
+            "forcedMaximumAbsoluteLogRatio"
+        ],
         "passed": (
-            count > 0
+            int(replay["ppoEligibleRowCount"]) > 0
             and maximum_absolute_error
             <= V4_FIXED_INITIAL_LOG_PROBABILITY_ABSOLUTE_TOLERANCE
         ),
@@ -608,6 +1144,374 @@ def _audit_initial_policy_reproduction(
             f"tolerance={V4_FIXED_INITIAL_LOG_PROBABILITY_ABSOLUTE_TOLERANCE:.9g}"
         )
     return _validate_initial_policy_reproduction_audit(record, dataset)
+
+
+def _validate_post_epoch_policy_drift_audit(
+    value: object,
+    dataset: V4TrajectoryDataset,
+    training_config: V4TrainingConfig,
+    balance_contract: Mapping[str, object],
+    initial_policy_reproduction_audit: Mapping[str, object],
+    *,
+    expected_epoch: int,
+    expected_global_step: int,
+    fixed_collection_plan_sha256: str,
+    fixed_ppo_execution_contract_fingerprint: str,
+    audit_contract_fingerprint: str,
+    audit_batch_size: int,
+    expected_actor_state_sha256: str,
+) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise ValueError("fixed PPO post-epoch policy drift audit is missing")
+    expected_fields = {
+        "version",
+        "epoch",
+        "globalStep",
+        "datasetFingerprint",
+        "lossContractFingerprint",
+        "balanceContractFingerprint",
+        "fixedCollectionPlanSha256",
+        "fixedPpoExecutionContractFingerprint",
+        "initialPolicyReproductionAuditFingerprint",
+        "auditContractFingerprint",
+        "actorMode",
+        "actorForwardDtype",
+        "actorAutocastEnabled",
+        "storedOldActionLogProbabilityDtype",
+        "clipRatio",
+        "auditBatchSize",
+        "actorStateSha256",
+        "ppoEligibleRowCount",
+        "effectiveNonforcedPpoRowCount",
+        "forcedSingletonPpoRowCount",
+        "forcedSingletonRowsByPlayerCount",
+        "nonforcedRowsByPlayerCount",
+        "nonforcedWeightMassByPlayerCount",
+        "nonforcedTotalWeightMass",
+        "approxKl",
+        "clipFraction",
+        "entropy",
+        "initialBehaviorEntropy",
+        "entropyRetentionRatio",
+        "entropyCollapseFraction",
+        "entropyCollapseExceeds30Percent",
+        "meanLogRatio",
+        "meanAbsoluteLogRatio",
+        "maximumAbsoluteLogRatio",
+        "forcedMaximumAbsoluteLogRatio",
+        "perPlayerCount",
+    }
+    if set(value) != expected_fields:
+        raise ValueError(
+            "fixed PPO post-epoch policy drift audit fields are non-canonical"
+        )
+    initial_audit = _validate_initial_policy_reproduction_audit(
+        initial_policy_reproduction_audit, dataset
+    )
+    if initial_audit.get("auditBatchSize") != audit_batch_size:
+        raise ValueError(
+            "fixed PPO initial/post policy audit batch selection drifted"
+        )
+    initial_fingerprint = hashlib.sha256(
+        canonical_json_bytes(initial_audit)
+    ).hexdigest()
+    spec = _validate_policy_balance_spec(dataset, balance_contract)
+    eligibility = dataset.loss_eligibility
+    assert eligibility is not None
+    eligible_count = int(
+        (eligibility.ppo & dataset.tensors.valid_masks).sum().item()
+    )
+    expected_forced_count = eligible_count - int(spec["total"])
+    fixed_bindings_match = (
+        value.get("version") == V4_POST_EPOCH_POLICY_DRIFT_AUDIT_VERSION
+        and value.get("epoch") == expected_epoch
+        and value.get("globalStep") == expected_global_step
+        and value.get("datasetFingerprint") == dataset.fingerprint
+        and value.get("lossContractFingerprint")
+        == dataset.loss_contract_fingerprint
+        and value.get("balanceContractFingerprint")
+        == balance_contract.get("balanceContractFingerprint")
+        and value.get("fixedCollectionPlanSha256")
+        == fixed_collection_plan_sha256
+        and value.get("fixedPpoExecutionContractFingerprint")
+        == fixed_ppo_execution_contract_fingerprint
+        and value.get("initialPolicyReproductionAuditFingerprint")
+        == initial_fingerprint
+        and value.get("auditContractFingerprint")
+        == audit_contract_fingerprint
+        and value.get("actorMode") == "eval"
+        and value.get("actorForwardDtype") == "torch.float32"
+        and value.get("actorAutocastEnabled") is False
+        and value.get("storedOldActionLogProbabilityDtype") == "torch.float32"
+        and value.get("clipRatio") == float(training_config.clip_ratio)
+        and value.get("auditBatchSize") == audit_batch_size
+        and _is_lower_sha256(value.get("actorStateSha256"))
+        and value.get("actorStateSha256") == expected_actor_state_sha256
+        and value.get("ppoEligibleRowCount") == eligible_count
+        and value.get("effectiveNonforcedPpoRowCount") == spec["total"]
+        and value.get("forcedSingletonPpoRowCount") == expected_forced_count
+        and value.get("nonforcedRowsByPlayerCount") == spec["counts"]
+        and value.get("nonforcedWeightMassByPlayerCount") == spec["masses"]
+        and value.get("nonforcedTotalWeightMass") == spec["totalMass"]
+    )
+    if not fixed_bindings_match:
+        raise ValueError("fixed PPO post-epoch policy drift audit binding drifted")
+
+    forced_counts = value.get("forcedSingletonRowsByPlayerCount")
+    if (
+        not isinstance(forced_counts, Mapping)
+        or set(forced_counts)
+        != {str(player_count) for player_count in V4_BALANCED_PLAYER_COUNTS}
+        or any(
+            isinstance(count, bool) or not isinstance(count, int) or count < 0
+            for count in forced_counts.values()
+        )
+        or dict(forced_counts) != spec["forcedCounts"]
+        or sum(int(count) for count in forced_counts.values())
+        != expected_forced_count
+    ):
+        raise ValueError("fixed PPO post-epoch forced-row evidence drifted")
+
+    metric_names = (
+        "approxKl",
+        "clipFraction",
+        "entropy",
+        "meanLogRatio",
+        "meanAbsoluteLogRatio",
+    )
+
+    def finite_number(item: object) -> bool:
+        return (
+            not isinstance(item, bool)
+            and isinstance(item, (int, float))
+            and math.isfinite(float(item))
+        )
+
+    numeric_names = metric_names + (
+        "initialBehaviorEntropy",
+        "entropyRetentionRatio",
+        "entropyCollapseFraction",
+        "maximumAbsoluteLogRatio",
+        "forcedMaximumAbsoluteLogRatio",
+    )
+    if any(not finite_number(value.get(name)) for name in numeric_names):
+        raise ValueError("fixed PPO post-epoch policy drift metrics are non-finite")
+    if (
+        float(value["approxKl"]) < -1.0e-14
+        or not 0.0 <= float(value["clipFraction"]) <= 1.0
+        or float(value["entropy"]) < 0.0
+        or float(value["initialBehaviorEntropy"]) <= 0.0
+        or float(value["meanAbsoluteLogRatio"]) < 0.0
+        or float(value["maximumAbsoluteLogRatio"]) < 0.0
+        or float(value["forcedMaximumAbsoluteLogRatio"]) < 0.0
+        or float(value["meanAbsoluteLogRatio"])
+        > float(value["maximumAbsoluteLogRatio"]) + 1.0e-12
+        or float(value["forcedMaximumAbsoluteLogRatio"])
+        > V4_FIXED_INITIAL_LOG_PROBABILITY_ABSOLUTE_TOLERANCE
+    ):
+        raise ValueError("fixed PPO post-epoch policy drift metric bounds failed")
+
+    per_player_count = value.get("perPlayerCount")
+    if (
+        not isinstance(per_player_count, Mapping)
+        or set(per_player_count)
+        != {str(player_count) for player_count in V4_BALANCED_PLAYER_COUNTS}
+    ):
+        raise ValueError("fixed PPO post-epoch per-player-count audit drifted")
+    expected_weights = spec["weights"]
+    expected_masses = spec["masses"]
+    expected_counts = spec["counts"]
+    assert isinstance(expected_weights, Mapping)
+    assert isinstance(expected_masses, Mapping)
+    assert isinstance(expected_counts, Mapping)
+    per_fields = {
+        "count",
+        "runtimeFloat32Weight",
+        "weightMass",
+        *metric_names,
+        "maximumAbsoluteLogRatio",
+    }
+    reconstructed = {name: 0.0 for name in metric_names}
+    reconstructed_maximum = 0.0
+    for key, raw_record in per_player_count.items():
+        if not isinstance(raw_record, Mapping) or set(raw_record) != per_fields:
+            raise ValueError("fixed PPO post-epoch per-player-count fields drifted")
+        if (
+            raw_record.get("count") != expected_counts[key]
+            or raw_record.get("runtimeFloat32Weight") != expected_weights[key]
+            or raw_record.get("weightMass") != expected_masses[key]
+            or any(not finite_number(raw_record.get(name)) for name in metric_names)
+            or not finite_number(raw_record.get("maximumAbsoluteLogRatio"))
+            or float(raw_record["approxKl"]) < -1.0e-14
+            or not 0.0 <= float(raw_record["clipFraction"]) <= 1.0
+            or float(raw_record["entropy"]) < 0.0
+            or float(raw_record["meanAbsoluteLogRatio"]) < 0.0
+            or float(raw_record["maximumAbsoluteLogRatio"]) < 0.0
+            or float(raw_record["meanAbsoluteLogRatio"])
+            > float(raw_record["maximumAbsoluteLogRatio"]) + 1.0e-12
+        ):
+            raise ValueError("fixed PPO post-epoch per-player-count metric drifted")
+        for name in metric_names:
+            reconstructed[name] += float(raw_record[name]) * float(
+                expected_masses[key]
+            )
+        reconstructed_maximum = max(
+            reconstructed_maximum,
+            float(raw_record["maximumAbsoluteLogRatio"]),
+        )
+    total_mass = float(spec["totalMass"])
+    for name in metric_names:
+        reconstructed[name] /= total_mass
+        if not math.isclose(
+            float(value[name]),
+            reconstructed[name],
+            rel_tol=2.0e-10,
+            abs_tol=2.0e-12,
+        ):
+            raise ValueError(
+                f"fixed PPO post-epoch p-balanced {name} reduction drifted"
+            )
+    if not math.isclose(
+        float(value["maximumAbsoluteLogRatio"]),
+        reconstructed_maximum,
+        rel_tol=0.0,
+        abs_tol=2.0e-12,
+    ):
+        raise ValueError("fixed PPO post-epoch maximum log-ratio drifted")
+
+    initial_entropy = float(initial_audit["nonforcedBalancedEntropy"])
+    entropy = float(value["entropy"])
+    retention = entropy / initial_entropy
+    collapse = 1.0 - retention
+    if (
+        not math.isclose(
+            float(value["initialBehaviorEntropy"]),
+            initial_entropy,
+            rel_tol=0.0,
+            abs_tol=0.0,
+        )
+        or not math.isclose(
+            float(value["entropyRetentionRatio"]),
+            retention,
+            rel_tol=2.0e-12,
+            abs_tol=2.0e-12,
+        )
+        or not math.isclose(
+            float(value["entropyCollapseFraction"]),
+            collapse,
+            rel_tol=2.0e-12,
+            abs_tol=2.0e-12,
+        )
+        or value.get("entropyCollapseExceeds30Percent")
+        is not (collapse > V4_ENTROPY_COLLAPSE_FRACTION)
+    ):
+        raise ValueError("fixed PPO post-epoch entropy baseline binding drifted")
+    return dict(value)
+
+
+def _audit_post_epoch_policy_drift(
+    actor: V4PublicActor,
+    dataset: V4TrajectoryDataset,
+    training_config: V4TrainingConfig,
+    balance_contract: Mapping[str, object],
+    initial_policy_reproduction_audit: Mapping[str, object],
+    *,
+    epoch: int,
+    global_step: int,
+    device: torch.device,
+    fixed_collection_plan_sha256: str,
+    fixed_ppo_execution_contract_fingerprint: str,
+    audit_contract_fingerprint: str,
+    audit_batch_size: int,
+) -> dict[str, object]:
+    replay = _replay_full_ppo_policy(
+        actor,
+        dataset,
+        device=device,
+        batch_size=audit_batch_size,
+        num_workers=training_config.num_workers,
+        clip_ratio=training_config.clip_ratio,
+        balance_contract=balance_contract,
+    )
+    initial_audit = _validate_initial_policy_reproduction_audit(
+        initial_policy_reproduction_audit, dataset
+    )
+    initial_fingerprint = hashlib.sha256(
+        canonical_json_bytes(initial_audit)
+    ).hexdigest()
+    initial_entropy = float(initial_audit["nonforcedBalancedEntropy"])
+    entropy = float(replay["entropy"])
+    retention = entropy / initial_entropy
+    collapse = 1.0 - retention
+    actor_state_sha256 = _actor_state_sha256(actor.state_dict())
+    record: dict[str, object] = {
+        "version": V4_POST_EPOCH_POLICY_DRIFT_AUDIT_VERSION,
+        "epoch": epoch,
+        "globalStep": global_step,
+        "datasetFingerprint": dataset.fingerprint,
+        "lossContractFingerprint": dataset.loss_contract_fingerprint,
+        "balanceContractFingerprint": balance_contract[
+            "balanceContractFingerprint"
+        ],
+        "fixedCollectionPlanSha256": fixed_collection_plan_sha256,
+        "fixedPpoExecutionContractFingerprint": (
+            fixed_ppo_execution_contract_fingerprint
+        ),
+        "initialPolicyReproductionAuditFingerprint": initial_fingerprint,
+        "auditContractFingerprint": audit_contract_fingerprint,
+        "actorMode": "eval",
+        "actorForwardDtype": "torch.float32",
+        "actorAutocastEnabled": False,
+        "storedOldActionLogProbabilityDtype": "torch.float32",
+        "clipRatio": float(training_config.clip_ratio),
+        "auditBatchSize": audit_batch_size,
+        "actorStateSha256": actor_state_sha256,
+        "ppoEligibleRowCount": replay["ppoEligibleRowCount"],
+        "effectiveNonforcedPpoRowCount": replay[
+            "effectiveNonforcedPpoRowCount"
+        ],
+        "forcedSingletonPpoRowCount": replay["forcedSingletonPpoRowCount"],
+        "forcedSingletonRowsByPlayerCount": replay[
+            "forcedSingletonRowsByPlayerCount"
+        ],
+        "nonforcedRowsByPlayerCount": replay["nonforcedRowsByPlayerCount"],
+        "nonforcedWeightMassByPlayerCount": replay[
+            "nonforcedWeightMassByPlayerCount"
+        ],
+        "nonforcedTotalWeightMass": replay["nonforcedTotalWeightMass"],
+        "approxKl": replay["approxKl"],
+        "clipFraction": replay["clipFraction"],
+        "entropy": entropy,
+        "initialBehaviorEntropy": initial_entropy,
+        "entropyRetentionRatio": retention,
+        "entropyCollapseFraction": collapse,
+        "entropyCollapseExceeds30Percent": (
+            collapse > V4_ENTROPY_COLLAPSE_FRACTION
+        ),
+        "meanLogRatio": replay["meanLogRatio"],
+        "meanAbsoluteLogRatio": replay["meanAbsoluteLogRatio"],
+        "maximumAbsoluteLogRatio": replay["maximumAbsoluteLogRatio"],
+        "forcedMaximumAbsoluteLogRatio": replay[
+            "forcedMaximumAbsoluteLogRatio"
+        ],
+        "perPlayerCount": replay["perPlayerCount"],
+    }
+    return _validate_post_epoch_policy_drift_audit(
+        record,
+        dataset,
+        training_config,
+        balance_contract,
+        initial_audit,
+        expected_epoch=epoch,
+        expected_global_step=global_step,
+        fixed_collection_plan_sha256=fixed_collection_plan_sha256,
+        fixed_ppo_execution_contract_fingerprint=(
+            fixed_ppo_execution_contract_fingerprint
+        ),
+        audit_contract_fingerprint=audit_contract_fingerprint,
+        audit_batch_size=audit_batch_size,
+        expected_actor_state_sha256=actor_state_sha256,
+    )
 
 
 def _atomic_write(path: Path, data: bytes) -> None:
@@ -625,6 +1529,144 @@ def _atomic_write(path: Path, data: bytes) -> None:
     finally:
         if temporary.exists():
             temporary.unlink()
+
+
+def _checkpoint_sha256_sidecar_path(checkpoint: Path) -> Path:
+    return checkpoint.with_name(f"{checkpoint.name}.sha256")
+
+
+def _write_checkpoint_sha256_sidecar(checkpoint: Path, checksum: str) -> None:
+    if not _is_lower_sha256(checksum):
+        raise ValueError("checkpoint SHA-256 is non-canonical")
+    _atomic_write(
+        _checkpoint_sha256_sidecar_path(checkpoint),
+        f"{checksum}  {checkpoint.name}\n".encode("ascii"),
+    )
+
+
+def _verify_checkpoint_sha256_sidecar(
+    checkpoint: Path,
+    *,
+    required: bool,
+) -> str | None:
+    sidecar = _checkpoint_sha256_sidecar_path(checkpoint)
+    if not sidecar.is_file():
+        if required:
+            raise ValueError("fixed checkpoint SHA-256 sidecar is missing")
+        return None
+    try:
+        text = sidecar.read_text(encoding="ascii")
+    except UnicodeDecodeError as error:
+        raise ValueError("checkpoint SHA-256 sidecar is malformed") from error
+    parts = text[:-1].split() if text.endswith("\n") else []
+    if (
+        text.count("\n") != 1
+        or len(parts) != 2
+        or not _is_lower_sha256(parts[0])
+        or parts[1] != checkpoint.name
+    ):
+        raise ValueError("checkpoint SHA-256 sidecar is malformed")
+    actual = sha256_file(checkpoint)
+    if parts[0] != actual:
+        raise ValueError("checkpoint SHA-256 sidecar checksum does not match")
+    return str(parts[0])
+
+
+def _validate_latest_checkpoint_record(
+    value: object,
+    *,
+    fixed: bool,
+) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise ValueError("latest V4 checkpoint record must be an object")
+    actual_fields = set(value)
+    if actual_fields == V4_LATEST_COMMON_FIELDS:
+        record_is_fixed = False
+    elif actual_fields == V4_LATEST_COMMON_FIELDS | V4_LATEST_FIXED_FIELDS:
+        record_is_fixed = True
+    else:
+        raise ValueError("latest V4 checkpoint record key set is non-canonical")
+    if record_is_fixed != fixed:
+        raise ValueError("latest V4 checkpoint record variant does not match")
+    completed_epoch = value.get("completedEpoch")
+    global_step = value.get("globalStep")
+    if (
+        value.get("format") != V4_TRAINING_CHECKPOINT_FORMAT
+        or type(value.get("version")) is not int
+        or value.get("version") != V4_TRAINING_CHECKPOINT_VERSION
+        or type(completed_epoch) is not int
+        or completed_epoch < 1
+        or type(global_step) is not int
+        or global_step < 1
+        or not _is_lower_sha256(value.get("datasetFingerprint"))
+        or not _is_lower_sha256(value.get("lossContractFingerprint"))
+        or not _is_lower_sha256(value.get("sha256"))
+    ):
+        raise ValueError("latest V4 checkpoint record fields are non-canonical")
+    canonical_checkpoint = f"checkpoints/epoch-{completed_epoch:04d}.pt"
+    if (
+        not isinstance(value.get("checkpoint"), str)
+        or value["checkpoint"] != canonical_checkpoint
+    ):
+        raise ValueError("latest V4 checkpoint path is not canonical")
+    if record_is_fixed:
+        fixed_fingerprints = (
+            "balanceContractFingerprint",
+            "fixedCollectionPlanSha256",
+            "fixedPpoExecutionContractFingerprint",
+            "initialPolicyReproductionAuditFingerprint",
+            "postEpochPolicyDriftAuditContractFingerprint",
+            "postEpochPolicyDriftAuditFingerprint",
+        )
+        if any(not _is_lower_sha256(value.get(name)) for name in fixed_fingerprints):
+            raise ValueError(
+                "latest fixed V4 checkpoint fingerprints are non-canonical"
+            )
+        if not isinstance(value.get("initialPolicyReproductionAudit"), Mapping):
+            raise ValueError(
+                "latest initial policy reproduction audit must be an object"
+            )
+        if not isinstance(value.get("postEpochPolicyDriftAudit"), Mapping):
+            raise ValueError(
+                "latest post-epoch policy drift audit must be an object"
+            )
+        if (
+            type(value.get("fixedCheckpointRngContractVersion")) is not int
+            or value.get("fixedCheckpointRngContractVersion")
+            != V4_FIXED_CHECKPOINT_RNG_CONTRACT_VERSION
+        ):
+            raise ValueError(
+                "latest fixed checkpoint RNG contract version is non-canonical"
+            )
+        cuda_rng_state_count = value.get("cudaRngStateCount")
+        if type(cuda_rng_state_count) is not int or cuda_rng_state_count < 0:
+            raise ValueError(
+                "latest fixed checkpoint CUDA RNG state count is non-canonical"
+            )
+        # This boundary can validate the JSON containers and their fingerprints,
+        # but it has no dataset with which to reconstruct row counts or the
+        # balance contract.  Full nested audit semantics remain fail-closed in
+        # _resume_training before any state is installed.
+    return dict(value)
+
+
+def _path_is_link_or_reparse_alias(path: Path) -> bool:
+    """Reject symlink, junction, and other Windows reparse aliases safely."""
+
+    try:
+        if path.is_symlink():
+            return True
+        is_junction = getattr(path, "is_junction", None)
+        if callable(is_junction) and is_junction():
+            return True
+        if os.name == "nt":
+            attributes = getattr(path.lstat(), "st_file_attributes", 0)
+            return bool(attributes & 0x400)  # FILE_ATTRIBUTE_REPARSE_POINT
+    except FileNotFoundError:
+        return False
+    except OSError as error:
+        raise ValueError("cannot safely inspect V4 checkpoint path") from error
+    return False
 
 
 def _torch_load(path: Path, device: torch.device) -> dict[str, object]:
@@ -652,7 +1694,18 @@ def _save_checkpoint(
     fixed_collection_plan_sha256: str | None = None,
     fixed_ppo_execution_contract_fingerprint: str | None = None,
     initial_policy_reproduction_audit: Mapping[str, object] | None = None,
+    post_epoch_policy_drift_audit_contract_fingerprint: str | None = None,
+    post_epoch_policy_drift_audit: Mapping[str, object] | None = None,
 ) -> Path:
+    if post_epoch_policy_drift_audit is not None:
+        expected_actor_state_sha256 = post_epoch_policy_drift_audit.get(
+            "actorStateSha256"
+        )
+        actual_actor_state_sha256 = _actor_state_sha256(actor.state_dict())
+        if expected_actor_state_sha256 != actual_actor_state_sha256:
+            raise ValueError(
+                "post-epoch policy drift audit Actor state SHA-256 does not match"
+            )
     checkpoint = {
         "format": V4_TRAINING_CHECKPOINT_FORMAT,
         "version": V4_TRAINING_CHECKPOINT_VERSION,
@@ -672,6 +1725,16 @@ def _save_checkpoint(
         "numpyRngState": np.random.get_state(),
         "pythonRngState": random.getstate(),
     }
+    if post_epoch_policy_drift_audit is not None:
+        actor_device = next(actor.parameters()).device
+        checkpoint["fixedCheckpointRngContractVersion"] = (
+            V4_FIXED_CHECKPOINT_RNG_CONTRACT_VERSION
+        )
+        checkpoint["cudaRngStates"] = (
+            [state.cpu() for state in torch.cuda.get_rng_state_all()]
+            if actor_device.type == "cuda"
+            else None
+        )
     if balance_contract_fingerprint is not None:
         checkpoint["balanceContractFingerprint"] = balance_contract_fingerprint
     if fixed_collection_plan_sha256 is not None:
@@ -686,10 +1749,26 @@ def _save_checkpoint(
         checkpoint["initialPolicyReproductionAuditFingerprint"] = hashlib.sha256(
             canonical_json_bytes(audit)
         ).hexdigest()
+    if post_epoch_policy_drift_audit is not None:
+        if post_epoch_policy_drift_audit_contract_fingerprint is None:
+            raise ValueError("post-epoch policy drift audit contract is missing")
+        post_audit = dict(post_epoch_policy_drift_audit)
+        checkpoint["postEpochPolicyDriftAuditContractFingerprint"] = (
+            post_epoch_policy_drift_audit_contract_fingerprint
+        )
+        checkpoint["postEpochPolicyDriftAudit"] = post_audit
+        checkpoint["postEpochPolicyDriftAuditFingerprint"] = hashlib.sha256(
+            canonical_json_bytes(post_audit)
+        ).hexdigest()
+    elif post_epoch_policy_drift_audit_contract_fingerprint is not None:
+        raise ValueError("post-epoch policy drift audit is missing")
     buffer = io.BytesIO()
     torch.save(checkpoint, buffer)
     path = output / "checkpoints" / f"epoch-{epoch:04d}.pt"
     _atomic_write(path, buffer.getvalue())
+    checkpoint_sha256 = sha256_file(path)
+    if post_epoch_policy_drift_audit is not None:
+        _write_checkpoint_sha256_sidecar(path, checkpoint_sha256)
     latest = {
         "format": V4_TRAINING_CHECKPOINT_FORMAT,
         "version": V4_TRAINING_CHECKPOINT_VERSION,
@@ -698,7 +1777,7 @@ def _save_checkpoint(
         "datasetFingerprint": dataset.fingerprint,
         "lossContractFingerprint": dataset.loss_contract_fingerprint,
         "checkpoint": str(path.relative_to(output)).replace("\\", "/"),
-        "sha256": sha256_file(path),
+        "sha256": checkpoint_sha256,
     }
     if balance_contract_fingerprint is not None:
         latest["balanceContractFingerprint"] = balance_contract_fingerprint
@@ -714,24 +1793,106 @@ def _save_checkpoint(
         latest["initialPolicyReproductionAuditFingerprint"] = hashlib.sha256(
             canonical_json_bytes(audit)
         ).hexdigest()
+    if post_epoch_policy_drift_audit is not None:
+        assert post_epoch_policy_drift_audit_contract_fingerprint is not None
+        post_audit = dict(post_epoch_policy_drift_audit)
+        latest["fixedCheckpointRngContractVersion"] = (
+            V4_FIXED_CHECKPOINT_RNG_CONTRACT_VERSION
+        )
+        latest["cudaRngStateCount"] = (
+            len(checkpoint["cudaRngStates"])
+            if isinstance(checkpoint["cudaRngStates"], list)
+            else 0
+        )
+        latest["postEpochPolicyDriftAuditContractFingerprint"] = (
+            post_epoch_policy_drift_audit_contract_fingerprint
+        )
+        latest["postEpochPolicyDriftAudit"] = post_audit
+        latest["postEpochPolicyDriftAuditFingerprint"] = hashlib.sha256(
+            canonical_json_bytes(post_audit)
+        ).hexdigest()
     _atomic_write(output / "latest.json", canonical_json_bytes(latest))
     return path
 
 
-def _resolve_resume(output: Path, resume: str | Path | None) -> Path | None:
+def _resolve_resume(
+    output: Path,
+    resume: str | Path | None,
+    *,
+    require_checkpoint_sidecar: bool = False,
+) -> Path | None:
     if resume is None:
         return None
     if str(resume) != "latest":
-        return Path(resume).resolve()
+        checkpoint = Path(resume).resolve()
+        # Existing legacy explicit checkpoints predate sidecars and remain
+        # loadable for compatibility. Every fixed checkpoint requires one.
+        _verify_checkpoint_sha256_sidecar(
+            checkpoint, required=require_checkpoint_sidecar
+        )
+        return checkpoint
     latest_path = output / "latest.json"
-    latest = json.loads(latest_path.read_text(encoding="utf-8"))
-    checkpoint = output / latest["checkpoint"]
-    if latest.get("sha256") != sha256_file(checkpoint):
+    latest = _validate_latest_checkpoint_record(
+        json.loads(latest_path.read_text(encoding="utf-8")),
+        fixed=require_checkpoint_sidecar,
+    )
+    output_root = output.resolve()
+    checkpoint_directory_literal = output_root / "checkpoints"
+    if _path_is_link_or_reparse_alias(checkpoint_directory_literal):
+        raise ValueError("latest V4 checkpoint directory is a path alias")
+    checkpoint_directory = checkpoint_directory_literal.resolve()
+    if checkpoint_directory.parent != output_root:
+        raise ValueError("latest V4 checkpoint directory escapes output")
+    checkpoint_literal = output_root / str(latest["checkpoint"])
+    expected_checkpoint_literal = (
+        checkpoint_directory
+        / f'epoch-{int(latest["completedEpoch"]):04d}.pt'
+    )
+    if checkpoint_literal != expected_checkpoint_literal:
+        raise ValueError("latest V4 checkpoint literal path is not canonical")
+    if _path_is_link_or_reparse_alias(checkpoint_literal):
+        raise ValueError("latest V4 checkpoint file is a path alias")
+    checkpoint = checkpoint_literal.resolve()
+    expected_checkpoint = expected_checkpoint_literal.resolve()
+    if checkpoint != expected_checkpoint or checkpoint.parent != checkpoint_directory:
+        raise ValueError("latest V4 checkpoint path escapes output/checkpoints")
+    actual = sha256_file(checkpoint)
+    if latest.get("sha256") != actual:
         raise ValueError("latest V4 checkpoint checksum does not match")
+    sidecar_checksum = _verify_checkpoint_sha256_sidecar(
+        checkpoint, required=require_checkpoint_sidecar
+    )
+    if sidecar_checksum is not None and sidecar_checksum != actual:
+        raise ValueError("latest checkpoint and sidecar SHA-256 disagree")
     return checkpoint.resolve()
 
 
-def _resume_training(
+def _validated_checkpoint_cuda_rng_states(
+    value: object,
+    device: torch.device,
+) -> list[torch.Tensor] | None:
+    if device.type != "cuda":
+        if value is not None:
+            raise ValueError("resume CPU fixed checkpoint carries CUDA RNG states")
+        return None
+    expected_count = torch.cuda.device_count()
+    if (
+        expected_count < 1
+        or not isinstance(value, list)
+        or len(value) != expected_count
+        or any(
+            not isinstance(state, torch.Tensor)
+            or state.dtype != torch.uint8
+            or state.ndim != 1
+            or state.numel() < 1
+            for state in value
+        )
+    ):
+        raise ValueError("resume CUDA RNG states are non-canonical")
+    return [state.detach().cpu().clone() for state in value]
+
+
+def _resume_training_impl(
     checkpoint_path: Path,
     actor: V4PublicActor,
     critic: V4PrivilegedQCritic,
@@ -744,7 +1905,15 @@ def _resume_training(
     balance_contract_fingerprint: str | None = None,
     fixed_collection_plan_sha256: str | None = None,
     fixed_ppo_execution_contract_fingerprint: str | None = None,
-) -> tuple[int, int, dict[str, object] | None]:
+    balance_contract: Mapping[str, object] | None = None,
+    post_epoch_policy_drift_audit_contract_fingerprint: str | None = None,
+    policy_audit_batch_size: int | None = None,
+) -> tuple[
+    int,
+    int,
+    dict[str, object] | None,
+    dict[str, object] | None,
+]:
     checkpoint = _torch_load(checkpoint_path, device)
     if (
         checkpoint.get("format") != V4_TRAINING_CHECKPOINT_FORMAT
@@ -764,8 +1933,23 @@ def _resume_training(
         != fixed_ppo_execution_contract_fingerprint
     ):
         raise ValueError("resume fixed PPO execution contract does not match")
+    completed_epoch = checkpoint.get("completedEpoch")
+    global_step = checkpoint.get("globalStep")
+    if (
+        isinstance(completed_epoch, bool)
+        or not isinstance(completed_epoch, int)
+        or completed_epoch < 1
+        or isinstance(global_step, bool)
+        or not isinstance(global_step, int)
+        or global_step < 1
+    ):
+        raise ValueError("resume checkpoint epoch/global step is invalid")
     raw_audit = checkpoint.get("initialPolicyReproductionAudit")
+    cuda_rng_states_to_restore: list[torch.Tensor] | None = None
     if fixed_collection_plan_sha256 is None:
+        # Legacy BC/DAGGER/PPO checkpoints intentionally retain their former
+        # CUDA-resume behavior and file shape. The new exact all-device RNG
+        # contract is mandatory only for fixed-match checkpoints.
         if raw_audit is not None or checkpoint.get(
             "initialPolicyReproductionAuditFingerprint"
         ) is not None:
@@ -774,7 +1958,20 @@ def _resume_training(
             )
         audit = None
     else:
+        if (
+            checkpoint.get("fixedCheckpointRngContractVersion")
+            != V4_FIXED_CHECKPOINT_RNG_CONTRACT_VERSION
+            or "cudaRngStates" not in checkpoint
+        ):
+            raise ValueError("resume fixed checkpoint RNG contract is missing")
+        cuda_rng_states_to_restore = _validated_checkpoint_cuda_rng_states(
+            checkpoint["cudaRngStates"], device
+        )
         audit = _validate_initial_policy_reproduction_audit(raw_audit, dataset)
+        if audit.get("auditBatchSize") != policy_audit_batch_size:
+            raise ValueError(
+                "resume initial policy audit batch selection does not match"
+            )
         audit_fingerprint = hashlib.sha256(
             canonical_json_bytes(audit)
         ).hexdigest()
@@ -784,6 +1981,79 @@ def _resume_training(
             raise ValueError(
                 "resume initial policy reproduction audit fingerprint does not match"
             )
+    raw_post_audit = checkpoint.get("postEpochPolicyDriftAudit")
+    raw_post_fingerprint = checkpoint.get("postEpochPolicyDriftAuditFingerprint")
+    raw_post_contract_fingerprint = checkpoint.get(
+        "postEpochPolicyDriftAuditContractFingerprint"
+    )
+    if fixed_collection_plan_sha256 is None:
+        if any(
+            value is not None
+            for value in (
+                raw_post_audit,
+                raw_post_fingerprint,
+                raw_post_contract_fingerprint,
+            )
+        ):
+            raise ValueError(
+                "legacy resume checkpoint unexpectedly carries a post-epoch audit"
+            )
+        post_audit = None
+    else:
+        if (
+            balance_contract is None
+            or fixed_ppo_execution_contract_fingerprint is None
+            or post_epoch_policy_drift_audit_contract_fingerprint is None
+            or policy_audit_batch_size is None
+        ):
+            raise ValueError("resume fixed PPO post-epoch audit contract is missing")
+        if (
+            raw_post_contract_fingerprint
+            != post_epoch_policy_drift_audit_contract_fingerprint
+        ):
+            raise ValueError(
+                "resume post-epoch policy drift audit contract does not match"
+            )
+        assert audit is not None
+        checkpoint_actor_state = checkpoint.get("actorState")
+        if not isinstance(checkpoint_actor_state, Mapping):
+            raise ValueError("resume checkpoint Actor state is missing")
+        checkpoint_actor_state_sha256 = _actor_state_sha256(
+            checkpoint_actor_state
+        )
+        if (
+            not isinstance(raw_post_audit, Mapping)
+            or raw_post_audit.get("actorStateSha256")
+            != checkpoint_actor_state_sha256
+        ):
+            raise ValueError(
+                "resume checkpoint Actor state SHA-256 does not match post-epoch audit"
+            )
+        post_audit = _validate_post_epoch_policy_drift_audit(
+            raw_post_audit,
+            dataset,
+            training_config,
+            balance_contract,
+            audit,
+            expected_epoch=completed_epoch,
+            expected_global_step=global_step,
+            fixed_collection_plan_sha256=fixed_collection_plan_sha256,
+            fixed_ppo_execution_contract_fingerprint=(
+                fixed_ppo_execution_contract_fingerprint
+            ),
+            audit_contract_fingerprint=(
+                post_epoch_policy_drift_audit_contract_fingerprint
+            ),
+            audit_batch_size=policy_audit_batch_size,
+            expected_actor_state_sha256=checkpoint_actor_state_sha256,
+        )
+        post_fingerprint = hashlib.sha256(
+            canonical_json_bytes(post_audit)
+        ).hexdigest()
+        if raw_post_fingerprint != post_fingerprint:
+            raise ValueError(
+                "resume post-epoch policy drift audit fingerprint does not match"
+            )
     if checkpoint.get("actorConfig") != actor.config.to_dict():
         raise ValueError("resume actor configuration does not match")
     if checkpoint.get("criticConfig") != critic.config.to_dict():
@@ -792,10 +2062,16 @@ def _resume_training(
     if not isinstance(old_training, dict):
         raise ValueError("resume training configuration is missing")
     current_training = training_config.to_dict()
-    for name, value in old_training.items():
+    if set(old_training) != set(current_training):
+        raise ValueError("resume training configuration key set changed")
+    for name, value in current_training.items():
         if name == "epochs":
+            if isinstance(old_training[name], bool) or not isinstance(
+                old_training[name], int
+            ):
+                raise ValueError("resume training epochs type changed")
             continue
-        if current_training.get(name) != value:
+        if type(old_training[name]) is not type(value) or old_training[name] != value:
             raise ValueError(f"resume training setting changed: {name}")
     actor.load_state_dict(checkpoint["actorState"], strict=True)
     critic.load_state_dict(checkpoint["criticState"], strict=True)
@@ -803,13 +2079,96 @@ def _resume_training(
     critic_optimizer.load_state_dict(checkpoint["criticOptimizerState"])
     scaler.load_state_dict(checkpoint["scalerState"])
     torch.set_rng_state(checkpoint["torchRngState"].cpu())
+    if cuda_rng_states_to_restore is not None:
+        torch.cuda.set_rng_state_all(cuda_rng_states_to_restore)
     np.random.set_state(checkpoint["numpyRngState"])
     random.setstate(checkpoint["pythonRngState"])
-    completed_epoch = int(checkpoint["completedEpoch"])
-    global_step = int(checkpoint["globalStep"])
     if completed_epoch >= training_config.epochs:
         raise ValueError("resume checkpoint already reached the requested epochs")
-    return completed_epoch, global_step, audit
+    return completed_epoch, global_step, audit, post_audit
+
+
+def _capture_global_rng_state() -> dict[str, object]:
+    raw_numpy_state = np.random.get_state()
+    return {
+        "torch": torch.get_rng_state().clone(),
+        "cuda": (
+            [state.clone() for state in torch.cuda.get_rng_state_all()]
+            if torch.cuda.is_available()
+            else None
+        ),
+        "numpy": (
+            raw_numpy_state[0],
+            raw_numpy_state[1].copy(),
+            *raw_numpy_state[2:],
+        ),
+        "python": random.getstate(),
+    }
+
+
+def _restore_global_rng_state(snapshot: Mapping[str, object]) -> None:
+    torch_state = snapshot["torch"]
+    numpy_state = snapshot["numpy"]
+    if not isinstance(torch_state, torch.Tensor) or not isinstance(
+        numpy_state, tuple
+    ):
+        raise ValueError("global RNG snapshot is non-canonical")
+    torch.set_rng_state(torch_state)
+    cuda_states = snapshot["cuda"]
+    if cuda_states is not None:
+        if not isinstance(cuda_states, list):
+            raise ValueError("global CUDA RNG snapshot is non-canonical")
+        torch.cuda.set_rng_state_all(cuda_states)
+    np.random.set_state(numpy_state)
+    random.setstate(snapshot["python"])
+
+
+def _resume_training(
+    checkpoint_path: Path,
+    actor: V4PublicActor,
+    critic: V4PrivilegedQCritic,
+    actor_optimizer: torch.optim.Optimizer,
+    critic_optimizer: torch.optim.Optimizer,
+    scaler: object,
+    dataset: V4TrajectoryDataset,
+    training_config: V4TrainingConfig,
+    device: torch.device,
+    balance_contract_fingerprint: str | None = None,
+    fixed_collection_plan_sha256: str | None = None,
+    fixed_ppo_execution_contract_fingerprint: str | None = None,
+    balance_contract: Mapping[str, object] | None = None,
+    post_epoch_policy_drift_audit_contract_fingerprint: str | None = None,
+    policy_audit_batch_size: int | None = None,
+) -> tuple[
+    int,
+    int,
+    dict[str, object] | None,
+    dict[str, object] | None,
+]:
+    """Load one checkpoint transactionally with respect to every global RNG."""
+
+    rng_snapshot = _capture_global_rng_state()
+    try:
+        return _resume_training_impl(
+            checkpoint_path,
+            actor,
+            critic,
+            actor_optimizer,
+            critic_optimizer,
+            scaler,
+            dataset,
+            training_config,
+            device,
+            balance_contract_fingerprint,
+            fixed_collection_plan_sha256,
+            fixed_ppo_execution_contract_fingerprint,
+            balance_contract,
+            post_epoch_policy_drift_audit_contract_fingerprint,
+            policy_audit_batch_size,
+        )
+    except BaseException:
+        _restore_global_rng_state(rng_snapshot)
+        raise
 
 
 def _flatten_time(tensor: torch.Tensor) -> torch.Tensor:
@@ -1036,7 +2395,7 @@ def _resolve_training_contract(
     return contract
 
 
-def train_v4(
+def _train_v4_impl(
     dataset: V4TrajectoryDataset,
     output_directory: str | Path,
     training_config: V4TrainingConfig,
@@ -1097,6 +2456,25 @@ def train_v4(
         if fixed_ppo_execution_contract is not None
         else None
     )
+    policy_audit_batch_size = (
+        _policy_audit_batch_size(training_config, device_value)
+        if balance_contract is not None
+        else None
+    )
+    post_epoch_policy_drift_audit_contract = (
+        _post_epoch_policy_drift_audit_contract(training_config, device_value)
+        if balance_contract is not None
+        else None
+    )
+    post_epoch_policy_drift_audit_contract_fingerprint = (
+        str(
+            post_epoch_policy_drift_audit_contract[
+                "auditContractFingerprint"
+            ]
+        )
+        if post_epoch_policy_drift_audit_contract is not None
+        else None
+    )
     use_amp = bool(training_config.amp and device_value.type == "cuda")
     random.seed(training_config.seed)
     np.random.seed(training_config.seed % (2**32))
@@ -1149,12 +2527,18 @@ def train_v4(
     start_epoch = 0
     global_step = 0
     initial_policy_reproduction_audit: dict[str, object] | None = None
-    checkpoint_path = _resolve_resume(output, resume)
+    latest_post_epoch_policy_drift_audit: dict[str, object] | None = None
+    checkpoint_path = _resolve_resume(
+        output,
+        resume,
+        require_checkpoint_sidecar=balance_contract is not None,
+    )
     if checkpoint_path is not None:
         (
             start_epoch,
             global_step,
             initial_policy_reproduction_audit,
+            latest_post_epoch_policy_drift_audit,
         ) = _resume_training(
             checkpoint_path,
             actor,
@@ -1168,6 +2552,9 @@ def train_v4(
             balance_contract_fingerprint,
             fixed_collection_plan_sha256,
             fixed_ppo_execution_contract_fingerprint,
+            balance_contract,
+            post_epoch_policy_drift_audit_contract_fingerprint,
+            policy_audit_batch_size,
         )
         if str(resume) == "latest":
             latest = json.loads(
@@ -1198,18 +2585,58 @@ def train_v4(
                 raise ValueError(
                     "latest initial policy reproduction audit fingerprint does not match"
                 )
+            if balance_contract is not None:
+                assert latest_post_epoch_policy_drift_audit is not None
+                expected_cuda_rng_state_count = (
+                    torch.cuda.device_count()
+                    if device_value.type == "cuda"
+                    else 0
+                )
+                if (
+                    latest.get("fixedCheckpointRngContractVersion")
+                    != V4_FIXED_CHECKPOINT_RNG_CONTRACT_VERSION
+                    or latest.get("cudaRngStateCount")
+                    != expected_cuda_rng_state_count
+                ):
+                    raise ValueError(
+                        "latest fixed checkpoint RNG contract does not match"
+                    )
+                if latest.get(
+                    "postEpochPolicyDriftAuditContractFingerprint"
+                ) != post_epoch_policy_drift_audit_contract_fingerprint:
+                    raise ValueError(
+                        "latest post-epoch policy drift audit contract does not match"
+                    )
+                if latest.get("postEpochPolicyDriftAudit") != (
+                    latest_post_epoch_policy_drift_audit
+                ):
+                    raise ValueError(
+                        "latest post-epoch policy drift audit does not match"
+                    )
+                post_audit_fingerprint = hashlib.sha256(
+                    canonical_json_bytes(latest_post_epoch_policy_drift_audit)
+                ).hexdigest()
+                if latest.get("postEpochPolicyDriftAuditFingerprint") != (
+                    post_audit_fingerprint
+                ):
+                    raise ValueError(
+                        "latest post-epoch policy drift audit fingerprint does not match"
+                    )
     elif (output / "latest.json").exists():
         raise FileExistsError(
             "the output already contains a run; pass resume='latest' or use a new directory"
         )
     elif balance_contract is not None:
+        assert policy_audit_batch_size is not None
         initial_policy_reproduction_audit = (
             _audit_initial_policy_reproduction(
                 actor,
                 dataset,
                 device=device_value,
-                batch_size=training_config.batch_size,
+                batch_size=policy_audit_batch_size,
                 num_workers=training_config.num_workers,
+                balance_contract=balance_contract,
+                clip_ratio=training_config.clip_ratio,
             )
         )
 
@@ -1230,6 +2657,13 @@ def train_v4(
         training_contract["initialPolicyReproductionAuditFingerprint"] = (
             audit_fingerprint
         )
+        assert post_epoch_policy_drift_audit_contract is not None
+        training_contract["postEpochPolicyDriftAuditContract"] = (
+            post_epoch_policy_drift_audit_contract
+        )
+        training_contract[
+            "postEpochPolicyDriftAuditContractFingerprint"
+        ] = post_epoch_policy_drift_audit_contract_fingerprint
 
     # Fixed fresh runs reach this point only after plan/dropout/FP32 policy
     # reproduction admission has passed, so a failed preflight leaves no output.
@@ -1702,6 +3136,17 @@ def train_v4(
                 + training_config.bc_weight * bc_metric
                 + training_config.critic_weight * critic_metric
             )
+            optimization_pass_diagnostics = {
+                "timing": (
+                    "each shuffled minibatch before its optimizer update; "
+                    "not final Actor drift"
+                ),
+                "entropy": balanced_values["entropy"],
+                "approxKl": balanced_values["approxKl"],
+                "clipFraction": balanced_values["clipFraction"],
+                "policyLoss": balanced_values["policyLoss"],
+                "meanQBoost": balanced_values["meanQBoost"],
+            }
             epoch_metrics.update(
                 {
                     "balanceContractFingerprint": balance_contract_fingerprint,
@@ -1721,7 +3166,60 @@ def train_v4(
                     "balancedDiagnosticWeightMassByLoss": (
                         balanced_metric_weight_sums
                     ),
+                    "optimizationPassDiagnostics": (
+                        optimization_pass_diagnostics
+                    ),
                     **balanced_values,
+                }
+            )
+            assert initial_policy_reproduction_audit is not None
+            assert fixed_collection_plan_sha256 is not None
+            assert fixed_ppo_execution_contract_fingerprint is not None
+            assert post_epoch_policy_drift_audit_contract_fingerprint is not None
+            assert policy_audit_batch_size is not None
+            latest_post_epoch_policy_drift_audit = (
+                _audit_post_epoch_policy_drift(
+                    actor,
+                    dataset,
+                    training_config,
+                    balance_contract,
+                    initial_policy_reproduction_audit,
+                    epoch=epoch,
+                    global_step=global_step,
+                    device=device_value,
+                    fixed_collection_plan_sha256=fixed_collection_plan_sha256,
+                    fixed_ppo_execution_contract_fingerprint=(
+                        fixed_ppo_execution_contract_fingerprint
+                    ),
+                    audit_contract_fingerprint=(
+                        post_epoch_policy_drift_audit_contract_fingerprint
+                    ),
+                    audit_batch_size=policy_audit_batch_size,
+                )
+            )
+            post_audit_fingerprint = hashlib.sha256(
+                canonical_json_bytes(latest_post_epoch_policy_drift_audit)
+            ).hexdigest()
+            epoch_metrics.update(
+                {
+                    "postEpochPolicyDriftAuditContractFingerprint": (
+                        post_epoch_policy_drift_audit_contract_fingerprint
+                    ),
+                    "postEpochPolicyDriftAudit": (
+                        latest_post_epoch_policy_drift_audit
+                    ),
+                    "postEpochPolicyDriftAuditFingerprint": (
+                        post_audit_fingerprint
+                    ),
+                    # Operational KL/clip/entropy gates must read the final
+                    # Actor, never the moving pre-update training pass.
+                    "approxKl": latest_post_epoch_policy_drift_audit[
+                        "approxKl"
+                    ],
+                    "clipFraction": latest_post_epoch_policy_drift_audit[
+                        "clipFraction"
+                    ],
+                    "entropy": latest_post_epoch_policy_drift_audit["entropy"],
                 }
             )
         if any(
@@ -1749,21 +3247,43 @@ def train_v4(
                 fixed_collection_plan_sha256,
                 fixed_ppo_execution_contract_fingerprint,
                 initial_policy_reproduction_audit,
+                post_epoch_policy_drift_audit_contract_fingerprint,
+                latest_post_epoch_policy_drift_audit,
             )
 
     actor.eval()
+    candidate_metadata: dict[str, object] = {
+        "seed": training_config.seed,
+        "datasetFingerprint": dataset.fingerprint,
+        "lossContractFingerprint": dataset.loss_contract_fingerprint,
+        "trainingContract": training_contract,
+        "completedEpochs": training_config.epochs,
+        "globalStep": global_step,
+        "initialActor": initial_actor,
+    }
+    if latest_post_epoch_policy_drift_audit is not None:
+        assert post_epoch_policy_drift_audit_contract_fingerprint is not None
+        if latest_post_epoch_policy_drift_audit.get(
+            "actorStateSha256"
+        ) != _actor_state_sha256(actor.state_dict()):
+            raise ValueError(
+                "final post-epoch audit Actor state SHA-256 does not match"
+            )
+        candidate_metadata["finalPostEpochPolicyDriftAudit"] = (
+            latest_post_epoch_policy_drift_audit
+        )
+        candidate_metadata[
+            "finalPostEpochPolicyDriftAuditFingerprint"
+        ] = hashlib.sha256(
+            canonical_json_bytes(latest_post_epoch_policy_drift_audit)
+        ).hexdigest()
+        candidate_metadata[
+            "postEpochPolicyDriftAuditContractFingerprint"
+        ] = post_epoch_policy_drift_audit_contract_fingerprint
     candidate_manifest = export_v4_actor_bundle(
         actor,
         output / "candidate",
-        metadata={
-            "seed": training_config.seed,
-            "datasetFingerprint": dataset.fingerprint,
-            "lossContractFingerprint": dataset.loss_contract_fingerprint,
-            "trainingContract": training_contract,
-            "completedEpochs": training_config.epochs,
-            "globalStep": global_step,
-            "initialActor": initial_actor,
-        },
+        metadata=candidate_metadata,
         include_onnx=include_onnx,
     )
     result = {
@@ -1778,8 +3298,56 @@ def train_v4(
         "candidate": candidate_manifest,
         "privilegedCriticExported": False,
     }
+    if latest_post_epoch_policy_drift_audit is not None:
+        result["finalPostEpochPolicyDriftAudit"] = (
+            latest_post_epoch_policy_drift_audit
+        )
+        result["finalPostEpochPolicyDriftAuditFingerprint"] = hashlib.sha256(
+            canonical_json_bytes(latest_post_epoch_policy_drift_audit)
+        ).hexdigest()
+        result["postEpochPolicyDriftAuditContractFingerprint"] = (
+            post_epoch_policy_drift_audit_contract_fingerprint
+        )
     _atomic_write(output / "result.json", canonical_json_bytes(result))
     return result
+
+
+def train_v4(
+    dataset: V4TrajectoryDataset,
+    output_directory: str | Path,
+    training_config: V4TrainingConfig,
+    *,
+    device: str | torch.device = "cpu",
+    resume: str | Path | None = None,
+    initialize_actor_bundle: str | Path | None = None,
+    include_onnx: bool = False,
+) -> dict[str, object]:
+    """Run training; failed resume attempts roll every global RNG back."""
+
+    if resume is None:
+        return _train_v4_impl(
+            dataset,
+            output_directory,
+            training_config,
+            device=device,
+            resume=resume,
+            initialize_actor_bundle=initialize_actor_bundle,
+            include_onnx=include_onnx,
+        )
+    rng_snapshot = _capture_global_rng_state()
+    try:
+        return _train_v4_impl(
+            dataset,
+            output_directory,
+            training_config,
+            device=device,
+            resume=resume,
+            initialize_actor_bundle=initialize_actor_bundle,
+            include_onnx=include_onnx,
+        )
+    except BaseException:
+        _restore_global_rng_state(rng_snapshot)
+        raise
 
 
 def _parser() -> argparse.ArgumentParser:
