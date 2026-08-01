@@ -708,8 +708,7 @@ def _canonical_fixed_collection_plan_fields(
     match_counts_value = value.get("matchCounts")
     if not isinstance(match_counts_value, Mapping) or not match_counts_value:
         raise ValueError("fixed collection plan match counts are invalid")
-    match_counts: dict[str, int] = {}
-    previous_player_count = 3
+    parsed_match_counts: dict[int, int] = {}
     for key, raw_count in match_counts_value.items():
         try:
             player_count = int(key)
@@ -719,14 +718,22 @@ def _canonical_fixed_collection_plan_fields(
             not isinstance(key, str)
             or key != str(player_count)
             or not 4 <= player_count <= 10
-            or player_count <= previous_player_count
+            or player_count in parsed_match_counts
             or isinstance(raw_count, bool)
             or not isinstance(raw_count, int)
             or raw_count < 1
         ):
             raise ValueError("fixed collection plan match counts are non-canonical")
-        match_counts[key] = raw_count
-        previous_player_count = player_count
+        parsed_match_counts[player_count] = raw_count
+    # JSON ``sort_keys=True`` orders numeric-looking object keys
+    # lexicographically ("10", "4", ...).  Input mapping order therefore
+    # cannot be part of this provenance contract.  Rebuild the canonical
+    # representation in numeric player-count order after validating every
+    # key/value and rejecting numeric aliases or duplicate player counts.
+    match_counts = {
+        str(player_count): parsed_match_counts[player_count]
+        for player_count in sorted(parsed_match_counts)
+    }
     integer_fields = ("version", "seedBase", "matchStart", "matchShardCount")
     if any(
         isinstance(value.get(name), bool) or not isinstance(value.get(name), int)

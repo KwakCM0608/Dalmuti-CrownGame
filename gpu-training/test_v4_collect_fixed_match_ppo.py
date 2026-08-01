@@ -32,7 +32,12 @@ from v4_collect_fixed_match_ppo import (
     suffix_reward_components,
 )
 from v4_collect_ppo import masked_categorical_probabilities
-from v4_dataset import V4LossEligibility, _loss_contract_fingerprint, load_v4_dataset_npz
+from v4_dataset import (
+    V4LossEligibility,
+    _canonical_fixed_collection_plan_fields,
+    _loss_contract_fingerprint,
+    load_v4_dataset_npz,
+)
 from v4_env import ACTION_COUNT, V4ActorObservation, round_chip_award
 from v4_evaluate import rotating_candidate_seats
 from v4_export import export_v4_actor_bundle
@@ -449,6 +454,96 @@ class FixedMatchPPOTests(unittest.TestCase):
                 initialize_actor_bundle=self.bundle,
             )
         self.assertFalse(train_output.exists())
+
+    def test_full_player_count_plan_survives_canonical_json_reload(self) -> None:
+        full_counts = tuple((player_count, 1) for player_count in range(4, 11))
+        source = self._collect_variant(
+            "all-player-counts",
+            951_500_001,
+            match_counts=full_counts,
+            lane_count=7,
+        )
+        result = merge_v4_datasets(
+            source,
+            self.root / "all-player-counts" / "merged.npz",
+        )
+
+        # Canonical JSON deliberately sorts object keys lexicographically, so
+        # p10 is reloaded before p4.  Loading must treat mapping order as wire
+        # representation only and restore the numeric p4..p10 provenance order.
+        with np.load(result.output_path, allow_pickle=False) as archive:
+            raw_metadata = json.loads(str(archive["metadata_json"].item()))
+            raw_plan = raw_metadata["lossEligibility"]["fixedCollectionPlans"][0]
+            raw_counts = raw_plan["canonicalFields"]["matchCounts"]
+            self.assertEqual(list(raw_counts), ["10", "4", "5", "6", "7", "8", "9"])
+            self.assertEqual(
+                sorted(set(archive["trajectory_player_counts"].tolist())),
+                list(range(4, 11)),
+            )
+            self.assertEqual(
+                int(np.count_nonzero(archive["trajectory_player_counts"] == 10)),
+                5,
+            )
+
+        dataset = load_v4_dataset_npz(result.output_path)
+        self.assertEqual(len(dataset.loss_eligibility.fixed_collection_plan_ids), 1)
+
+        reserialized = self.root / "all-player-counts" / "reserialized.npz"
+
+        def no_change(
+            metadata: dict[str, object], arrays: dict[str, np.ndarray]
+        ) -> None:
+            del metadata, arrays
+
+        _rewrite_npz(result.output_path, reserialized, no_change)
+        reloaded = load_v4_dataset_npz(reserialized)
+        self.assertEqual(
+            reloaded.loss_eligibility.fixed_collection_plan_ids,
+            dataset.loss_eligibility.fixed_collection_plan_ids,
+        )
+
+        fields = raw_plan["canonicalFields"]
+        plan_id, canonical = _canonical_fixed_collection_plan_fields(fields)
+        self.assertEqual(list(canonical["matchCounts"]), [str(p) for p in range(4, 11)])
+        reversed_fields = dict(fields)
+        reversed_fields["matchCounts"] = {
+            key: raw_counts[key] for key in reversed(list(raw_counts))
+        }
+        reversed_id, reversed_canonical = _canonical_fixed_collection_plan_fields(
+            reversed_fields
+        )
+        self.assertEqual(reversed_id, plan_id)
+        self.assertEqual(reversed_canonical, canonical)
+
+        invalid_counts = (
+            {**raw_counts, "04": 1},
+            {**raw_counts, 4: 1},
+            {key: value for key, value in raw_counts.items() if key != "10"}
+            | {"11": 1},
+            {**raw_counts, "4": True},
+            {**raw_counts, "4": 0},
+            {**raw_counts, "4": 1.0},
+        )
+        for counts in invalid_counts:
+            with self.subTest(counts=counts):
+                tampered_fields = dict(fields)
+                tampered_fields["matchCounts"] = counts
+                with self.assertRaisesRegex(
+                    ValueError, "match counts are non-canonical"
+                ):
+                    _canonical_fixed_collection_plan_fields(tampered_fields)
+
+        for field_mutation in ("missing", "extra"):
+            with self.subTest(field_mutation=field_mutation):
+                tampered_fields = dict(fields)
+                if field_mutation == "missing":
+                    tampered_fields.pop("sourceHashesSha256")
+                else:
+                    tampered_fields["unexpected"] = True
+                with self.assertRaisesRegex(
+                    ValueError, "plan fields are non-canonical"
+                ):
+                    _canonical_fixed_collection_plan_fields(tampered_fields)
 
     def test_direct_behavior_and_dropout_contract_tampering_is_rejected(self) -> None:
         behavior_tamper = self.root / "tamper-contract" / "behavior.npz"
