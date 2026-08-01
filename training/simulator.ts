@@ -38,6 +38,11 @@ import {
   type RevolutionState,
 } from "./observation.ts";
 import { SeededRandom } from "./random.ts";
+import {
+  buildV4ActorVisibleObservation,
+  type V4ActorVisibleObservation,
+  type V4PublicEventInput,
+} from "./v4-public-history.ts";
 
 const MAX_TRANSITIONS_PER_ACT = 20_000;
 
@@ -51,6 +56,7 @@ type SimulationPlayer = {
 type SimulationTable = {
   rank: number;
   count: number;
+  jokerCount: number;
   playerId: string;
 };
 
@@ -184,6 +190,108 @@ export type SimulationConfig = {
   policyByPlayerId?: Readonly<Record<string, TrainingPolicy | undefined>>;
   supervisionPolicy?: TrainingPolicy;
   nonCard?: TrainingNonCardHooks;
+  /**
+   * Training-only V4 capture. Omission preserves the legacy simulation result
+   * shape and JSON bytes exactly.
+   */
+  recordV4?: boolean;
+};
+
+export const V4_PRIVILEGED_CRITIC_SCHEMA_VERSION = 1;
+export const V4_PRIVILEGED_CRITIC_FEATURE_COUNT = 512;
+export const V4_PRIVILEGED_CRITIC_GLOBAL_FEATURE_COUNT = 16;
+export const V4_PRIVILEGED_CRITIC_PUBLIC_RANK_OFFSET = 16;
+export const V4_PRIVILEGED_CRITIC_PLAYER_OFFSET = 29;
+export const V4_PRIVILEGED_CRITIC_PLAYER_STRIDE = 25;
+
+export const V4_PRIVILEGED_CRITIC_LAYOUT = Object.freeze({
+  version: V4_PRIVILEGED_CRITIC_SCHEMA_VERSION,
+  featureCount: V4_PRIVILEGED_CRITIC_FEATURE_COUNT,
+  global: Object.freeze({
+    offset: 0,
+    fields: Object.freeze([
+      "playerCount",
+      "act",
+      "revolution",
+      "table.present",
+      "table.rank",
+      "table.naturalCount",
+      "table.jokerCount",
+      "table.totalCount",
+      "table.actorOffsetOrMinusOne",
+      "publicPlayedTotal",
+      "activePlayerCount",
+      "finishedPlayerCount",
+      "actorRole",
+      "actorScore",
+      "actorHandCount",
+      "publicHistoryEventCount",
+    ]),
+  }),
+  publicPlayedRankCounts: Object.freeze({
+    offset: V4_PRIVILEGED_CRITIC_PUBLIC_RANK_OFFSET,
+    length: 13,
+    ranks: "1..13",
+  }),
+  players: Object.freeze({
+    offset: V4_PRIVILEGED_CRITIC_PLAYER_OFFSET,
+    seats: 10,
+    stride: V4_PRIVILEGED_CRITIC_PLAYER_STRIDE,
+    fields: Object.freeze([
+      "present",
+      "relativeOffset",
+      "role.oneHot[5]",
+      "score",
+      "handCount",
+      "passed",
+      "finished",
+      "finishPlace",
+      "handRankCounts[13]",
+    ]),
+  }),
+  reservedZeroTail: Object.freeze({
+    offset:
+      V4_PRIVILEGED_CRITIC_PLAYER_OFFSET +
+      10 * V4_PRIVILEGED_CRITIC_PLAYER_STRIDE,
+    length:
+      V4_PRIVILEGED_CRITIC_FEATURE_COUNT -
+      (V4_PRIVILEGED_CRITIC_PLAYER_OFFSET +
+        10 * V4_PRIVILEGED_CRITIC_PLAYER_STRIDE),
+  }),
+});
+
+export type V4PrivilegedCriticPlayerState = {
+  readonly relativeOffset: number;
+  readonly role: BotRole;
+  readonly score: number;
+  readonly passed: boolean;
+  readonly finishPlace: number;
+  /** Physical-card counts for ranks 1..13, including each hidden hand. */
+  readonly handRankCounts: readonly number[];
+};
+
+/**
+ * Training-only full-information state for the centralized critic. This type
+ * is deliberately separate from `V4ActorVisibleObservation` and must never be
+ * passed to or exported with the actor.
+ */
+export type V4PrivilegedCriticState = {
+  readonly schemaVersion: typeof V4_PRIVILEGED_CRITIC_SCHEMA_VERSION;
+  readonly playerCount: number;
+  readonly act: number;
+  readonly actorRole: BotRole;
+  readonly revolution: RevolutionState;
+  readonly publicPlayedCounts: readonly number[];
+  readonly table: {
+    readonly actorOffset: number;
+    readonly rank: number;
+    readonly naturalCount: number;
+    readonly jokerCount: number;
+    readonly totalCount: number;
+  } | null;
+  readonly players: readonly V4PrivilegedCriticPlayerState[];
+  /** Exact 512-float critic input; unused reserved positions are zero. */
+  readonly features: readonly number[];
 };
 
 export type TrainingStep = {
@@ -206,6 +314,12 @@ export type TrainingStep = {
   actorTerminal: boolean;
   environmentTerminal: boolean;
   finishPlace: number;
+  /** Present only when `SimulationConfig.recordV4 === true`. */
+  v4ActorObservation?: V4ActorVisibleObservation;
+  /** Present only when `SimulationConfig.recordV4 === true`. */
+  v4PrivilegedCriticState?: V4PrivilegedCriticState;
+  /** Public events emitted by this action, including terminal tail events. */
+  v4EventsAfterAction?: V4PublicEventInput[];
 };
 
 type TrainingNonCardStepBase = {
@@ -1525,6 +1639,186 @@ function createPlayObservation(
   };
 }
 
+function rankCounts(cards: readonly BotCard[]): number[] {
+  const counts = Array.from({ length: 13 }, () => 0);
+  for (const card of cards) counts[card.rank - 1] += 1;
+  return counts;
+}
+
+function v4RoleIndex(role: BotRole): number {
+  switch (role) {
+    case "great-dalmuti":
+      return 0;
+    case "lesser-dalmuti":
+      return 1;
+    case "merchant":
+      return 2;
+    case "lesser-peon":
+      return 3;
+    case "great-peon":
+      return 4;
+  }
+}
+
+function tableBundle(table: SimulationTable) {
+  return {
+    rank: table.rank,
+    naturalCount: table.count - table.jokerCount,
+    jokerCount: table.jokerCount,
+    totalCount: table.count,
+  };
+}
+
+function createV4Capture(
+  actor: SimulationPlayer,
+  round: number,
+  revolution: RevolutionState,
+  players: readonly SimulationPlayer[],
+  hands: Readonly<Record<string, readonly BotCard[]>>,
+  table: SimulationTable | null,
+  passedPlayerIds: readonly string[],
+  finishOrder: readonly string[],
+  playedCounts: readonly number[],
+  history: readonly V4PublicEventInput[],
+): {
+  actorObservation: V4ActorVisibleObservation;
+  privilegedCriticState: V4PrivilegedCriticState;
+} {
+  const actorIndex = players.findIndex((player) => player.id === actor.id);
+  if (actorIndex < 0) throw new Error("V4 actor is absent from player order");
+  const publicPlayedCounts = playedCounts.slice(1);
+  const actorObservation = buildV4ActorVisibleObservation({
+    actorId: actor.id,
+    act: round,
+    revolution,
+    ownHand: hands[actor.id].map((card) => ({ rank: card.rank })),
+    publicPlayedCounts,
+    players: players.map((player) => ({
+      id: player.id,
+      handCount: hands[player.id].length,
+      finished: hands[player.id].length === 0,
+      passed: passedPlayerIds.includes(player.id),
+      role: player.role,
+      score: player.score,
+    })),
+    table:
+      table === null
+        ? null
+        : {
+            playerId: table.playerId,
+            ...tableBundle(table),
+          },
+    history,
+  });
+
+  const privilegedPlayers = Array.from(
+    { length: players.length },
+    (_, relativeOffset) => {
+      const player = players[(actorIndex + relativeOffset) % players.length];
+      return {
+        relativeOffset,
+        role: player.role,
+        score: player.score,
+        passed: passedPlayerIds.includes(player.id),
+        finishPlace:
+          finishOrder.indexOf(player.id) < 0
+            ? 0
+            : finishOrder.indexOf(player.id) + 1,
+        handRankCounts: rankCounts(hands[player.id]),
+      } satisfies V4PrivilegedCriticPlayerState;
+    },
+  );
+  const features = Array.from(
+    { length: V4_PRIVILEGED_CRITIC_FEATURE_COUNT },
+    () => 0,
+  );
+  const tableActorIndex =
+    table === null
+      ? -1
+      : players.findIndex((player) => player.id === table.playerId);
+  const tableActorOffset =
+    tableActorIndex < 0
+      ? -1
+      : (tableActorIndex - actorIndex + players.length) % players.length;
+  const globalFeatures = [
+    players.length,
+    round,
+    revolution === null ? 0 : revolution === "revolution" ? 1 : 2,
+    table === null ? 0 : 1,
+    table?.rank ?? 0,
+    table === null ? 0 : table.count - table.jokerCount,
+    table?.jokerCount ?? 0,
+    table?.count ?? 0,
+    tableActorOffset,
+    publicPlayedCounts.reduce((sum, count) => sum + count, 0),
+    players.filter((player) => hands[player.id].length > 0).length,
+    finishOrder.length,
+    v4RoleIndex(actor.role),
+    actor.score,
+    hands[actor.id].length,
+    history.length,
+  ];
+  features.splice(0, globalFeatures.length, ...globalFeatures);
+  features.splice(
+    V4_PRIVILEGED_CRITIC_PUBLIC_RANK_OFFSET,
+    publicPlayedCounts.length,
+    ...publicPlayedCounts,
+  );
+  for (const player of privilegedPlayers) {
+    const offset =
+      V4_PRIVILEGED_CRITIC_PLAYER_OFFSET +
+      player.relativeOffset * V4_PRIVILEGED_CRITIC_PLAYER_STRIDE;
+    const roleOneHot = Array.from({ length: 5 }, (_, roleIndex) =>
+      roleIndex === v4RoleIndex(player.role) ? 1 : 0,
+    );
+    const handCount = player.handRankCounts.reduce(
+      (sum, count) => sum + count,
+      0,
+    );
+    const playerFeatures = [
+      1,
+      player.relativeOffset,
+      ...roleOneHot,
+      player.score,
+      handCount,
+      player.passed ? 1 : 0,
+      handCount === 0 ? 1 : 0,
+      player.finishPlace,
+      ...player.handRankCounts,
+    ];
+    features.splice(offset, playerFeatures.length, ...playerFeatures);
+  }
+  if (
+    features.length !== V4_PRIVILEGED_CRITIC_FEATURE_COUNT ||
+    features
+      .slice(V4_PRIVILEGED_CRITIC_LAYOUT.reservedZeroTail.offset)
+      .some((value) => value !== 0)
+  ) {
+    throw new Error("V4 privileged critic vector layout drifted");
+  }
+
+  return {
+    actorObservation,
+    privilegedCriticState: {
+      schemaVersion: V4_PRIVILEGED_CRITIC_SCHEMA_VERSION,
+      playerCount: players.length,
+      act: round,
+      actorRole: actor.role,
+      revolution,
+      publicPlayedCounts,
+      table:
+        table === null
+          ? null
+          : {
+              actorOffset: tableActorOffset,
+              ...tableBundle(table),
+            },
+      players: privilegedPlayers,
+      features,
+    },
+  };
+}
+
 function choosePolicyDecision(
   player: SimulationPlayer,
   observation: BotPlayObservation,
@@ -1608,6 +1902,7 @@ function simulateAct(
   policyByPlayerId?: Readonly<Record<string, TrainingPolicy | undefined>>,
   supervisionPolicy?: TrainingPolicy,
   nonCardRuntime?: NonCardRuntime,
+  recordV4 = false,
 ): {
   act: SimulatedAct;
   players: SimulationPlayer[];
@@ -1690,6 +1985,7 @@ function simulateAct(
   const finishOrder: string[] = [];
   const passedPlayerIds: string[] = [];
   const playedCounts = Array.from({ length: 14 }, () => 0);
+  const v4PublicHistory: V4PublicEventInput[] = [];
   const rawSteps: Omit<
     TrainingStep,
     "reward" | "actorTerminal" | "environmentTerminal" | "finishPlace"
@@ -1753,6 +2049,20 @@ function simulateAct(
           supervisionPolicy,
         ).actionIndex
       : null;
+    const v4Capture = recordV4
+      ? createV4Capture(
+          actor,
+          round,
+          revolution,
+          players,
+          hands,
+          table,
+          passedPlayerIds,
+          finishOrder,
+          playedCounts,
+          v4PublicHistory,
+        )
+      : null;
     rawSteps.push({
       episodeId,
       round,
@@ -1775,11 +2085,36 @@ function simulateAct(
       behaviorPolicyVersion:
         behaviorDecision.policyVersion ?? null,
       forced: legalActionIndices.length === 1,
+      ...(v4Capture
+        ? {
+            v4ActorObservation: v4Capture.actorObservation,
+            v4PrivilegedCriticState:
+              v4Capture.privilegedCriticState,
+            v4EventsAfterAction: [],
+          }
+        : {}),
     });
+
+    const emitV4Event = (event: V4PublicEventInput): void => {
+      if (!recordV4) return;
+      v4PublicHistory.push(event);
+      rawSteps.at(-1)!.v4EventsAfterAction!.push(event);
+    };
 
     const action = resolveSemanticAction(observation, actionIndex);
     if (action.type === "pass") {
       if (!table) throw new Error("a leading player cannot pass");
+      emitV4Event({
+        type: "pass",
+        sequence: v4PublicHistory.length,
+        actorId: actor.id,
+        handCountBefore: hands[actor.id].length,
+        handCountAfter: hands[actor.id].length,
+        reason:
+          hands[actor.id].length < table.count
+            ? "insufficient-cards"
+            : "manual",
+      });
       if (!passedPlayerIds.includes(actor.id)) {
         passedPlayerIds.push(actor.id);
       }
@@ -1793,34 +2128,69 @@ function simulateAct(
         passedPlayerIds.includes(player.id),
       );
       if (trickIsOver) {
+        const completedTable = table;
         const previousLeaderIndex = players.findIndex(
           (player) => player.id === lastPlayedId,
         );
         const leaderStillActive =
           previousLeaderIndex >= 0 &&
           hands[players[previousLeaderIndex].id].length > 0;
-        table = null;
-        passedPlayerIds.length = 0;
-        currentIndex = leaderStillActive
+        const nextLeaderIndex = leaderStillActive
           ? previousLeaderIndex
           : nextActiveIndex(players, hands, previousLeaderIndex);
+        if (previousLeaderIndex < 0) {
+          throw new Error("V4 trick clear is missing its previous leader");
+        }
+        emitV4Event({
+          type: "clear",
+          sequence: v4PublicHistory.length,
+          actorId: players[previousLeaderIndex].id,
+          handCountBefore:
+            hands[players[previousLeaderIndex].id].length,
+          handCountAfter:
+            hands[players[previousLeaderIndex].id].length,
+          ...tableBundle(completedTable),
+          reason: "all-passed",
+          nextLeaderId: players[nextLeaderIndex].id,
+        });
+        table = null;
+        passedPlayerIds.length = 0;
+        currentIndex = nextLeaderIndex;
       } else {
         currentIndex = nextActiveIndex(players, hands, currentIndex);
       }
       continue;
     }
 
+    const handCountBefore = hands[actor.id].length;
     applyPlay(action, actor.id, hands, playedCounts);
     table = {
       rank: action.rank,
       count: action.count,
+      jokerCount: action.jokerCount,
       playerId: actor.id,
     };
     lastPlayedId = actor.id;
     passedPlayerIds.length = 0;
+    emitV4Event({
+      type: "play",
+      sequence: v4PublicHistory.length,
+      actorId: actor.id,
+      handCountBefore,
+      handCountAfter: hands[actor.id].length,
+      ...tableBundle(table),
+    });
 
     if (hands[actor.id].length === 0) {
       finishOrder.push(actor.id);
+      emitV4Event({
+        type: "finish",
+        sequence: v4PublicHistory.length,
+        actorId: actor.id,
+        handCountBefore: 0,
+        handCountAfter: 0,
+        place: finishOrder.length,
+      });
     }
     if (finishOrder.length === players.length - 1) {
       const last = players.find(
@@ -1828,16 +2198,49 @@ function simulateAct(
       );
       if (!last) throw new Error("could not find the last-place player");
       finishOrder.push(last.id);
+      emitV4Event({
+        type: "clear",
+        sequence: v4PublicHistory.length,
+        actorId: table.playerId,
+        handCountBefore: hands[table.playerId].length,
+        handCountAfter: hands[table.playerId].length,
+        ...tableBundle(table),
+        reason: "act-ended",
+        nextLeaderId: null,
+      });
       break;
     }
 
     if (action.rank === 1) {
       const actorStillActive = hands[actor.id].length > 0;
-      table = null;
-      passedPlayerIds.length = 0;
-      currentIndex = actorStillActive
+      for (let offset = 1; offset < players.length; offset += 1) {
+        const autoPassed = players[(currentIndex + offset) % players.length];
+        if (hands[autoPassed.id].length === 0) continue;
+        emitV4Event({
+          type: "pass",
+          sequence: v4PublicHistory.length,
+          actorId: autoPassed.id,
+          handCountBefore: hands[autoPassed.id].length,
+          handCountAfter: hands[autoPassed.id].length,
+          reason: "dalmuti",
+        });
+      }
+      const nextLeaderIndex = actorStillActive
         ? currentIndex
         : nextActiveIndex(players, hands, currentIndex);
+      emitV4Event({
+        type: "clear",
+        sequence: v4PublicHistory.length,
+        actorId: actor.id,
+        handCountBefore: hands[actor.id].length,
+        handCountAfter: hands[actor.id].length,
+        ...tableBundle(table),
+        reason: "dalmuti",
+        nextLeaderId: players[nextLeaderIndex].id,
+      });
+      table = null;
+      passedPlayerIds.length = 0;
+      currentIndex = nextLeaderIndex;
     } else {
       currentIndex = nextActiveIndex(players, hands, currentIndex);
     }
@@ -2026,6 +2429,7 @@ export function simulateMatch(config: SimulationConfig): SimulatedMatch {
       config.policyByPlayerId,
       config.supervisionPolicy,
       nonCardRuntime,
+      config.recordV4 === true,
     );
     simulatedActs.push(result.act);
     steps.push(...result.steps);
