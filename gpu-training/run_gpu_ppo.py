@@ -15,15 +15,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--behavior-model", default="behavior-model.json")
     parser.add_argument("--output", default="models/ppo-iteration")
     parser.add_argument("--results-dir", default="results")
-    parser.add_argument("--epochs", type=int, default=4)
+    parser.add_argument("--epochs", type=int, default=12)
     parser.add_argument("--batch-size", type=int, default=4096)
     parser.add_argument("--learning-rate", type=float, default=1.0e-4)
-    parser.add_argument("--gamma", type=float, default=0.99)
-    parser.add_argument("--gae-lambda", type=float, default=0.95)
+    parser.add_argument("--gamma", type=float, default=1.0)
+    parser.add_argument("--gae-lambda", type=float, default=1.0)
+    parser.add_argument(
+        "--skip-forced-policy-time",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    parser.add_argument(
+        "--terminal-rank-auxiliary-coefficient",
+        type=float,
+        default=0.0,
+    )
+    parser.add_argument(
+        "--rollout-temperature",
+        type=float,
+        default=1.0,
+    )
     parser.add_argument("--clip-coefficient", type=float, default=0.2)
     parser.add_argument("--value-coefficient", type=float, default=0.5)
     parser.add_argument("--entropy-coefficient", type=float, default=0.01)
-    parser.add_argument("--target-kl", type=float, default=0.02)
+    parser.add_argument("--target-kl", type=float, default=0.015)
     parser.add_argument("--seed", type=int, default=20260801)
     return parser.parse_args()
 
@@ -63,14 +78,24 @@ def run_and_tee(
         raise subprocess.CalledProcessError(return_code, command)
 
 
+def create_unique_output_directory(path: Path) -> None:
+    if path.exists():
+        raise FileExistsError(
+            f"training output must not already exist: {path}"
+        )
+    path.mkdir(parents=True, exist_ok=False)
+
+
 def main() -> None:
     args = parse_args()
+    if args.epochs < 1 or args.epochs > 12:
+        raise ValueError("epochs must be from 1 to 12")
     root = Path(__file__).resolve().parent
     os.chdir(root)
     output = (root / args.output).resolve()
     results_dir = (root / args.results_dir).resolve()
     behavior_model = (root / args.behavior_model).resolve()
-    output.mkdir(parents=True, exist_ok=True)
+    create_unique_output_directory(output)
     log_path = output / "training.log"
     python = sys.executable
 
@@ -90,54 +115,72 @@ def main() -> None:
         ],
         log_path,
     )
+    verification_command = [
+        python,
+        str(root / "verify_ppo_data.py"),
+        "--data",
+        *args.data,
+        "--gamma",
+        str(args.gamma),
+        "--gae-lambda",
+        str(args.gae_lambda),
+        "--terminal-rank-auxiliary-coefficient",
+        str(args.terminal_rank_auxiliary_coefficient),
+        "--rollout-temperature",
+        str(args.rollout_temperature),
+        "--output",
+        str(output / "data-verification.json"),
+    ]
+    if args.skip_forced_policy_time:
+        verification_command.append("--skip-forced-policy-time")
+    else:
+        verification_command.append("--no-skip-forced-policy-time")
     run_and_tee(
-        [
-            python,
-            str(root / "verify_ppo_data.py"),
-            "--data",
-            *args.data,
-            "--gamma",
-            str(args.gamma),
-            "--gae-lambda",
-            str(args.gae_lambda),
-            "--output",
-            str(output / "data-verification.json"),
-        ],
+        verification_command,
         log_path,
     )
+    training_command = [
+        python,
+        str(root / "train_ppo.py"),
+        "--data",
+        *args.data,
+        "--behavior-model",
+        str(behavior_model),
+        "--output",
+        str(output),
+        "--device",
+        "cuda",
+        "--epochs",
+        str(args.epochs),
+        "--batch-size",
+        str(args.batch_size),
+        "--learning-rate",
+        str(args.learning_rate),
+        "--gamma",
+        str(args.gamma),
+        "--gae-lambda",
+        str(args.gae_lambda),
+        "--terminal-rank-auxiliary-coefficient",
+        str(args.terminal_rank_auxiliary_coefficient),
+        "--rollout-temperature",
+        str(args.rollout_temperature),
+        "--clip-coefficient",
+        str(args.clip_coefficient),
+        "--value-coefficient",
+        str(args.value_coefficient),
+        "--entropy-coefficient",
+        str(args.entropy_coefficient),
+        "--target-kl",
+        str(args.target_kl),
+        "--seed",
+        str(args.seed),
+    ]
+    if args.skip_forced_policy_time:
+        training_command.append("--skip-forced-policy-time")
+    else:
+        training_command.append("--no-skip-forced-policy-time")
     run_and_tee(
-        [
-            python,
-            str(root / "train_ppo.py"),
-            "--data",
-            *args.data,
-            "--behavior-model",
-            str(behavior_model),
-            "--output",
-            str(output),
-            "--device",
-            "cuda",
-            "--epochs",
-            str(args.epochs),
-            "--batch-size",
-            str(args.batch_size),
-            "--learning-rate",
-            str(args.learning_rate),
-            "--gamma",
-            str(args.gamma),
-            "--gae-lambda",
-            str(args.gae_lambda),
-            "--clip-coefficient",
-            str(args.clip_coefficient),
-            "--value-coefficient",
-            str(args.value_coefficient),
-            "--entropy-coefficient",
-            str(args.entropy_coefficient),
-            "--target-kl",
-            str(args.target_kl),
-            "--seed",
-            str(args.seed),
-        ],
+        training_command,
         log_path,
     )
     run_and_tee(

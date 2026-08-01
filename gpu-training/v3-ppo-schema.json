@@ -1,0 +1,103 @@
+{
+  "format": "dalmuti-v3-ppo-training-schema",
+  "version": 1,
+  "rolloutFormat": "dalmuti-v3-ppo-ndjson",
+  "rolloutFormatVersion": 1,
+  "dataVerificationFormat": {
+    "format": "dalmuti-v3-ppo-data-verification",
+    "version": 2
+  },
+  "observationFeatures": 172,
+  "observationVersion": 2,
+  "actionCatalogueVersion": 1,
+  "actionCount": 236,
+  "actionFeatures": 22,
+  "legalMaskEncoding": "59 lowercase hex digits; action i is bit i%4 of digit floor(i/4)",
+  "rolloutSemanticsContractSha256": "d7d249a24153ecc204add53f3d3ab352fabfd5ab175001b51f8ed2ba1296e275",
+  "rolloutSemanticsContract": {
+    "format": "dalmuti-v3-ppo-ndjson",
+    "formatVersion": 1,
+    "sourceProvenance": {
+      "createdAt": "UTC ISO-8601 milliseconds generated at collection",
+      "initialSeed": "positive JavaScript-safe integer; one-based episode n uses initialSeed + n - 1",
+      "episodeId": "v3-league-p{playerCount}-episode-{one-based episode number}",
+      "environmentDecisions": "exact full simulator card-play decision count including all seats; learner-only samples provide a checked lower bound"
+    },
+    "environment": {
+      "game": "DALMUTI",
+      "rules": "project-house-rules-v1",
+      "rolloutMode": "league",
+      "learnerSeats": "approximately half; only behavior-model decisions are samples",
+      "nonCardDecisions": "normal bot policy",
+      "maximumTransitionsPerAct": 20000
+    },
+    "observation": {
+      "version": 2,
+      "featureCount": 172,
+      "privacy": "own private hand plus public state only; opponent hands excluded",
+      "encoder": "training/observation.ts encodeTrainingObservation V2"
+    },
+    "sample": {
+      "trajectoryId": "{episodeId}:round-{round}:{actorId}",
+      "terminal": "last card-play decision by that actor in that act",
+      "finishPlace": "final one-based finish order in that act",
+      "forced": "true exactly when legalActionIndices has length one",
+      "policyVersion": "sha256:{behavior model file SHA-256}"
+    },
+    "reward": {
+      "manifestExpression": "actorTerminal ? (roundChipAward - 2) / 2 : 0",
+      "nonTerminal": 0,
+      "terminalFormula": "(roundChipAward(finishPlace, playerCount) - 2) / 2",
+      "roundChipAward": {
+        "first": 4,
+        "second": 3,
+        "penultimate": 1,
+        "last": 0,
+        "otherwise": 2,
+        "precedence": [
+          "first",
+          "second",
+          "penultimate",
+          "last",
+          "otherwise"
+        ]
+      }
+    },
+    "summary": {
+      "learnerSamples": "exact sample-record count",
+      "forcedSamples": "exact forced=true sample count",
+      "nonForcedSamples": "exact forced=false sample count",
+      "episodes": "exact distinct sequential episode count",
+      "environmentDecisions": "source-declared full-decision count, bounded by sampled step indices and maximumTransitionsPerAct",
+      "opponentSeatAssignments": "exact configured non-learner seat total across episodes"
+    }
+  },
+  "strictBindings": [
+    "behavior model SHA-256 and policyVersion",
+    "observation schema and observation-derived legal actions",
+    "exact action catalogue and action features",
+    "legalActionIndices and legalMaskHex",
+    "recomputed behavior log probability and value",
+    "exact game, house rules, non-card policy, league policy, and reward semantics",
+    "canonical sample provenance, observation fields, trajectories, and finish places",
+    "reward recomputed from terminal, finishPlace, and playerCount",
+    "environment, episode, learner, forced, policy, and opponent-assignment counts",
+    "all loaded and computed arrays are finite",
+    "regular non-symlink rollout source paths, byte lengths, and SHA-256 remain stable across validation and behavior binding"
+  ],
+  "algorithm": {
+    "name": "action-conditioned action-masked PPO",
+    "gamma": 1.0,
+    "gaeLambda": 1.0,
+    "skipForcedPolicyTime": true,
+    "maximumEpochs": 12,
+    "targetKl": 0.015,
+    "clipCoefficient": 0.2,
+    "valueCoefficient": 0.5,
+    "entropyCoefficient": 0.01
+  },
+  "modelFormat": {
+    "name": "dalmuti-action-conditioned-actor-critic",
+    "version": 1
+  }
+}

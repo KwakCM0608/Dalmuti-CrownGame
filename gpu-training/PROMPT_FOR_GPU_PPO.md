@@ -28,11 +28,15 @@ behavior model, action-masked PPO 학습 코드가 들어 있다. 전체 게임 
 3. 기존 `.venv`가 있으면 CUDA PyTorch가 정상인지 확인하고, 없으면 Python
    3.11/3.12 가상환경과 GPU에 맞는 공식 CUDA PyTorch를 설치한다.
 4. `python preflight.py --device cuda --output hardware-report.json`을 실행한다.
-5. `python -m unittest test_ppo.py`를 실행해 GAE trajectory 분리가 통과하는지
+5. `python -m unittest test_ppo.py test_ppo_core_upgrades.py test_v3_action_conditioned.py test_non_card_action_conditioned.py`를 실행해 trajectory 분리, 보정된 PPO 계약, V3·비카드 모델 계약이 통과하는지
    확인한다.
 6. 다음 명령을 실행한다.
 
-   `python run_gpu_ppo.py --output models/ppo-iteration --epochs 4 --batch-size 4096 --learning-rate 0.0001 --gamma 0.99 --gae-lambda 0.95 --clip-coefficient 0.2 --value-coefficient 0.5 --entropy-coefficient 0.01 --target-kl 0.02 --seed 20260801`
+   먼저 `gpu-run-config.json`을 읽고, 그 파일의 정확한 `rolloutTemperature` 값을 `--rollout-temperature`로 전달해야 합니다. 예:
+
+   `python run_gpu_ppo.py --output models/ppo-iteration --epochs 12 --batch-size 4096 --learning-rate 0.0001 --gamma 1 --gae-lambda 1 --skip-forced-policy-time --terminal-rank-auxiliary-coefficient 0.05 --rollout-temperature <gpu-run-config.json의 값> --clip-coefficient 0.2 --value-coefficient 0.5 --entropy-coefficient 0.01 --target-kl 0.015 --seed 20260801`
+
+   `gpu-run-config.json`의 `requiredRunGpuPpoArguments`를 그대로 사용하고, 비교 실험은 서로 다른 새 작업 디렉터리에서 `--terminal-rank-auxiliary-coefficient 0`과 `0.05`를 각각 한 번씩 실행한다. 기존 output 또는 result 경로는 재사용하지 않는다.
 
 7. CUDA 메모리 부족일 때만 배치를 2048, 1024 순서로 낮춘다.
 8. `results/ppo-iteration-result.zip`과 `.sha256`을 다시 검증한다.

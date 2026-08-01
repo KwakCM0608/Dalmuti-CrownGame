@@ -12,6 +12,11 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from train_ppo import cuda_device_identity
+
+
+DETERMINISTIC_CUBLAS_WORKSPACE_CONFIG = ":4096:8"
+
 
 def nvidia_smi_output() -> str | None:
     executable = shutil.which("nvidia-smi")
@@ -34,8 +39,30 @@ def main() -> None:
         description="Check the GPU computer before DALMUTI model training.",
     )
     parser.add_argument("--device", choices=("cuda", "cpu"), default="cuda")
+    parser.add_argument("--deterministic", action="store_true")
+    parser.add_argument("--seed", type=int)
     parser.add_argument("--output")
     args = parser.parse_args()
+
+    if args.deterministic:
+        if args.seed is None:
+            raise ValueError("--seed is required with --deterministic")
+        if os.environ.get("PYTHONHASHSEED") != str(args.seed):
+            raise RuntimeError(
+                "deterministic preflight requires PYTHONHASHSEED to equal --seed"
+            )
+        if args.device == "cuda" and os.environ.get(
+            "CUBLAS_WORKSPACE_CONFIG"
+        ) != DETERMINISTIC_CUBLAS_WORKSPACE_CONFIG:
+            raise RuntimeError(
+                "deterministic CUDA preflight requires "
+                "CUBLAS_WORKSPACE_CONFIG=:4096:8"
+            )
+        torch.use_deterministic_algorithms(True, warn_only=False)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
 
     bundle_root = Path(__file__).resolve().parent
     disk = shutil.disk_usage(bundle_root)
@@ -53,6 +80,28 @@ def main() -> None:
         "torchCudaVersion": torch.version.cuda,
         "cudnnVersion": torch.backends.cudnn.version(),
         "cudaAvailable": cuda_available,
+        "requestedDevice": args.device,
+        "deterministicRuntime": {
+            "seed": args.seed,
+            "pythonHashSeed": os.environ.get("PYTHONHASHSEED"),
+            "algorithmsEnabled": (
+                torch.are_deterministic_algorithms_enabled()
+            ),
+            "warnOnly": bool(
+                getattr(
+                    torch,
+                    "is_deterministic_algorithms_warn_only_enabled",
+                    lambda: False,
+                )()
+            ),
+            "cublasWorkspaceConfig": os.environ.get(
+                "CUBLAS_WORKSPACE_CONFIG"
+            ),
+            "cudnnDeterministic": torch.backends.cudnn.deterministic,
+            "cudnnBenchmark": torch.backends.cudnn.benchmark,
+            "cudaMatmulAllowTf32": torch.backends.cuda.matmul.allow_tf32,
+            "cudnnAllowTf32": torch.backends.cudnn.allow_tf32,
+        },
         "bundleFreeDiskBytes": disk.free,
         "nvidiaSmi": nvidia_smi_output(),
         "gpuDevices": [],
@@ -60,18 +109,7 @@ def main() -> None:
     if cuda_available:
         devices = []
         for index in range(torch.cuda.device_count()):
-            properties = torch.cuda.get_device_properties(index)
-            devices.append(
-                {
-                    "index": index,
-                    "name": properties.name,
-                    "computeCapability": (
-                        f"{properties.major}.{properties.minor}"
-                    ),
-                    "totalMemoryBytes": properties.total_memory,
-                    "multiProcessorCount": properties.multi_processor_count,
-                }
-            )
+            devices.append(cuda_device_identity(index))
         report["gpuDevices"] = devices
 
     payload = json.dumps(report, ensure_ascii=False, indent=2)
@@ -79,7 +117,8 @@ def main() -> None:
     if args.output:
         output = Path(args.output)
         output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(f"{payload}\n", encoding="utf-8")
+        with output.open("x", encoding="utf-8") as stream:
+            stream.write(f"{payload}\n")
 
     if args.device == "cuda" and not cuda_available:
         raise RuntimeError(

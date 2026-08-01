@@ -15,6 +15,7 @@
 # testing
 /coverage
 /artifacts/
+/results/
 /.android-tools/
 
 # local Android wrapper outputs and signing material

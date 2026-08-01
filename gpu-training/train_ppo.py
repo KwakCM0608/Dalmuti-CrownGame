@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import random
 import time
 from dataclasses import asdict, dataclass
@@ -19,6 +20,9 @@ from actor_critic import (
     load_behavior_model,
 )
 from ppo_dataset import PpoRollouts, load_ppo_rollouts
+
+
+DETERMINISTIC_CUBLAS_WORKSPACE_CONFIG = ":4096:8"
 
 
 @dataclass(frozen=True)
@@ -40,17 +44,41 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data", nargs="+", required=True)
     parser.add_argument("--behavior-model", required=True)
     parser.add_argument("--output", default="models/ppo-iteration-1")
-    parser.add_argument("--epochs", type=int, default=4)
+    parser.add_argument("--epochs", type=int, default=12)
     parser.add_argument("--batch-size", type=int, default=4096)
     parser.add_argument("--learning-rate", type=float, default=1.0e-4)
     parser.add_argument("--weight-decay", type=float, default=1.0e-5)
-    parser.add_argument("--gamma", type=float, default=0.99)
-    parser.add_argument("--gae-lambda", type=float, default=0.95)
+    parser.add_argument("--gamma", type=float, default=1.0)
+    parser.add_argument("--gae-lambda", type=float, default=1.0)
+    parser.add_argument(
+        "--skip-forced-policy-time",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Skip forced actions when assigning policy credit while still "
+            "training the value function on every sample."
+        ),
+    )
+    parser.add_argument(
+        "--terminal-rank-auxiliary-coefficient",
+        type=float,
+        default=0.0,
+        help=(
+            "Add coefficient * normalized finish rank to each terminal "
+            "reward; first is +1 and last is -1."
+        ),
+    )
+    parser.add_argument(
+        "--rollout-temperature",
+        type=float,
+        default=1.0,
+        help="Behavior-policy softmax temperature used to make the rollouts.",
+    )
     parser.add_argument("--clip-coefficient", type=float, default=0.2)
     parser.add_argument("--value-coefficient", type=float, default=0.5)
     parser.add_argument("--entropy-coefficient", type=float, default=0.01)
     parser.add_argument("--max-gradient-norm", type=float, default=0.5)
-    parser.add_argument("--target-kl", type=float, default=0.02)
+    parser.add_argument("--target-kl", type=float, default=0.015)
     parser.add_argument("--seed", type=int, default=20260801)
     parser.add_argument(
         "--device",
@@ -70,12 +98,85 @@ def choose_device(requested: str) -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def set_seeds(seed: int) -> None:
+def set_seeds(
+    seed: int,
+    *,
+    deterministic: bool = False,
+    requested_device: str = "auto",
+) -> None:
+    if requested_device not in ("auto", "cpu", "cuda"):
+        raise ValueError(f"unsupported requested device: {requested_device}")
+    if deterministic:
+        if requested_device != "cpu":
+            configured = os.environ.get("CUBLAS_WORKSPACE_CONFIG")
+            if configured not in (None, DETERMINISTIC_CUBLAS_WORKSPACE_CONFIG):
+                raise RuntimeError(
+                    "CUBLAS_WORKSPACE_CONFIG must be exactly "
+                    f"{DETERMINISTIC_CUBLAS_WORKSPACE_CONFIG} for the "
+                    "deterministic CUDA contract"
+                )
+            # This runs before any CUDA availability/device query in the V3
+            # trainer, so cuBLAS observes the setting when its first handle is
+            # created. The GPU runner also supplies it at process startup.
+            os.environ["CUBLAS_WORKSPACE_CONFIG"] = (
+                DETERMINISTIC_CUBLAS_WORKSPACE_CONFIG
+            )
+            if requested_device == "cuda" and os.environ.get(
+                "PYTHONHASHSEED"
+            ) != str(seed):
+                raise RuntimeError(
+                    "deterministic CUDA training must be launched with "
+                    f"PYTHONHASHSEED={seed}"
+                )
+        torch.use_deterministic_algorithms(True, warn_only=False)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+
+
+def deterministic_runtime_metadata(
+    seed: int,
+) -> dict[str, object]:
+    warn_only = getattr(
+        torch,
+        "is_deterministic_algorithms_warn_only_enabled",
+        lambda: False,
+    )()
+    return {
+        "algorithmsEnabled": torch.are_deterministic_algorithms_enabled(),
+        "warnOnly": bool(warn_only),
+        "seed": seed,
+        "pythonHashSeed": os.environ.get("PYTHONHASHSEED"),
+        "cublasWorkspaceConfig": os.environ.get(
+            "CUBLAS_WORKSPACE_CONFIG"
+        ),
+        "cudnnDeterministic": torch.backends.cudnn.deterministic,
+        "cudnnBenchmark": torch.backends.cudnn.benchmark,
+        "cudaMatmulAllowTf32": torch.backends.cuda.matmul.allow_tf32,
+        "cudnnAllowTf32": torch.backends.cudnn.allow_tf32,
+    }
+
+
+def cuda_device_identity(index: int) -> dict[str, object]:
+    properties = torch.cuda.get_device_properties(index)
+    return {
+        "index": index,
+        "name": properties.name,
+        "computeCapability": f"{properties.major}.{properties.minor}",
+        "totalMemoryBytes": properties.total_memory,
+        "multiProcessorCount": properties.multi_processor_count,
+        "uuid": (
+            str(properties.uuid)
+            if getattr(properties, "uuid", None) is not None
+            else None
+        ),
+    }
 
 
 def file_sha256(path: Path) -> str:
@@ -84,6 +185,12 @@ def file_sha256(path: Path) -> str:
         while chunk := stream.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def return_estimator_name(gamma: float, gae_lambda: float) -> str:
+    if gamma == 1.0 and gae_lambda == 1.0:
+        return "undiscounted-monte-carlo"
+    return "gae"
 
 
 def tensor_dataset(rollouts: PpoRollouts) -> TensorDataset:
@@ -160,7 +267,8 @@ def train_epoch(
         policy_weights = policy_weights.to(device, non_blocking=True)
 
         logits, values = model(observations, legal_masks)
-        log_probabilities = torch.log_softmax(logits, dim=1)
+        behavior_logits = logits / args.rollout_temperature
+        log_probabilities = torch.log_softmax(behavior_logits, dim=1)
         selected_log_probabilities = log_probabilities.gather(
             1,
             actions[:, None],
@@ -191,7 +299,7 @@ def train_epoch(
             clipped_value_losses,
         ).mean()
 
-        probabilities = torch.softmax(logits, dim=1)
+        probabilities = torch.softmax(behavior_logits, dim=1)
         entropy_by_sample = -(
             probabilities * log_probabilities
         ).sum(dim=1)
@@ -230,7 +338,10 @@ def train_epoch(
                 returns,
             )
             batches += 1
-            if float(approximate_kl) > args.target_kl:
+            if (
+                args.target_kl > 0
+                and float(approximate_kl) > args.target_kl
+            ):
                 stop_for_kl = True
                 break
 
@@ -255,6 +366,64 @@ def train_epoch(
     )
 
 
+def checkpoint_payload(
+    model: ActorCriticNetwork,
+    *,
+    epoch: int,
+    optimizer: torch.optim.Optimizer | None,
+) -> dict:
+    return {
+        "format": "dalmuti-actor-critic-checkpoint",
+        "version": 1,
+        "epoch": epoch,
+        "modelState": model.state_dict(),
+        "observationFeatures": model.observation_features,
+        "actionCount": model.action_count,
+        "hiddenSizes": model.hidden_sizes,
+        "optimizerStateIncluded": optimizer is not None,
+        "optimizerState": (
+            optimizer.state_dict() if optimizer is not None else None
+        ),
+    }
+
+
+def export_json_preserving_device(
+    model: ActorCriticNetwork,
+    path: Path,
+) -> None:
+    device = next(model.parameters()).device
+    try:
+        export_actor_critic_json(model, path)
+    finally:
+        model.to(device)
+
+
+def save_epoch_checkpoint(
+    output: Path,
+    model: ActorCriticNetwork,
+    optimizer: torch.optim.Optimizer,
+    metrics: EpochMetrics,
+) -> None:
+    epoch_directory = output / "checkpoints" / f"epoch-{metrics.epoch:02d}"
+    epoch_directory.mkdir(parents=True, exist_ok=False)
+    torch.save(
+        checkpoint_payload(
+            model,
+            epoch=metrics.epoch,
+            optimizer=optimizer,
+        ),
+        epoch_directory / "checkpoint.pt",
+    )
+    export_json_preserving_device(
+        model,
+        epoch_directory / "actor-critic-weights.json",
+    )
+    (epoch_directory / "metrics.json").write_text(
+        json.dumps(asdict(metrics), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
 def save_outputs(
     output: Path,
     model: ActorCriticNetwork,
@@ -263,21 +432,19 @@ def save_outputs(
     device: torch.device,
     behavior_model: Path,
     args: argparse.Namespace,
+    stopped_for_target_kl: bool,
 ) -> None:
     output.mkdir(parents=True, exist_ok=True)
+    final_epoch = metrics[-1].epoch if metrics else 0
     torch.save(
-        {
-            "format": "dalmuti-actor-critic-checkpoint",
-            "version": 1,
-            "modelState": model.state_dict(),
-            "observationFeatures": model.observation_features,
-            "actionCount": model.action_count,
-            "hiddenSizes": model.hidden_sizes,
-            "optimizerStateIncluded": False,
-        },
+        checkpoint_payload(
+            model,
+            epoch=final_epoch,
+            optimizer=None,
+        ),
         output / "checkpoint.pt",
     )
-    export_actor_critic_json(
+    export_json_preserving_device(
         model,
         output / "actor-critic-weights.json",
     )
@@ -298,6 +465,28 @@ def save_outputs(
         "samples": len(rollouts),
         "trajectories": rollouts.trajectory_count,
         "forcedSamples": int(rollouts.forced.sum()),
+        "policySamples": int((~rollouts.forced).sum()),
+        "returnEstimator": return_estimator_name(
+            args.gamma,
+            args.gae_lambda,
+        ),
+        "skipForcedPolicyTime": rollouts.skip_forced_policy_time,
+        "terminalRankAuxiliaryCoefficient": (
+            rollouts.terminal_rank_auxiliary_coefficient
+        ),
+        "meanEnvironmentReward": float(rollouts.rewards.mean()),
+        "meanRankAuxiliaryReward": float(
+            rollouts.rank_auxiliary_rewards.mean()
+        ),
+        "meanEffectiveReward": float(rollouts.effective_rewards.mean()),
+        "rolloutTemperature": args.rollout_temperature,
+        "manifestRolloutTemperature": rollouts.behavior_temperature,
+        "completedEpochs": final_epoch,
+        "stoppedForTargetKl": stopped_for_target_kl,
+        "epochCheckpointDirectories": [
+            f"checkpoints/epoch-{metric.epoch:02d}"
+            for metric in metrics
+        ],
         "sourceFiles": list(rollouts.files),
         "arguments": vars(args),
     }
@@ -319,20 +508,65 @@ def main() -> None:
     args = parse_args()
     if args.epochs < 1 or args.batch_size < 1:
         raise ValueError("epochs and batch-size must be positive")
-    if args.target_kl <= 0 or args.max_gradient_norm <= 0:
-        raise ValueError("target-kl and max-gradient-norm must be positive")
+    if args.epochs > 12:
+        raise ValueError("epochs must not exceed 12")
+    if args.target_kl < 0 or args.max_gradient_norm <= 0:
+        raise ValueError(
+            "target-kl must be non-negative and max-gradient-norm "
+            "must be positive"
+        )
+    if (
+        not np.isfinite(args.rollout_temperature)
+        or args.rollout_temperature <= 0
+    ):
+        raise ValueError("rollout-temperature must be finite and positive")
+    if (
+        not np.isfinite(args.terminal_rank_auxiliary_coefficient)
+        or args.terminal_rank_auxiliary_coefficient < 0
+    ):
+        raise ValueError(
+            "terminal-rank-auxiliary-coefficient must be finite and "
+            "non-negative"
+        )
     set_seeds(args.seed)
     device = choose_device(args.device)
     behavior_model = Path(args.behavior_model).resolve()
+    output = Path(args.output).resolve()
+    protected_outputs = (
+        output / "checkpoint.pt",
+        output / "actor-critic-weights.json",
+        output / "training-metrics.json",
+        output / "ppo-metadata.json",
+        output / "checkpoints",
+    )
+    existing_outputs = [path for path in protected_outputs if path.exists()]
+    if existing_outputs:
+        raise FileExistsError(
+            "training outputs must not already exist: "
+            + ", ".join(str(path) for path in existing_outputs)
+        )
     behavior_sha256 = file_sha256(behavior_model)
     rollouts = load_ppo_rollouts(
         args.data,
         gamma=args.gamma,
         gae_lambda=args.gae_lambda,
+        skip_forced_policy_time=args.skip_forced_policy_time,
+        terminal_rank_auxiliary_coefficient=(
+            args.terminal_rank_auxiliary_coefficient
+        ),
     )
     if behavior_sha256 != rollouts.behavior_model_sha256:
         raise ValueError(
             "behavior model SHA-256 does not match the PPO rollout manifest"
+        )
+    if not np.isclose(
+        args.rollout_temperature,
+        rollouts.behavior_temperature,
+        rtol=0.0,
+        atol=1.0e-12,
+    ):
+        raise ValueError(
+            "rollout-temperature does not match the PPO rollout manifest"
         )
     model, _ = load_behavior_model(behavior_model)
     model = model.to(device)
@@ -343,6 +577,18 @@ def main() -> None:
     print(
         f"Behavior model: {behavior_sha256}; "
         f"forced samples: {int(rollouts.forced.sum()):,}."
+    )
+    print(
+        f"Returns: {return_estimator_name(args.gamma, args.gae_lambda)} "
+        f"(gamma={args.gamma}, lambda={args.gae_lambda}); "
+        f"skip forced policy time: {args.skip_forced_policy_time}; "
+        "terminal rank auxiliary coefficient: "
+        f"{args.terminal_rank_auxiliary_coefficient}."
+    )
+    print(
+        f"Rollout temperature: {args.rollout_temperature}; "
+        f"target KL: {args.target_kl or 'disabled'}; "
+        f"maximum epochs: {args.epochs}."
     )
 
     generator = torch.Generator().manual_seed(args.seed)
@@ -359,6 +605,7 @@ def main() -> None:
         weight_decay=args.weight_decay,
     )
     metrics: list[EpochMetrics] = []
+    stopped_for_target_kl = False
     for epoch in range(1, args.epochs + 1):
         epoch_metrics, stop_for_kl = train_epoch(
             model,
@@ -384,7 +631,14 @@ def main() -> None:
             f"EV {epoch_metrics.explained_variance:.4f} | "
             f"{epoch_metrics.seconds:.1f}s"
         )
+        save_epoch_checkpoint(
+            Path(args.output),
+            model,
+            optimizer,
+            epoch_metrics,
+        )
         if stop_for_kl:
+            stopped_for_target_kl = True
             print(
                 f"Stopped after epoch {epoch}: target KL "
                 f"{args.target_kl} was exceeded."
@@ -399,6 +653,7 @@ def main() -> None:
         device,
         behavior_model,
         args,
+        stopped_for_target_kl,
     )
     print(f"Saved PPO update to {Path(args.output).resolve()}")
 

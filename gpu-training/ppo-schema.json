@@ -1,6 +1,6 @@
 {
   "format": "dalmuti-ppo-training-schema",
-  "version": 1,
+  "version": 2,
   "rolloutFormat": "dalmuti-ppo-ndjson",
   "rolloutFormatVersion": 1,
   "observationFeatures": 172,
@@ -8,8 +8,14 @@
   "actionCount": 506,
   "algorithm": {
     "name": "action-masked PPO",
-    "gamma": 0.99,
-    "gaeLambda": 0.95,
+    "returnEstimator": "undiscounted Monte Carlo",
+    "gamma": 1.0,
+    "gaeLambda": 1.0,
+    "skipForcedPolicyTime": true,
+    "behaviorTemperature": "required from rollout manifest",
+    "terminalRankAuxiliaryCoefficientVariants": [0.0, 0.05],
+    "maximumEpochs": 12,
+    "targetKl": 0.015,
     "clipCoefficient": 0.2,
     "valueCoefficient": 0.5,
     "entropyCoefficient": 0.01

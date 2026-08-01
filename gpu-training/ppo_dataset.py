@@ -24,6 +24,8 @@ class PpoRollouts:
     old_log_probabilities: np.ndarray
     old_values: np.ndarray
     rewards: np.ndarray
+    rank_auxiliary_rewards: np.ndarray
+    effective_rewards: np.ndarray
     terminals: np.ndarray
     forced: np.ndarray
     advantages: np.ndarray
@@ -31,7 +33,10 @@ class PpoRollouts:
     trajectory_ids: np.ndarray
     files: tuple[str, ...]
     behavior_model_sha256: str
+    behavior_temperature: float | None
     trajectory_count: int
+    terminal_rank_auxiliary_coefficient: float
+    skip_forced_policy_time: bool
 
     def __len__(self) -> int:
         return int(self.actions.shape[0])
@@ -50,7 +55,10 @@ def expand_input_paths(patterns: Sequence[str]) -> list[Path]:
     return result
 
 
-def _validate_manifest(manifest: dict, path: Path) -> str:
+def _validate_manifest(
+    manifest: dict,
+    path: Path,
+) -> tuple[str, int | None, float]:
     if manifest.get("type") != "manifest":
         raise ValueError(f"{path}: first record is not a manifest")
     if manifest.get("format") != PPO_ROLLOUT_FORMAT:
@@ -66,7 +74,31 @@ def _validate_manifest(manifest: dict, path: Path) -> str:
     sha256 = manifest.get("behaviorModel", {}).get("sha256")
     if not isinstance(sha256, str) or len(sha256) != 64:
         raise ValueError(f"{path}: behavior model SHA-256 is missing")
-    return sha256
+    environment = manifest.get("environment", {})
+    if not isinstance(environment, dict):
+        raise ValueError(f"{path}: invalid environment metadata")
+    player_count = environment.get("playerCount")
+    if player_count is not None and (
+        not isinstance(player_count, int) or player_count < 2
+    ):
+        raise ValueError(f"{path}: invalid environment player count")
+    behavior_policy = manifest.get("behaviorPolicy", {})
+    if not isinstance(behavior_policy, dict):
+        raise ValueError(f"{path}: invalid behavior policy metadata")
+    behavior_temperature = behavior_policy.get("temperature")
+    if behavior_policy and behavior_policy.get("sampling") != "softmax":
+        raise ValueError(f"{path}: unsupported behavior policy sampling")
+    if behavior_policy and behavior_temperature is None:
+        raise ValueError(f"{path}: behavior policy temperature is missing")
+    if not behavior_policy:
+        behavior_temperature = 1.0
+    if behavior_temperature is not None and (
+        not isinstance(behavior_temperature, (float, int))
+        or not np.isfinite(behavior_temperature)
+        or behavior_temperature <= 0
+    ):
+        raise ValueError(f"{path}: invalid behavior policy temperature")
+    return sha256, player_count, float(behavior_temperature)
 
 
 def _validate_sample(sample: dict, path: Path, line_number: int) -> None:
@@ -108,24 +140,41 @@ def _validate_sample(sample: dict, path: Path, line_number: int) -> None:
         raise ValueError(f"{path}:{line_number}: forced must be boolean")
     if not isinstance(sample.get("trajectoryId"), str):
         raise ValueError(f"{path}:{line_number}: trajectoryId is missing")
+    finish_place = sample.get("finishPlace")
+    if finish_place is not None and (
+        not isinstance(finish_place, int) or finish_place < 1
+    ):
+        raise ValueError(f"{path}:{line_number}: invalid finishPlace")
 
 
 def _walk_samples(
     paths: Sequence[Path],
-    visitor: Callable[[dict], None] | None,
-) -> tuple[int, str]:
+    visitor: Callable[[dict, int | None], None] | None,
+) -> tuple[int, str, float | None]:
     sample_count = 0
     behavior_sha256: str | None = None
+    behavior_temperature: float | None = None
+    temperature_initialized = False
     for path in paths:
         with path.open("r", encoding="utf-8") as stream:
             first_line = stream.readline()
             if not first_line:
                 raise ValueError(f"{path}: empty rollout file")
-            file_sha256 = _validate_manifest(json.loads(first_line), path)
+            file_sha256, player_count, file_temperature = _validate_manifest(
+                json.loads(first_line),
+                path,
+            )
             if behavior_sha256 is None:
                 behavior_sha256 = file_sha256
             elif behavior_sha256 != file_sha256:
                 raise ValueError("PPO files use different behavior models")
+            if not temperature_initialized:
+                behavior_temperature = file_temperature
+                temperature_initialized = True
+            elif behavior_temperature != file_temperature:
+                raise ValueError(
+                    "PPO files use different behavior policy temperatures"
+                )
             expected_policy_version = f"sha256:{file_sha256}"
             for line_number, line in enumerate(stream, start=2):
                 record = json.loads(line)
@@ -138,10 +187,10 @@ def _walk_samples(
                     )
                 sample_count += 1
                 if visitor is not None:
-                    visitor(record)
+                    visitor(record, player_count)
     if sample_count < 1 or behavior_sha256 is None:
         raise ValueError("PPO rollout contains no samples")
-    return sample_count, behavior_sha256
+    return sample_count, behavior_sha256, behavior_temperature
 
 
 def load_ppo_rollouts(
@@ -149,13 +198,24 @@ def load_ppo_rollouts(
     *,
     gamma: float = 0.99,
     gae_lambda: float = 0.95,
+    skip_forced_policy_time: bool = False,
+    terminal_rank_auxiliary_coefficient: float = 0.0,
 ) -> PpoRollouts:
     if not 0.0 <= gamma <= 1.0:
         raise ValueError("gamma must be between zero and one")
     if not 0.0 <= gae_lambda <= 1.0:
         raise ValueError("gae_lambda must be between zero and one")
+    if not isinstance(skip_forced_policy_time, bool):
+        raise TypeError("skip_forced_policy_time must be boolean")
+    if not np.isfinite(terminal_rank_auxiliary_coefficient):
+        raise ValueError(
+            "terminal_rank_auxiliary_coefficient must be finite"
+        )
     paths = expand_input_paths(patterns)
-    sample_count, behavior_sha256 = _walk_samples(paths, None)
+    sample_count, behavior_sha256, behavior_temperature = _walk_samples(
+        paths,
+        None,
+    )
     observations = np.empty(
         (sample_count, OBSERVATION_FEATURES),
         dtype=np.float32,
@@ -165,6 +225,7 @@ def load_ppo_rollouts(
     old_log_probabilities = np.empty(sample_count, dtype=np.float32)
     old_values = np.empty(sample_count, dtype=np.float32)
     rewards = np.empty(sample_count, dtype=np.float32)
+    rank_auxiliary_rewards = np.zeros(sample_count, dtype=np.float32)
     terminals = np.empty(sample_count, dtype=np.bool_)
     forced = np.empty(sample_count, dtype=np.bool_)
     trajectory_ids = np.empty(sample_count, dtype=np.int32)
@@ -172,7 +233,7 @@ def load_ppo_rollouts(
     terminal_counts: list[int] = []
     position = 0
 
-    def fill(record: dict) -> None:
+    def fill(record: dict, player_count: int | None) -> None:
         nonlocal position
         observations[position] = record["observation"]
         legal_masks[position, record["legalActionIndices"]] = True
@@ -182,6 +243,33 @@ def load_ppo_rollouts(
         rewards[position] = record["reward"]
         terminals[position] = record["terminal"]
         forced[position] = record["forced"]
+        if terminal_rank_auxiliary_coefficient != 0.0:
+            finish_place = record.get("finishPlace")
+            if player_count is None:
+                raise ValueError(
+                    "terminal rank auxiliary reward requires manifest "
+                    "environment.playerCount"
+                )
+            if (
+                not isinstance(finish_place, int)
+                or finish_place < 1
+                or finish_place > player_count
+            ):
+                raise ValueError(
+                    "terminal rank auxiliary reward requires a valid "
+                    "finishPlace on every sample"
+                )
+            if terminals[position]:
+                normalized_rank = (
+                    1.0
+                    - 2.0
+                    * (finish_place - 1)
+                    / (player_count - 1)
+                )
+                rank_auxiliary_rewards[position] = (
+                    terminal_rank_auxiliary_coefficient
+                    * normalized_rank
+                )
         trajectory_key = record["trajectoryId"]
         if trajectory_key not in trajectory_indices:
             trajectory_indices[trajectory_key] = len(trajectory_indices)
@@ -192,14 +280,22 @@ def load_ppo_rollouts(
             terminal_counts[trajectory_id] += 1
         position += 1
 
-    second_count, second_sha256 = _walk_samples(paths, fill)
-    if second_count != sample_count or second_sha256 != behavior_sha256:
+    second_count, second_sha256, second_temperature = _walk_samples(
+        paths,
+        fill,
+    )
+    if (
+        second_count != sample_count
+        or second_sha256 != behavior_sha256
+        or second_temperature != behavior_temperature
+    ):
         raise RuntimeError("PPO rollout changed while it was being loaded")
     if any(count != 1 for count in terminal_counts):
         raise ValueError("every trajectory must contain exactly one terminal")
 
     trajectory_count = len(trajectory_indices)
-    advantages = np.empty(sample_count, dtype=np.float32)
+    effective_rewards = rewards + rank_auxiliary_rewards
+    value_advantages = np.empty(sample_count, dtype=np.float32)
     next_advantages = np.zeros(trajectory_count, dtype=np.float64)
     next_values = np.zeros(trajectory_count, dtype=np.float64)
     terminal_seen = np.zeros(trajectory_count, dtype=np.bool_)
@@ -217,7 +313,7 @@ def load_ppo_rollouts(
             next_value = next_values[trajectory_id]
             nonterminal = 1.0
         delta = (
-            float(rewards[index])
+            float(effective_rewards[index])
             + gamma * next_value * nonterminal
             - float(old_values[index])
         )
@@ -225,10 +321,64 @@ def load_ppo_rollouts(
             delta
             + gamma * gae_lambda * next_advantage * nonterminal
         )
-        advantages[index] = advantage
+        value_advantages[index] = advantage
         next_advantages[trajectory_id] = advantage
         next_values[trajectory_id] = old_values[index]
-    returns = advantages + old_values
+    returns = value_advantages + old_values
+    advantages = value_advantages.copy()
+    if skip_forced_policy_time:
+        next_policy_advantages = np.zeros(
+            trajectory_count,
+            dtype=np.float64,
+        )
+        next_policy_values = np.zeros(
+            trajectory_count,
+            dtype=np.float64,
+        )
+        has_next_policy_step = np.zeros(
+            trajectory_count,
+            dtype=np.bool_,
+        )
+        pending_rewards = np.zeros(
+            trajectory_count,
+            dtype=np.float64,
+        )
+        for index in range(sample_count - 1, -1, -1):
+            trajectory_id = trajectory_ids[index]
+            if terminals[index]:
+                next_policy_advantages[trajectory_id] = 0.0
+                next_policy_values[trajectory_id] = 0.0
+                has_next_policy_step[trajectory_id] = False
+                pending_rewards[trajectory_id] = 0.0
+            if forced[index]:
+                pending_rewards[trajectory_id] += float(
+                    effective_rewards[index]
+                )
+                continue
+            reward = (
+                float(effective_rewards[index])
+                + pending_rewards[trajectory_id]
+            )
+            pending_rewards[trajectory_id] = 0.0
+            nonterminal = float(has_next_policy_step[trajectory_id])
+            delta = (
+                reward
+                + gamma
+                * next_policy_values[trajectory_id]
+                * nonterminal
+                - float(old_values[index])
+            )
+            advantage = (
+                delta
+                + gamma
+                * gae_lambda
+                * next_policy_advantages[trajectory_id]
+                * nonterminal
+            )
+            advantages[index] = advantage
+            next_policy_advantages[trajectory_id] = advantage
+            next_policy_values[trajectory_id] = old_values[index]
+            has_next_policy_step[trajectory_id] = True
     return PpoRollouts(
         observations=observations,
         legal_masks=legal_masks,
@@ -236,6 +386,8 @@ def load_ppo_rollouts(
         old_log_probabilities=old_log_probabilities,
         old_values=old_values,
         rewards=rewards,
+        rank_auxiliary_rewards=rank_auxiliary_rewards,
+        effective_rewards=effective_rewards,
         terminals=terminals,
         forced=forced,
         advantages=advantages,
@@ -243,5 +395,10 @@ def load_ppo_rollouts(
         trajectory_ids=trajectory_ids,
         files=tuple(str(path) for path in paths),
         behavior_model_sha256=behavior_sha256,
+        behavior_temperature=behavior_temperature,
         trajectory_count=trajectory_count,
+        terminal_rank_auxiliary_coefficient=(
+            terminal_rank_auxiliary_coefficient
+        ),
+        skip_forced_policy_time=skip_forced_policy_time,
     )
