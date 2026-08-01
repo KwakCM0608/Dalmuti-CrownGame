@@ -1300,64 +1300,12 @@ def evaluate_player_count(
     return result
 
 
-def evaluate_benchmark(
-    *,
-    mode: str,
-    seed_schedule: EvaluationSeedSchedule,
+def candidate_policy_report_metadata(
     candidate_policy: CandidatePolicy,
-    bindings: EvaluationBindings,
-    adapter: EnvironmentAdapter | None = None,
-    match_counts: Mapping[int, int] | None = None,
-    gates: Mapping[str, float] | None = None,
-    acts: int = ACTS_PER_MATCH,
-    bootstrap_resamples: int = DEFAULT_BOOTSTRAP_RESAMPLES,
-    batch_size: int = 1,
-    final_seed_reservation: Mapping[str, object] | None = None,
-    candidate_policy_routing: CandidatePolicyRouting | None = None,
+    routing: CandidatePolicyRouting,
 ) -> dict[str, object]:
-    counts = dict(match_counts or _expected_match_counts(mode))
-    thresholds = dict(gates or _expected_gates(mode))
-    validate_evaluation_plan(
-        mode=mode,
-        match_counts=counts,
-        acts=acts,
-        gates=thresholds,
-        seed_schedule=seed_schedule,
-        final_seed_reservation=final_seed_reservation,
-    )
-    if mode == "final":
-        reservation_bindings = final_seed_reservation.get("bindings")  # type: ignore[union-attr]
-        if not isinstance(reservation_bindings, Mapping):
-            raise ValueError("final reservation is missing artifact bindings")
-        expected_reservation_bindings = {
-            "artifactSha256": bindings.artifact_sha256,
-            "modelSha256": bindings.actor_sha256,
-            "observationSchemaSha256": bindings.observation_contract_sha256,
-            "normalBaselineSha256": bindings.normal_baseline_sha256,
-            "normalBaselineSourceCommit": bindings.normal_baseline_source_commit,
-        }
-        for key, expected in expected_reservation_bindings.items():
-            if reservation_bindings.get(key) != expected:
-                raise ValueError(f"final reservation {key} does not match evaluation")
-    _require_positive_int(bootstrap_resamples, "bootstrap resamples")
-    _require_positive_int(batch_size, "batch size")
-    routing = candidate_policy_routing or CandidatePolicyRouting()
-    resolved_adapter = adapter or V4EnvAdapter()
-    results = [
-        evaluate_player_count(
-            player_count=player_count,
-            matches=counts[player_count],
-            acts=acts,
-            seed_schedule=seed_schedule,
-            candidate_policy=candidate_policy,
-            adapter=resolved_adapter,
-            gates=thresholds,
-            bootstrap_resamples=bootstrap_resamples,
-            batch_size=batch_size,
-            candidate_policy_routing=routing,
-        )
-        for player_count in PLAYER_COUNTS
-    ]
+    """Return the canonical policy metadata shared by all evaluator frontends."""
+
     policy_metadata = getattr(candidate_policy, "audit_metadata", None)
     if not isinstance(policy_metadata, Mapping):
         policy_metadata = {
@@ -1369,12 +1317,104 @@ def evaluate_benchmark(
             "historyInferenceBuckets": list(HISTORY_INFERENCE_BUCKETS),
             "playerWidthBucketing": "callback-defined",
         }
-    policy_metadata = dict(policy_metadata)
-    policy_metadata["routing"] = routing.report_value()
+    resolved = dict(policy_metadata)
+    resolved["routing"] = routing.report_value()
+    return resolved
+
+
+def _validate_final_reservation_bindings(
+    *,
+    mode: str,
+    bindings: EvaluationBindings,
+    final_seed_reservation: Mapping[str, object] | None,
+) -> None:
+    if mode != "final":
+        return
+    reservation_bindings = final_seed_reservation.get("bindings")  # type: ignore[union-attr]
+    if not isinstance(reservation_bindings, Mapping):
+        raise ValueError("final reservation is missing artifact bindings")
+    expected_reservation_bindings = {
+        "artifactSha256": bindings.artifact_sha256,
+        "modelSha256": bindings.actor_sha256,
+        "observationSchemaSha256": bindings.observation_contract_sha256,
+        "normalBaselineSha256": bindings.normal_baseline_sha256,
+        "normalBaselineSourceCommit": bindings.normal_baseline_source_commit,
+    }
+    for key, expected in expected_reservation_bindings.items():
+        if reservation_bindings.get(key) != expected:
+            raise ValueError(f"final reservation {key} does not match evaluation")
+
+
+def assemble_benchmark_report(
+    *,
+    mode: str,
+    seed_schedule: EvaluationSeedSchedule,
+    bindings: EvaluationBindings,
+    results: Sequence[Mapping[str, object]],
+    candidate_policy_metadata: Mapping[str, object],
+    candidate_batched_forward: bool,
+    match_counts: Mapping[int, int] | None = None,
+    gates: Mapping[str, float] | None = None,
+    acts: int = ACTS_PER_MATCH,
+    bootstrap_resamples: int = DEFAULT_BOOTSTRAP_RESAMPLES,
+    batch_size: int = 1,
+    final_seed_reservation: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Assemble the canonical benchmark from complete per-player-count results.
+
+    Both the legacy single-process evaluator and the subprocess-sharded
+    evaluator call this exact function.  Execution-only shard metadata is
+    deliberately excluded so identical inputs produce identical canonical
+    report bytes and SHA-256 digests.
+    """
+
+    counts = dict(match_counts or _expected_match_counts(mode))
+    thresholds = dict(gates or _expected_gates(mode))
+    validate_evaluation_plan(
+        mode=mode,
+        match_counts=counts,
+        acts=acts,
+        gates=thresholds,
+        seed_schedule=seed_schedule,
+        final_seed_reservation=final_seed_reservation,
+    )
+    _validate_final_reservation_bindings(
+        mode=mode,
+        bindings=bindings,
+        final_seed_reservation=final_seed_reservation,
+    )
+    _require_positive_int(bootstrap_resamples, "bootstrap resamples")
+    _require_positive_int(batch_size, "batch size")
+    if not isinstance(candidate_batched_forward, bool):
+        raise ValueError("candidate_batched_forward must be boolean")
+
+    results_by_player_count: dict[int, dict[str, object]] = {}
+    for raw_result in results:
+        if not isinstance(raw_result, Mapping):
+            raise ValueError("benchmark result must be an object")
+        player_count = raw_result.get("playerCount")
+        if (
+            isinstance(player_count, bool)
+            or not isinstance(player_count, int)
+            or player_count not in PLAYER_COUNTS
+        ):
+            raise ValueError("benchmark result player count must be from 4 through 10")
+        if player_count in results_by_player_count:
+            raise ValueError(f"duplicate benchmark result for p{player_count}")
+        results_by_player_count[player_count] = dict(raw_result)
+    missing = [value for value in PLAYER_COUNTS if value not in results_by_player_count]
+    if missing:
+        raise ValueError(
+            "benchmark results must cover p4 through p10 exactly; missing "
+            + ", ".join(f"p{value}" for value in missing)
+        )
+    ordered_results = [results_by_player_count[value] for value in PLAYER_COUNTS]
+
+    policy_metadata = dict(candidate_policy_metadata)
     overall_decision_counts = _decision_counts()
     decision_counts_by_act = [_decision_counts() for _ in range(ACTS_PER_MATCH)]
     decision_audit_by_player_count = []
-    for result in results:
+    for result in ordered_results:
         decision_audit = result["candidateDecisionAudit"]
         overall = decision_audit["overall"]  # type: ignore[index]
         _merge_decision_counts(overall_decision_counts, overall)
@@ -1420,9 +1460,7 @@ def evaluate_benchmark(
             "candidateAssignment": "rotating-balanced-initial-seat",
             "normalControl": "exact-reference-environment-callback",
             "inferenceBatchSize": batch_size,
-            "candidateBatchedForward": callable(
-                getattr(candidate_policy, "actions", None)
-            ),
+            "candidateBatchedForward": candidate_batched_forward,
             "finalMatchCountPreset": mode == "final",
             "familyId": seed_schedule.family_id,
             "developmentFamiliesRequired": 2 if mode == "development" else None,
@@ -1443,13 +1481,81 @@ def evaluate_benchmark(
             ],
         },
         "promotionPassed": all(
-            bool(result["effectSizeGate"]["passed"]) for result in results  # type: ignore[index]
+            bool(result["effectSizeGate"]["passed"])  # type: ignore[index]
+            for result in ordered_results
         ),
-        "results": results,
+        "results": ordered_results,
         "deploymentTriggered": False,
     }
     validate_benchmark_report(report, expected_mode=mode)
     return report
+
+
+def evaluate_benchmark(
+    *,
+    mode: str,
+    seed_schedule: EvaluationSeedSchedule,
+    candidate_policy: CandidatePolicy,
+    bindings: EvaluationBindings,
+    adapter: EnvironmentAdapter | None = None,
+    match_counts: Mapping[int, int] | None = None,
+    gates: Mapping[str, float] | None = None,
+    acts: int = ACTS_PER_MATCH,
+    bootstrap_resamples: int = DEFAULT_BOOTSTRAP_RESAMPLES,
+    batch_size: int = 1,
+    final_seed_reservation: Mapping[str, object] | None = None,
+    candidate_policy_routing: CandidatePolicyRouting | None = None,
+) -> dict[str, object]:
+    counts = dict(match_counts or _expected_match_counts(mode))
+    thresholds = dict(gates or _expected_gates(mode))
+    validate_evaluation_plan(
+        mode=mode,
+        match_counts=counts,
+        acts=acts,
+        gates=thresholds,
+        seed_schedule=seed_schedule,
+        final_seed_reservation=final_seed_reservation,
+    )
+    _validate_final_reservation_bindings(
+        mode=mode,
+        bindings=bindings,
+        final_seed_reservation=final_seed_reservation,
+    )
+    _require_positive_int(bootstrap_resamples, "bootstrap resamples")
+    _require_positive_int(batch_size, "batch size")
+    routing = candidate_policy_routing or CandidatePolicyRouting()
+    resolved_adapter = adapter or V4EnvAdapter()
+    results = [
+        evaluate_player_count(
+            player_count=player_count,
+            matches=counts[player_count],
+            acts=acts,
+            seed_schedule=seed_schedule,
+            candidate_policy=candidate_policy,
+            adapter=resolved_adapter,
+            gates=thresholds,
+            bootstrap_resamples=bootstrap_resamples,
+            batch_size=batch_size,
+            candidate_policy_routing=routing,
+        )
+        for player_count in PLAYER_COUNTS
+    ]
+    return assemble_benchmark_report(
+        mode=mode,
+        seed_schedule=seed_schedule,
+        bindings=bindings,
+        results=results,
+        candidate_policy_metadata=candidate_policy_report_metadata(
+            candidate_policy, routing
+        ),
+        candidate_batched_forward=callable(getattr(candidate_policy, "actions", None)),
+        match_counts=counts,
+        gates=thresholds,
+        acts=acts,
+        bootstrap_resamples=bootstrap_resamples,
+        batch_size=batch_size,
+        final_seed_reservation=final_seed_reservation,
+    )
 
 
 def validate_benchmark_report(
@@ -2526,7 +2632,9 @@ __all__ = [
     "PLAYER_COUNTS",
     "SCREENING_MATCH_COUNTS",
     "V4EnvAdapter",
+    "assemble_benchmark_report",
     "benchmark_actor_policy_batching",
+    "candidate_policy_report_metadata",
     "canonical_json_bytes",
     "certify_development_families",
     "deterministic_cluster_bootstrap95",

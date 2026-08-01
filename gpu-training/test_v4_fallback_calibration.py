@@ -312,7 +312,7 @@ class FallbackCalibrationDatasetTests(unittest.TestCase):
             export_v4_actor_bundle(
                 V4PublicActor(config).eval(), bundle, metadata={"seed": 71}
             )
-            policy, binding = _load_cli_actor_policy(
+            policy, binding, _ = _load_cli_actor_policy(
                 [str(bundle)], actor_seeds=[71], device="cuda", compile_actor=False
             )
             prepared = load_public_prepared_normal_dataset(dataset)

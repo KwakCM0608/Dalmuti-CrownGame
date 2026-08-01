@@ -21,6 +21,7 @@ from v4_env import (
     PRIVILEGED_STATE_LAYOUT_SHA256,
     PRIVILEGED_STATE_SIZE,
 )
+from v4_ppo_advantages import validate_merged_ppo_advantages
 
 
 V4_DATASET_FORMAT = "dalmuti-v4-trajectory-npz"
@@ -549,6 +550,10 @@ def _direct_loss_eligibility(
             is not True
             or not isinstance(returns, Mapping)
             or not isinstance(returns.get("standardized"), bool)
+            or isinstance(returns.get("monteCarloGamma"), bool)
+            or not isinstance(returns.get("monteCarloGamma"), (int, float))
+            or not math.isfinite(float(returns.get("monteCarloGamma", math.nan)))
+            or not 0.0 <= float(returns.get("monteCarloGamma", math.nan)) <= 1.0
             or not isinstance(model, Mapping)
             or model.get("criticExcluded") is not True
             or not _is_sha256(model.get("actorCheckpointSha256"))
@@ -611,6 +616,24 @@ def _direct_loss_eligibility(
             rtol=0.0, atol=2.0e-6,
         ):
             raise ValueError("PPO V4 training advantages lack their derivation binding")
+        gamma = float(returns["monteCarloGamma"])
+        lengths = valid.sum(axis=1, dtype=np.int64)
+        for trajectory, length in enumerate(lengths):
+            running = 0.0
+            expected_returns = np.zeros(int(length), dtype=np.float64)
+            for time_index in range(int(length) - 1, -1, -1):
+                running = (
+                    float(tensors.rewards[trajectory, time_index].item())
+                    + gamma * running
+                )
+                expected_returns[time_index] = running
+            if not np.allclose(
+                arrays["raw_returns"][trajectory, : int(length)],
+                expected_returns,
+                rtol=0.0,
+                atol=2.0e-6,
+            ):
+                raise ValueError("PPO V4 raw returns violate their Monte Carlo binding")
         terminal = tensors.dones.numpy() & valid
         nonterminal = valid & ~tensors.dones.numpy()
         chip_awards = arrays["terminal_chip_awards"]
@@ -696,6 +719,10 @@ def _merged_loss_eligibility(
         not _is_sha256(value) for value in actor_hashes
     ):
         raise ValueError("merged V4 PPO behavior Actor bindings are invalid")
+    returns_contract = metadata.get("returnsAndAdvantages")
+    if not isinstance(returns_contract, Mapping):
+        raise ValueError("merged V4 data lacks its v2 global advantage contract")
+    validate_merged_ppo_advantages(archive, returns_contract)
     eligibility = V4LossEligibility(
         behavior_cloning=masks["behaviorCloning"],
         ppo=masks["ppo"],

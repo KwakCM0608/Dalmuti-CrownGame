@@ -64,6 +64,12 @@ from v4_export import (
     verify_v4_actor_bundle,
 )
 from v4_model import V4ActorConfig, V4CriticConfig
+from v4_ppo_advantages import (
+    BASELINE_FALLBACK_HIERARCHY,
+    BaselineRecord,
+    BaselineResult,
+    leave_one_match_out_baselines,
+)
 
 
 PPO_PREPARATION_FORMAT = "dalmuti-v4-ppo-league-direct-npz"
@@ -78,16 +84,9 @@ SOURCE_FILES = (
     "gpu-training/v4_model.py",
     "gpu-training/v4_export.py",
     "gpu-training/v4_dataset.py",
+    "gpu-training/v4_ppo_advantages.py",
     "gpu-training/v3_action_conditioned.py",
     "lib/bot-strategy.ts",
-)
-BASELINE_FALLBACK_HIERARCHY = (
-    "same-player-count-role-act",
-    "same-player-count-role",
-    "same-player-count-act",
-    "same-player-count",
-    "all-player-counts",
-    "zero-no-other-match",
 )
 CANONICAL_PRIVILEGED_LAYOUT_ID = PRIVILEGED_STATE_LAYOUT_ID
 CANONICAL_PRIVILEGED_LAYOUT: Mapping[str, object] = PRIVILEGED_STATE_LAYOUT
@@ -210,23 +209,6 @@ class PPOCollectionResult:
     fingerprint: str
     trajectories: int
     samples: int
-
-
-@dataclass(frozen=True)
-class BaselineRecord:
-    player_count: int
-    role: str
-    act: int
-    match_cluster: str
-    value: float
-
-
-@dataclass(frozen=True)
-class BaselineResult:
-    baseline: float
-    scale: float
-    tier: int
-    reference_count: int
 
 
 @dataclass(frozen=True)
@@ -402,43 +384,6 @@ def candidate_opponent_ids(
     start = slot % len(remaining)
     rotated = remaining[start:] + remaining[:start]
     return tuple(rotated[:count])
-
-
-def leave_one_match_out_baselines(records: Sequence[BaselineRecord]) -> tuple[BaselineResult, ...]:
-    """Compute leakage-safe baselines, excluding the whole target match.
-
-    Fallback order is p/role/act, p/role, p/act, p, global, then zero.
-    Standard-deviation scales are computed from the same excluded-reference
-    population.  Degenerate reference populations use scale 1.
-    """
-
-    output: list[BaselineResult] = []
-    for target in records:
-        other = [record for record in records if record.match_cluster != target.match_cluster]
-        filters = (
-            lambda value: value.player_count == target.player_count and value.role == target.role and value.act == target.act,
-            lambda value: value.player_count == target.player_count and value.role == target.role,
-            lambda value: value.player_count == target.player_count and value.act == target.act,
-            lambda value: value.player_count == target.player_count,
-            lambda value: True,
-        )
-        references: list[BaselineRecord] = []
-        tier = len(BASELINE_FALLBACK_HIERARCHY) - 1
-        for index, predicate in enumerate(filters):
-            references = [record for record in other if predicate(record)]
-            if references:
-                tier = index
-                break
-        if references:
-            values = np.asarray([record.value for record in references], dtype=np.float64)
-            baseline = float(values.mean())
-            deviation = float(values.std(ddof=0))
-            scale = deviation if deviation >= 1.0e-8 else 1.0
-        else:
-            baseline = 0.0
-            scale = 1.0
-        output.append(BaselineResult(baseline, scale, tier, len(references)))
-    return tuple(output)
 
 
 def _source_hashes(root: Path) -> dict[str, str]:

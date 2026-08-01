@@ -369,6 +369,31 @@ class V4PPOCollectorTests(unittest.TestCase):
         metrics = result["metrics"][0]
         for name in ("loss", "policyLoss", "criticLoss", "approxKl"):
             self.assertTrue(math.isfinite(float(metrics[name])), name)
+        raw_counts = metrics["eligibleSamplesSeen"]
+        effective_counts = metrics["effectiveNonforcedActorSamplesSeen"]
+        excluded_counts = metrics["forcedActorSamplesExcluded"]
+        for name in ("behaviorCloning", "ppo"):
+            self.assertEqual(
+                raw_counts[name],
+                effective_counts[name] + excluded_counts[name],
+            )
+            self.assertGreater(effective_counts[name], 0)
+        self.assertEqual(
+            raw_counts["critic"],
+            int(dataset.loss_eligibility.critic.sum()),
+        )
+        run_manifest = json.loads(
+            (output / "run-manifest.json").read_text(encoding="utf-8")
+        )
+        contract = run_manifest["trainingContract"]
+        self.assertEqual(
+            contract["effectiveNonforcedActorSampleCounts"]["ppo"],
+            effective_counts["ppo"],
+        )
+        self.assertEqual(
+            contract["actorPolicyMask"],
+            "loss eligibility AND legal-action count greater than one",
+        )
 
     def test_fresh_ppo_training_requires_the_collector_behavior_actor(self) -> None:
         dataset = load_v4_dataset_npz(self.outputs["repeat-a"])

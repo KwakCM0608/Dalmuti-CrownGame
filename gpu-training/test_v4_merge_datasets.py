@@ -36,6 +36,12 @@ from v4_env import (
     PRIVILEGED_STATE_LAYOUT_SHA256,
 )
 from v4_model import V4ActorConfig, V4CriticConfig
+from v4_ppo_advantages import (
+    MERGED_BASELINE_MIN_REFERENCES,
+    MERGED_GLOBAL_SCALE_FLOOR,
+    MERGED_PPO_ADVANTAGE_CONTRACT,
+    merged_ppo_advantage_array_sha256,
+)
 
 
 def _sha256(path: Path) -> str:
@@ -164,6 +170,8 @@ def _write_prepared(
     act: int,
     marker: float,
     d_model: int = 24,
+    terminal_markers: list[float] | None = None,
+    match_clusters: list[str] | None = None,
 ) -> Path:
     actor = _actor(max_players, max_history, d_model=d_model)
     critic = _critic()
@@ -270,6 +278,14 @@ def _write_prepared(
             ],
         }
     elif preparation == PPO_PREPARATION_FORMAT:
+        if terminal_markers is None:
+            terminal_markers = [marker] * count
+        if len(terminal_markers) != count:
+            raise ValueError("terminal_markers must match ids")
+        if match_clusters is None:
+            match_clusters = [f"ppo-cluster-{identifier}" for identifier in ids]
+        if len(match_clusters) != count:
+            raise ValueError("match_clusters must match ids")
         env_sha = hashlib.sha256(b"ppo-env").hexdigest()
         shape = (count, time_steps)
         arrays.update({
@@ -287,21 +303,30 @@ def _write_prepared(
             "trajectory_player_counts": np.asarray([player_count] * count, np.int16),
             "trajectory_roles": np.asarray([role] * count, np.int8),
             "trajectory_acts": np.asarray([act] * count, np.int16),
-            "trajectory_actor_ids": np.arange(count, dtype=np.int16),
+            "trajectory_actor_ids": np.asarray(
+                [index % player_count for index in range(count)], np.int16
+            ),
             "trajectory_match_indices": np.arange(count, dtype=np.int32),
             "trajectory_match_seeds": np.arange(200, 200 + count, dtype=np.uint32),
-            "trajectory_match_clusters": np.asarray(
-                [f"ppo-cluster-{index}" for index in range(count)], dtype=np.str_
+            "trajectory_match_clusters": np.asarray(match_clusters, dtype=np.str_),
+            "trajectory_finish_places": np.asarray(
+                [index % player_count + 1 for index in range(count)], np.int16
             ),
-            "trajectory_finish_places": np.arange(1, count + 1, dtype=np.int16),
         })
         probability = math.exp(-0.5)
-        chip_award = int(round(marker * 2.0 + 2.0))
         for index, length in enumerate(lengths):
+            terminal_marker = float(terminal_markers[index])
+            chip_award = int(round(terminal_marker * 2.0 + 2.0))
+            if chip_award not in range(5) or not math.isclose(
+                terminal_marker, (chip_award - 2.0) / 2.0
+            ):
+                raise ValueError("terminal markers must be exact normalized chip rewards")
             valid_slice = (index, slice(0, length))
-            arrays["raw_returns"][valid_slice] = marker
-            arrays["raw_advantages"][valid_slice] = marker
-            arrays["advantages"][valid_slice] = marker
+            arrays["rewards"][index, :] = 0.0
+            arrays["rewards"][index, length - 1] = terminal_marker
+            arrays["raw_returns"][valid_slice] = terminal_marker
+            arrays["raw_advantages"][valid_slice] = terminal_marker
+            arrays["advantages"][valid_slice] = terminal_marker
             arrays["baseline_tiers"][valid_slice] = 0
             arrays["baseline_reference_counts"][valid_slice] = 2
             arrays["selected_action_probabilities"][valid_slice] = probability
@@ -320,7 +345,10 @@ def _write_prepared(
                 "exactOldLogProbabilityForEveryLearnerDecision": True,
                 "exactNormalExpertLabelForEveryLearnerDecision": True,
             },
-            "returnsAndAdvantages": {"standardized": True},
+            "returnsAndAdvantages": {
+                "monteCarloGamma": 1.0,
+                "standardized": True,
+            },
             "privacy": {
                 "actorPublicOnly": True,
                 "opponentPhysicalHandsExcluded": True,
@@ -394,6 +422,30 @@ class V4MergeDatasetsTests(unittest.TestCase):
             marker=2.5,
         )
         return normal, dagger
+
+    def _ppo_shard(
+        self,
+        name: str,
+        indices: list[int],
+        rewards: list[float],
+        clusters: list[str],
+    ) -> Path:
+        path = self.root / f"{name}.npz"
+        _write_prepared(
+            path,
+            PPO_PREPARATION_FORMAT,
+            ids=[f"ppo-global-{index:03d}" for index in indices],
+            lengths=[2 + index % 2 for index in indices],
+            max_players=8,
+            max_history=5,
+            player_count=7,
+            role=1,
+            act=2,
+            marker=0.0,
+            terminal_markers=[rewards[index] for index in indices],
+            match_clusters=[clusters[index] for index in indices],
+        )
+        return path
 
     def test_normal_and_dagger_merge_is_deterministic_and_loader_compatible(self) -> None:
         normal, dagger = self._inputs()
@@ -568,6 +620,173 @@ class V4MergeDatasetsTests(unittest.TestCase):
             recursive_metadata["lossEligibility"]["ppoBehaviorActorSha256s"],
             [hashlib.sha256(b"ppo-actor.pt").hexdigest()],
         )
+
+    def test_global_ppo_recompute_is_shard_partition_invariant(self) -> None:
+        rewards = [-1.0, -0.5, 0.0, 0.5, 1.0] * 4
+        clusters = [f"match-{index:03d}" for index in range(len(rewards))]
+        contiguous = [
+            self._ppo_shard("contiguous-a", list(range(0, 9)), rewards, clusters),
+            self._ppo_shard("contiguous-b", list(range(9, 20)), rewards, clusters),
+        ]
+        interleaved = [
+            self._ppo_shard("interleaved-a", list(range(0, 20, 2)), rewards, clusters),
+            self._ppo_shard("interleaved-b", list(range(1, 20, 2)), rewards, clusters),
+        ]
+        first = self.root / "partition-contiguous.npz"
+        reversed_output = self.root / "partition-contiguous-reversed.npz"
+        second = self.root / "partition-interleaved.npz"
+        first_result = merge_v4_datasets(contiguous, first)
+        reversed_result = merge_v4_datasets(
+            list(reversed(contiguous)), reversed_output
+        )
+        merge_v4_datasets(interleaved, second)
+
+        self.assertEqual(first.read_bytes(), reversed_output.read_bytes())
+        self.assertEqual(first_result.npz_sha256, reversed_result.npz_sha256)
+
+        def by_id(path: Path) -> tuple[dict[str, tuple[float, float, float, int]], dict[str, object]]:
+            with np.load(path, allow_pickle=False) as archive:
+                metadata = json.loads(str(archive["metadata_json"].item()))
+                output: dict[str, tuple[float, float, float, int]] = {}
+                for index, identifier in enumerate(archive["trajectory_ids"].tolist()):
+                    if not identifier.startswith("ppo-global-"):
+                        continue
+                    output[identifier] = (
+                        float(archive["baseline_values"][index, 0]),
+                        float(archive["raw_advantages"][index, 0]),
+                        float(archive["advantage_scales"][index, 0]),
+                        int(archive["baseline_reference_counts"][index, 0]),
+                    )
+                return output, metadata
+
+        contiguous_values, contiguous_metadata = by_id(first)
+        interleaved_values, interleaved_metadata = by_id(second)
+        self.assertEqual(contiguous_values, interleaved_values)
+        contract = contiguous_metadata["returnsAndAdvantages"]
+        self.assertEqual(contract["format"], MERGED_PPO_ADVANTAGE_CONTRACT)
+        self.assertEqual(contract["version"], 2)
+        self.assertEqual(
+            contract["minimumReferenceCount"], MERGED_BASELINE_MIN_REFERENCES
+        )
+        self.assertGreaterEqual(
+            contract["globalPopulationScale"], MERGED_GLOBAL_SCALE_FLOOR
+        )
+        terminal_raw_advantages = []
+        for index, reward in enumerate(rewards):
+            expected_baseline = float(np.mean(rewards[:index] + rewards[index + 1:]))
+            identifier = f"ppo-global-{index:03d}"
+            self.assertAlmostEqual(
+                contiguous_values[identifier][0], expected_baseline, places=6
+            )
+            terminal_raw_advantages.append(reward - expected_baseline)
+        expected_scale = max(
+            float(np.std(np.asarray(terminal_raw_advantages), ddof=0)),
+            MERGED_GLOBAL_SCALE_FLOOR,
+        )
+        self.assertAlmostEqual(
+            contract["globalPopulationScale"], expected_scale, places=12
+        )
+        self.assertEqual(contract["fallbackCounts"]["same-player-count-role-act"], 20)
+        self.assertTrue(all(value[3] == 19 for value in contiguous_values.values()))
+        self.assertEqual(
+            contract["globalPopulationScale"],
+            interleaved_metadata["returnsAndAdvantages"]["globalPopulationScale"],
+        )
+
+    def test_global_ppo_baseline_excludes_the_whole_own_match_cluster(self) -> None:
+        external = [-1.0, -0.5, 0.0, 0.5, 1.0] * 4
+        rewards_a = [1.0, -1.0, *external]
+        rewards_b = [-0.5, 0.5, *external]
+        clusters = ["target-match", "target-match"] + [
+            f"external-{index:03d}" for index in range(len(external))
+        ]
+        input_a = self._ppo_shard(
+            "leakage-a", list(range(len(rewards_a))), rewards_a, clusters
+        )
+        output_a = self.root / "leakage-out-a.npz"
+        merge_v4_datasets(input_a, output_a)
+        input_b = self._ppo_shard(
+            "leakage-b", list(range(len(rewards_b))), rewards_b, clusters
+        )
+        output_b = self.root / "leakage-out-b.npz"
+        merge_v4_datasets(input_b, output_b)
+
+        def target_baselines(path: Path) -> tuple[float, float]:
+            with np.load(path, allow_pickle=False) as archive:
+                ids = archive["trajectory_ids"].tolist()
+                values = []
+                for identifier in ("ppo-global-000", "ppo-global-001"):
+                    index = ids.index(identifier)
+                    values.append(float(archive["baseline_values"][index, 0]))
+                    self.assertEqual(
+                        int(archive["baseline_reference_counts"][index, 0]), 20
+                    )
+                return values[0], values[1]
+
+        self.assertEqual(target_baselines(output_a), target_baselines(output_b))
+        self.assertEqual(target_baselines(output_a), (0.0, 0.0))
+
+    def test_merged_ppo_recomputed_arrays_load_and_coherent_tampering_is_rejected(self) -> None:
+        rewards = [-1.0, -0.5, 0.0, 0.5, 1.0] * 4
+        clusters = [f"tamper-match-{index:03d}" for index in range(20)]
+        source = self._ppo_shard(
+            "tamper-source", list(range(20)), rewards, clusters
+        )
+        output = self.root / "tamper-merged.npz"
+        merge_v4_datasets(source, output)
+        loaded = load_v4_dataset_npz(output)
+        self.assertEqual(int(loaded.loss_eligibility.ppo.sum()), int(sum(2 + i % 2 for i in range(20))))
+        with np.load(source, allow_pickle=False) as direct_archive:
+            direct_metadata = json.loads(str(direct_archive["metadata_json"].item()))
+        self.assertEqual(direct_metadata["preparationVersion"], 1)
+        with np.load(output, allow_pickle=False) as merged_archive:
+            merged_metadata = json.loads(str(merged_archive["metadata_json"].item()))
+        self.assertEqual(
+            merged_metadata["returnsAndAdvantages"]["format"],
+            MERGED_PPO_ADVANTAGE_CONTRACT,
+        )
+
+        old_v1 = self.root / "old-merged-v1.npz"
+        merge_v4_datasets(source, old_v1)
+
+        def downgrade_contract(arrays: dict[str, np.ndarray]) -> None:
+            metadata = json.loads(str(arrays["metadata_json"].item()))
+            metadata["returnsAndAdvantages"]["format"] = (
+                "dalmuti-v4-global-merged-lomo-advantages-v1"
+            )
+            metadata["returnsAndAdvantages"]["version"] = 1
+            arrays["metadata_json"] = np.asarray(
+                json.dumps(metadata, sort_keys=True, separators=(",", ":"))
+            )
+
+        _rewrite(old_v1, downgrade_contract)
+        with self.assertRaisesRegex(ValueError, "contract is missing or incompatible"):
+            load_v4_dataset_npz(old_v1)
+
+        def corrupt_coherently(arrays: dict[str, np.ndarray]) -> None:
+            ppo = arrays["ppo_eligible_masks"]
+            row = int(np.flatnonzero(ppo.any(axis=1))[0])
+            mask = ppo[row]
+            arrays["baseline_values"][row, mask] += np.float32(0.25)
+            arrays["raw_advantages"][row, mask] = (
+                arrays["raw_returns"][row, mask]
+                - arrays["baseline_values"][row, mask]
+            )
+            arrays["advantages"][row, mask] = (
+                arrays["raw_advantages"][row, mask]
+                / arrays["advantage_scales"][row, mask]
+            )
+            metadata = json.loads(str(arrays["metadata_json"].item()))
+            metadata["returnsAndAdvantages"]["arrayBindingSha256"] = (
+                merged_ppo_advantage_array_sha256(arrays)
+            )
+            arrays["metadata_json"] = np.asarray(
+                json.dumps(metadata, sort_keys=True, separators=(",", ":"))
+            )
+
+        _rewrite(output, corrupt_coherently)
+        with self.assertRaisesRegex(ValueError, "stale or has been tampered"):
+            load_v4_dataset_npz(output)
 
     def test_collision_config_checksum_fingerprint_and_semantics_rejection(self) -> None:
         normal, dagger = self._inputs()

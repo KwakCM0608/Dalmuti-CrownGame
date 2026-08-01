@@ -9,6 +9,7 @@ from v4_objectives import (
     expected_sarsa_lambda_targets,
     masked_behavior_cloning_loss,
     masked_probabilities,
+    nonforced_policy_eligibility,
     vrpo_clipped_policy_loss,
 )
 
@@ -103,6 +104,47 @@ class V4ObjectiveTests(unittest.TestCase):
         self.assertTrue(torch.isfinite(result.entropy))
         self.assertIsNotNone(logits.grad)
         self.assertIsNone(q_values.grad)
+
+    def test_nonforced_policy_objective_is_invariant_to_forced_rows_and_partition(self) -> None:
+        torch.manual_seed(23)
+        logits = torch.randn(7, V4_ACTION_COUNT)
+        legal = torch.zeros(7, V4_ACTION_COUNT, dtype=torch.bool)
+        legal[:4, :3] = True
+        legal[4:, 0] = True
+        eligible = torch.ones(7, dtype=torch.bool)
+        actions = torch.tensor([0, 1, 2, 0, 0, 0, 0], dtype=torch.long)
+        advantages = torch.tensor([1.25, -0.5, 0.75, -1.0, 50.0, -80.0, 30.0])
+        old_log_probs = torch.log_softmax(
+            logits.masked_fill(~legal, -1.0e9), dim=-1
+        ).gather(1, actions[:, None]).squeeze(1)
+        policy_mask = nonforced_policy_eligibility(legal, eligible)
+
+        combined = vrpo_clipped_policy_loss(
+            logits[policy_mask],
+            legal[policy_mask],
+            actions[policy_mask],
+            old_log_probs[policy_mask],
+            advantages[policy_mask],
+            entropy_coefficient=0.003,
+            normalize_advantages=False,
+        )
+        first = vrpo_clipped_policy_loss(
+            logits[:1], legal[:1], actions[:1], old_log_probs[:1], advantages[:1],
+            entropy_coefficient=0.003,
+            normalize_advantages=False,
+        )
+        second = vrpo_clipped_policy_loss(
+            logits[1:4], legal[1:4], actions[1:4], old_log_probs[1:4], advantages[1:4],
+            entropy_coefficient=0.003,
+            normalize_advantages=False,
+        )
+
+        self.assertTrue(torch.equal(policy_mask, torch.tensor([True] * 4 + [False] * 3)))
+        for name in ("loss", "policy_loss", "entropy", "approx_kl", "clip_fraction"):
+            partitioned = (
+                getattr(first, name) + 3.0 * getattr(second, name)
+            ) / 4.0
+            self.assertTrue(torch.allclose(getattr(combined, name), partitioned, atol=1e-7), name)
 
     def test_bc_and_action_q_losses_reject_illegal_targets(self) -> None:
         logits = torch.zeros(2, V4_ACTION_COUNT, requires_grad=True)

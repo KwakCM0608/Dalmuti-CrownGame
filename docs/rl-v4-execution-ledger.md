@@ -308,6 +308,77 @@ below Normal at every table size. Report SHA-256:
   `9ea0b9eb4200ac369fbc3ffb1493efe59625b34f5f994359f8a01d4b5610db4d`.
   The evaluator checks the commit blob's Normal source hash `aa44743c...` and
   the actual observation contract hash `13dc7e48...` before any match runs.
-- Attempt 004 p4-p10 screening is active. While it runs, iteration 002 is
-  collecting four disjoint on-policy shards from attempt 004 so a failed
-  screening does not leave the GPU/CPU pipeline idle.
+- Attempt 004 completed the same 60-match-per-player-count screening and did
+  not pass promotion. Report SHA-256:
+  `ffcdb63c57f2d2486bf44efb85b304f905e951f95857c5877f05831378dc4951`.
+
+| Players | Mean chip diff/act | Clustered 95% LCB | Pairwise before Normal |
+| ---: | ---: | ---: | ---: |
+| 4 | -0.7767 | -1.1200 | 0.3558 |
+| 5 | -0.5417 | -0.7694 | 0.3917 |
+| 6 | -0.4911 | -0.6600 | 0.3922 |
+| 7 | -0.2256 | -0.3792 | 0.4303 |
+| 8 | -0.2267 | -0.3634 | 0.4310 |
+| 9 | -0.2955 | -0.4020 | 0.4177 |
+| 10 | -0.0827 | -0.1880 | 0.4649 |
+
+The first PPO update improved p5-p8 and p10 point estimates over attempt 003,
+but regressed at p4 and p9 and remained below Normal at every table size. It
+is therefore evidence of a usable but weak learning signal, not a promotable
+candidate.
+
+## PPO iteration 002
+
+- Four disjoint CUDA-host rollout shards generated `2,240` complete actor-act
+  trajectories and `48,686` decisions from attempt 004. Their decision counts
+  were `12,297`, `12,041`, `12,267`, and `12,081`.
+- The strict merge fingerprint is
+  `4650051048bed3fb1572a82f4497802844f1a9dc3357e3e519aa4ee589415289`.
+  Merged NPZ SHA-256 is
+  `bd047aa0eed8c534a5d43022128a420c000e6b20895c3b2de3e28dea6ce91c9a`;
+  external metadata SHA-256 is
+  `bca17ad03b35d8bf0f1503e615752f03176cae1ae9a1ad2bc326376cc8861b54`.
+- A training audit found that roughly `62.7%` of rollout rows have only one
+  legal action. Those rows correctly have zero direct policy gradient, but
+  attempt 004's minibatch advantage normalization and policy-loss denominator
+  still let them dilute and distort the non-forced policy signal. The trainer
+  now restricts BC/PPO Actor losses to eligible rows with more than one legal
+  action and uses the collector-bound advantage without a second minibatch
+  normalization. Critic learning may continue to use all eligible rows.
+- A second audit found that the first merge retained independently calculated
+  shard-local baselines. Their exact p/role/act reference count had median
+  `4`, and `20.5%` of iteration 002 advantages changed sign when calculated
+  from the complete population. Merged PPO advantage contract v2 now excludes
+  the target's entire match cluster, requires at least `16` references before
+  accepting a hierarchy tier, and uses one population scale across all PPO
+  trajectories with floor `0.5` and no recentering.
+- The fresh v2 merge completed in `15.1` seconds and preserves `2,240`
+  trajectories, `48,686` samples, and `18,174` effective non-forced policy
+  decisions. Reference counts are min/median/max `16 / 37 / 129`; global scale
+  is `0.5758417692757455`, and maximum absolute training advantage is
+  `3.1355063915252686` rather than the old `8.66`.
+- V2 NPZ SHA-256:
+  `73a34ad7c9d435ef3081d6f2c1cea4060a369207e1cc72f9ea69b18c79fd5c75`.
+  External metadata SHA-256:
+  `6e08ab6aaa9f62affeb16aaeca14c947dde0d41d05ab3eecd9721c7d54641ba0`.
+  Dataset fingerprint:
+  `ea6408372b0c6ac888625fe2e4f97f0b5fbbb09f46c8a62b6e825979151bc9ae`.
+  Advantage-array binding:
+  `b97c3ab2b5aefea613576cfb1441d439c06f8b1c79b402005db10384a848a206`.
+  The artifact and sidecars are preserved and checksum-verified locally and
+  remotely. Old merged-v1 PPO artifacts fail closed before training, while
+  original direct PPO shards remain valid inputs for a new v2 merge.
+
+## Evaluation throughput and regression verification
+
+- The V4 evaluator can now shard complete player counts across at most four
+  subprocesses. The default balanced allocation is p10; p9+p4; p8+p5; and
+  p7+p6. Every worker independently verifies the Actor bundle, frozen Normal
+  source, observation contract, and final reservation where applicable.
+- Shards are immutable canonical JSON plus SHA-256. Strict merging requires
+  p4-p10 exactly once and calls the same report assembler as the serial path;
+  serial and parallel reports are byte- and SHA-identical for the same inputs.
+- Evaluator tests passed `23/23` locally and on the remote Linux/PyTorch
+  environment. The complete remote V4 suite passed `139/139` with two optional
+  environment skips. Product regression passed `254/254`; TypeScript checking
+  passed; lint reports zero errors and the pre-existing seven image warnings.

@@ -41,6 +41,7 @@ from v4_objectives import (
     action_q_regression_loss,
     expected_sarsa_lambda_targets,
     masked_behavior_cloning_loss,
+    nonforced_policy_eligibility,
     vrpo_clipped_policy_loss,
 )
 
@@ -337,15 +338,38 @@ def _resolve_training_contract(
         "ppo": int(eligibility.ppo.sum()),
         "critic": int(eligibility.critic.sum()),
     }
+    effective_actor_masks = {
+        "behaviorCloning": nonforced_policy_eligibility(
+            dataset.tensors.legal_masks,
+            eligibility.behavior_cloning,
+        ),
+        "ppo": nonforced_policy_eligibility(
+            dataset.tensors.legal_masks,
+            eligibility.ppo,
+        ),
+    }
+    effective_actor_counts = {
+        name: int(mask.sum()) for name, mask in effective_actor_masks.items()
+    }
+    forced_actor_counts = {
+        name: counts[name] - effective_actor_counts[name]
+        for name in effective_actor_counts
+    }
     requested = {
         "behaviorCloning": training_config.bc_weight,
         "ppo": training_config.ppo_weight,
         "critic": training_config.critic_weight,
     }
     for name, weight in requested.items():
-        if weight > 0.0 and counts[name] == 0:
+        admitted_count = (
+            effective_actor_counts[name]
+            if name in effective_actor_counts
+            else counts[name]
+        )
+        if weight > 0.0 and admitted_count == 0:
             raise ValueError(
-                f"{name} loss was requested but the dataset has no eligible samples"
+                f"{name} loss was requested but the dataset has no eligible samples "
+                "after forced singleton-action rows are excluded"
             )
     if (
         training_config.bc_weight == 0.0
@@ -379,6 +403,12 @@ def _resolve_training_contract(
         "lossContractFingerprint": dataset.loss_contract_fingerprint,
         "masks": dict(V4_LOSS_MASK_NAMES),
         "eligibleSampleCounts": counts,
+        "effectiveNonforcedActorSampleCounts": effective_actor_counts,
+        "forcedActorSamplesExcluded": forced_actor_counts,
+        "actorPolicyMask": "loss eligibility AND legal-action count greater than one",
+        "advantageNormalization": (
+            "collector-bound advantages; no minibatch recentering or rescaling"
+        ),
         "requestedWeights": requested,
         "ppoBehaviorActorSha256s": list(eligibility.behavior_actor_sha256s),
         "normalAndDaggerAreBcOnly": True,
@@ -535,6 +565,14 @@ def train_v4(
             "ppo": 0,
             "critic": 0,
         }
+        effective_actor_samples = {
+            "behaviorCloning": 0,
+            "ppo": 0,
+        }
+        forced_actor_samples_excluded = {
+            "behaviorCloning": 0,
+            "ppo": 0,
+        }
         batches = 0
         optimizer_steps = 0
         for batch_index, cpu_batch in enumerate(loader):
@@ -542,17 +580,35 @@ def train_v4(
                 _trim_public_padding(cpu_batch), device_value
             )
             valid_flat = batch["valid_masks"].reshape(-1)
-            bc_flat = (
+            bc_eligible_flat = (
                 batch[V4_LOSS_MASK_NAMES["behaviorCloning"]].reshape(-1)
                 & valid_flat
             )
-            ppo_flat = batch[V4_LOSS_MASK_NAMES["ppo"]].reshape(-1) & valid_flat
+            ppo_eligible_flat = (
+                batch[V4_LOSS_MASK_NAMES["ppo"]].reshape(-1) & valid_flat
+            )
             critic_flat = (
                 batch[V4_LOSS_MASK_NAMES["critic"]].reshape(-1) & valid_flat
             )
-            eligible_samples["behaviorCloning"] += int(bc_flat.sum())
-            eligible_samples["ppo"] += int(ppo_flat.sum())
+            bc_flat = nonforced_policy_eligibility(
+                batch["legal_masks"].reshape(-1, V4_ACTION_COUNT),
+                bc_eligible_flat,
+            )
+            ppo_flat = nonforced_policy_eligibility(
+                batch["legal_masks"].reshape(-1, V4_ACTION_COUNT),
+                ppo_eligible_flat,
+            )
+            eligible_samples["behaviorCloning"] += int(bc_eligible_flat.sum())
+            eligible_samples["ppo"] += int(ppo_eligible_flat.sum())
             eligible_samples["critic"] += int(critic_flat.sum())
+            effective_actor_samples["behaviorCloning"] += int(bc_flat.sum())
+            effective_actor_samples["ppo"] += int(ppo_flat.sum())
+            forced_actor_samples_excluded["behaviorCloning"] += int(
+                bc_eligible_flat.sum() - bc_flat.sum()
+            )
+            forced_actor_samples_excluded["ppo"] += int(
+                ppo_eligible_flat.sum() - ppo_flat.sum()
+            )
             legal_flat = _flatten_time(batch["legal_masks"]).clone()
             legal_flat[~valid_flat, 0] = True
             with torch.cuda.amp.autocast(enabled=use_amp):
@@ -601,7 +657,7 @@ def train_v4(
                     q_boost_coefficient=training_config.q_boost_coefficient,
                     clip_ratio=training_config.clip_ratio,
                     entropy_coefficient=training_config.entropy_coefficient,
-                    normalize_advantages=True,
+                    normalize_advantages=False,
                 )
                 policy_loss = policy_result.loss
                 entropy = policy_result.entropy
@@ -696,6 +752,8 @@ def train_v4(
             "batches": batches,
             "optimizerSteps": optimizer_steps,
             "eligibleSamplesSeen": eligible_samples,
+            "effectiveNonforcedActorSamplesSeen": effective_actor_samples,
+            "forcedActorSamplesExcluded": forced_actor_samples_excluded,
             **{name: value / max(1, batches) for name, value in totals.items()},
         }
         if any(

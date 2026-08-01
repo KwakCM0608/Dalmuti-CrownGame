@@ -37,6 +37,34 @@ def masked_probabilities(
     return probabilities.masked_fill(~legal_masks, 0.0)
 
 
+def nonforced_policy_eligibility(
+    legal_masks: torch.Tensor,
+    eligible_masks: torch.Tensor,
+) -> torch.Tensor:
+    """Limit an Actor loss mask to decisions with a genuine policy choice.
+
+    Singleton legal-action rows carry no policy gradient.  Keeping them in a
+    policy-loss reduction or advantage normalization nevertheless changes the
+    denominator and batch statistics, so they must be excluded before either
+    operation.  Critic eligibility is intentionally independent of this mask.
+    """
+
+    if (
+        legal_masks.dtype != torch.bool
+        or legal_masks.ndim < 2
+        or legal_masks.shape[-1] != V4_ACTION_COUNT
+    ):
+        raise ValueError("legal masks must be bool [..., 236]")
+    if (
+        eligible_masks.dtype != torch.bool
+        or eligible_masks.shape != legal_masks.shape[:-1]
+    ):
+        raise ValueError("policy eligibility must be bool and match legal-mask rows")
+    if (eligible_masks & ~legal_masks.any(dim=-1)).any():
+        raise ValueError("every policy-eligible row requires a legal action")
+    return eligible_masks & (legal_masks.sum(dim=-1) > 1)
+
+
 def expected_action_q(
     q_values: torch.Tensor,
     policy_logits: torch.Tensor,
@@ -280,5 +308,6 @@ __all__ = [
     "masked_behavior_cloning_loss",
     "masked_log_probabilities",
     "masked_probabilities",
+    "nonforced_policy_eligibility",
     "vrpo_clipped_policy_loss",
 ]

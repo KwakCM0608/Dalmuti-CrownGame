@@ -42,6 +42,14 @@ from v4_env import (
     PRIVILEGED_STATE_SIZE,
 )
 from v4_model import V4ActorConfig, V4CriticConfig
+from v4_ppo_advantages import (
+    BASELINE_FALLBACK_HIERARCHY,
+    MERGED_BASELINE_MIN_REFERENCES,
+    MERGED_GLOBAL_SCALE_FLOOR,
+    MERGED_PPO_ADVANTAGE_CONTRACT,
+    recompute_merged_ppo_advantages,
+    validate_merged_ppo_advantages,
+)
 
 
 NORMAL_PREPARATION_FORMAT = "dalmuti-v4-prepared-dataset-metadata"
@@ -107,6 +115,7 @@ TRAJECTORY_AUXILIARY_DTYPES: dict[str, np.dtype | None] = {
     "trajectory_match_seeds": np.dtype(np.uint32),
     "trajectory_match_clusters": None,
     "trajectory_finish_places": np.dtype(np.int16),
+    "trajectory_monte_carlo_gammas": np.dtype(np.float64),
     "trajectory_source_npz_sha256s": None,
 }
 KNOWN_ARRAYS = (
@@ -511,6 +520,10 @@ def _validate_preparation(
             or collection.get("exactNormalExpertLabelForEveryLearnerDecision") is not True
             or not isinstance(returns, dict)
             or not isinstance(returns.get("standardized"), bool)
+            or isinstance(returns.get("monteCarloGamma"), bool)
+            or not isinstance(returns.get("monteCarloGamma"), (int, float))
+            or not math.isfinite(float(returns.get("monteCarloGamma", math.nan)))
+            or not 0.0 <= float(returns.get("monteCarloGamma", math.nan)) <= 1.0
             or not isinstance(environment, dict)
             or environment.get("normalExpertCallback") != "DalmutiScalarEnv.normal_action"
             or not isinstance(model, dict)
@@ -578,6 +591,9 @@ def _validate_preparation(
         or any(not isinstance(value, str) or not SHA256_RE.fullmatch(value) for value in behavior_hashes)
     ):
         raise ValueError("merged PPO behavior actor bindings are invalid")
+    returns = metadata.get("returnsAndAdvantages")
+    if not isinstance(returns, dict):
+        raise ValueError("merged dataset lacks its global PPO advantage contract")
     return str(preparation), {"sourceHashesByInput": sources}, expected_layout
 
 
@@ -713,6 +729,7 @@ def _validate_auxiliary(
     arrays: Mapping[str, np.ndarray], preparation: str, valid: np.ndarray,
     player_counts: np.ndarray, roles: np.ndarray, acts: np.ndarray,
     *, ppo_standardized: bool | None = None,
+    ppo_gamma: float | None = None,
 ) -> None:
     required = (
         NORMAL_REQUIRED_AUX if preparation == NORMAL_PREPARATION_FORMAT
@@ -820,6 +837,8 @@ def _validate_auxiliary(
             raise ValueError("PPO raw advantages do not match returns minus baselines")
         if ppo_standardized is None:
             raise RuntimeError("PPO standardization binding was not supplied")
+        if ppo_gamma is None:
+            raise RuntimeError("PPO Monte Carlo gamma binding was not supplied")
         expected_advantage = (
             arrays["raw_advantages"] / scales
             if ppo_standardized else arrays["raw_advantages"]
@@ -842,6 +861,22 @@ def _validate_auxiliary(
             valid & (arrays["baseline_reference_counts"] < 0)
         ):
             raise ValueError("PPO baseline metadata arrays contain invalid valid values")
+        for trajectory, length in enumerate(valid.sum(axis=1, dtype=np.int64)):
+            running = 0.0
+            expected_returns = np.zeros(int(length), dtype=np.float64)
+            for time_index in range(int(length) - 1, -1, -1):
+                running = (
+                    float(arrays["rewards"][trajectory, time_index])
+                    + float(ppo_gamma) * running
+                )
+                expected_returns[time_index] = running
+            if not np.allclose(
+                arrays["raw_returns"][trajectory, : int(length)],
+                expected_returns,
+                rtol=0.0,
+                atol=2.0e-6,
+            ):
+                raise ValueError("PPO raw returns violate their Monte Carlo binding")
 
     for name, expected in {
         "trajectory_player_counts": player_counts,
@@ -934,9 +969,15 @@ def _load_input(path: Path, checksum: Path) -> _PreparedInput:
         if preparation == PPO_PREPARATION_FORMAT and isinstance(returns_metadata, dict)
         else None
     )
+    ppo_gamma = (
+        float(returns_metadata["monteCarloGamma"])
+        if preparation == PPO_PREPARATION_FORMAT and isinstance(returns_metadata, dict)
+        else None
+    )
     _validate_auxiliary(
         arrays, preparation, arrays["valid_masks"], player_counts, roles, acts,
         ppo_standardized=ppo_standardized,
+        ppo_gamma=ppo_gamma,
     )
     if preparation == MERGED_PREPARATION_FORMAT:
         eligibility = metadata["lossEligibility"]
@@ -950,6 +991,9 @@ def _load_input(path: Path, checksum: Path) -> _PreparedInput:
         }
         if counts != expected_counts:
             raise ValueError("merged loss eligibility counts do not match their masks")
+        returns_contract = metadata.get("returnsAndAdvantages")
+        assert isinstance(returns_contract, dict)
+        validate_merged_ppo_advantages(arrays, returns_contract)
     ids_array = arrays.get("trajectory_ids")
     assert ids_array is not None
     trajectory_ids = [str(value) for value in ids_array.tolist()]
@@ -1060,6 +1104,7 @@ def _allocate_output(
         "trajectory_match_seeds": np.full(trajectories, np.iinfo(np.uint32).max, np.uint32),
         "trajectory_match_clusters": np.empty(trajectories, dtype="<U512"),
         "trajectory_finish_places": np.full(trajectories, -1, np.int16),
+        "trajectory_monte_carlo_gammas": np.zeros(trajectories, np.float64),
         "trajectory_source_npz_sha256s": np.empty(trajectories, dtype="<U64"),
     }
     arrays["trajectory_input_sha256s"].fill("")
@@ -1119,10 +1164,23 @@ def _copy_input(output: dict[str, np.ndarray], source: _PreparedInput, start: in
     for name in (
         "trajectory_input_sha256s", "trajectory_actor_ids", "trajectory_match_indices",
         "trajectory_match_seeds", "trajectory_match_clusters",
-        "trajectory_finish_places",
+        "trajectory_finish_places", "trajectory_monte_carlo_gammas",
     ):
         if name in source.arrays:
             output[name][start:stop] = source.arrays[name]
+    if source.metadata["preparationFormat"] == PPO_PREPARATION_FORMAT:
+        returns = source.metadata.get("returnsAndAdvantages")
+        if not isinstance(returns, dict):
+            raise ValueError("PPO input lacks its return derivation metadata")
+        gamma = returns.get("monteCarloGamma")
+        if (
+            isinstance(gamma, bool)
+            or not isinstance(gamma, (int, float))
+            or not math.isfinite(float(gamma))
+            or not 0.0 <= float(gamma) <= 1.0
+        ):
+            raise ValueError("PPO input lacks a valid Monte Carlo gamma")
+        output["trajectory_monte_carlo_gammas"][start:stop] = float(gamma)
     output["trajectory_source_npz_sha256s"][start:stop] = source.sha256
 
 
@@ -1260,6 +1318,9 @@ def merge_v4_datasets(
         _copy_input(arrays, item, offset)
         offset += item.trajectory_count
 
+    advantage_result = recompute_merged_ppo_advantages(
+        arrays, standardized=True
+    )
     dataset = _tensor_dataset(arrays, actor_config, critic_config)
     ordered_inputs: list[dict[str, object]] = []
     source_hashes_by_input: list[dict[str, object]] = []
@@ -1337,6 +1398,27 @@ def merge_v4_datasets(
             "expertActions": "exact Normal label selected from the same legal mask",
         },
         "fingerprint": dataset.fingerprint,
+        "returnsAndAdvantages": {
+            "format": MERGED_PPO_ADVANTAGE_CONTRACT,
+            "version": 2,
+            "standardized": True,
+            "baseline": "first >=16-reference leave-one-entire-match-cluster-out mean over all merged PPO trajectories",
+            "fallbackHierarchy": list(BASELINE_FALLBACK_HIERARCHY[:-1]),
+            "minimumReferenceCount": MERGED_BASELINE_MIN_REFERENCES,
+            "insufficientReferenceFallback": "zero baseline and zero reference count",
+            "ownMatchClusterExcludedAtEveryTier": True,
+            "referencePopulation": "all complete PPO-eligible trajectories in this final merged artifact",
+            "recomputedAfterCompleteMerge": True,
+            "rawReturn": "per-trajectory Monte Carlo return recomputed from rewards and trajectory_monte_carlo_gammas",
+            "rawAdvantage": "raw_returns minus the trajectory baseline; no recenter",
+            "standardizationScale": "one population std of merged PPO trajectory terminal raw advantages; floor 0.5; no recenter",
+            "globalScaleFloor": MERGED_GLOBAL_SCALE_FLOOR,
+            "globalPopulationScale": advantage_result.global_population_scale,
+            "fallbackCounts": dict(advantage_result.fallback_counts),
+            "ppoTrajectoryCount": advantage_result.ppo_trajectories,
+            "ppoSampleCount": advantage_result.ppo_samples,
+            "arrayBindingSha256": advantage_result.array_binding_sha256,
+        },
         "inputs": ordered_inputs,
         "sourceHashesByInput": source_hashes_by_input,
         "trajectoryCount": trajectory_count,
@@ -1374,6 +1456,7 @@ def merge_v4_datasets(
                 "trajectory_match_seeds": int(np.iinfo(np.uint32).max),
                 "trajectory_match_clusters": "empty string",
                 "trajectory_finish_places": -1,
+                "trajectory_monte_carlo_gammas": 0.0,
             },
         },
         "auxiliaryArrays": sorted(set(SAMPLE_AUXILIARY_DTYPES) | set(TRAJECTORY_AUXILIARY_DTYPES)),
