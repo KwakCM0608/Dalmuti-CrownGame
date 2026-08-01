@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict, dataclass
+import hashlib
 import io
 import json
 import math
@@ -17,7 +18,10 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from v4_dataset import (
+    V4_FIXED_COLLECTION_PLAN_ID,
+    V4_FIXED_PPO_SOURCE_CONTRACT,
     V4_LOSS_MASK_NAMES,
+    V4_MERGED_PREPARATION_FORMAT,
     V4TrajectoryDataset,
     create_v4_smoke_dataset,
     load_v4_dataset_npz,
@@ -41,6 +45,7 @@ from v4_objectives import (
     action_q_regression_loss,
     expected_sarsa_lambda_targets,
     masked_behavior_cloning_loss,
+    masked_log_probabilities,
     nonforced_policy_eligibility,
     vrpo_clipped_policy_loss,
 )
@@ -48,6 +53,11 @@ from v4_objectives import (
 
 V4_TRAINING_CHECKPOINT_FORMAT = "dalmuti-v4-training-checkpoint"
 V4_TRAINING_CHECKPOINT_VERSION = 2
+V4_BALANCED_PLAYER_COUNTS = tuple(range(4, 11))
+V4_PLAYER_COUNT_BALANCE_VERSION = 1
+V4_FIXED_PPO_EXECUTION_CONTRACT_VERSION = 1
+V4_INITIAL_POLICY_REPRODUCTION_AUDIT_VERSION = 1
+V4_FIXED_INITIAL_LOG_PROBABILITY_ABSOLUTE_TOLERANCE = 2.0e-5
 
 
 @dataclass(frozen=True)
@@ -73,6 +83,7 @@ class V4TrainingConfig:
     amp: bool = True
     num_workers: int = 0
     checkpoint_every: int = 1
+    expected_fixed_collection_plan_sha256: str | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -123,9 +134,480 @@ class V4TrainingConfig:
             )
         if self.entropy_coefficient > 0.0 and self.ppo_weight == 0.0:
             raise ValueError("entropy regularization requires a positive PPO loss")
+        expected_plan = self.expected_fixed_collection_plan_sha256
+        if expected_plan is not None and (
+            not isinstance(expected_plan, str)
+            or len(expected_plan) != 64
+            or any(character not in "0123456789abcdef" for character in expected_plan)
+        ):
+            raise ValueError(
+                "expected_fixed_collection_plan_sha256 must be a lowercase SHA-256"
+            )
 
     def to_dict(self) -> dict[str, object]:
-        return asdict(self)
+        value = asdict(self)
+        # Preserve the byte shape of every pre-plan legacy training contract.
+        if self.expected_fixed_collection_plan_sha256 is None:
+            value.pop("expected_fixed_collection_plan_sha256")
+        return value
+
+
+def _balanced_batch_estimator_multiplier(
+    *,
+    trajectory_count: int,
+    batch_trajectory_count: int,
+    total_eligible_rows: int,
+) -> float:
+    """Return N/(B*C) for a trajectory-uniform balanced-loss minibatch.
+
+    DataLoader samples trajectories, not individual decision rows.  Dividing
+    by the number (or total weight) of rows present in a minibatch therefore
+    biases variable-length trajectories.  For a uniformly shuffled batch of
+    B out of N trajectories, N/(B*C) times the batch weighted-row sum is an
+    unbiased estimate of the global C-row objective.
+    """
+
+    for value, label in (
+        (trajectory_count, "trajectory_count"),
+        (batch_trajectory_count, "batch_trajectory_count"),
+        (total_eligible_rows, "total_eligible_rows"),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ValueError(f"{label} must be a positive integer")
+    if batch_trajectory_count > trajectory_count:
+        raise ValueError("batch_trajectory_count cannot exceed trajectory_count")
+    return trajectory_count / (batch_trajectory_count * total_eligible_rows)
+
+
+def _player_count_balance_contract(
+    dataset: V4TrajectoryDataset,
+    fixed_collection_plan_sha256: str | None = None,
+) -> dict[str, object] | None:
+    """Build the exact p4..p10 loss contract for fixed-match PPO data."""
+
+    eligibility = dataset.loss_eligibility
+    if eligibility is None:
+        return None
+    fixed_source = V4_FIXED_PPO_SOURCE_CONTRACT
+    sources = eligibility.ppo_source_contracts
+    contains_fixed = fixed_source in sources
+    fixed_only = sources == (fixed_source,)
+    if contains_fixed and not fixed_only:
+        raise ValueError(
+            "mixed fixed-match and legacy PPO source contracts cannot be trained together"
+        )
+    if eligibility.requires_player_count_balanced_loss != fixed_only:
+        raise ValueError(
+            "fixed-only PPO source provenance and balanced-loss requirement disagree"
+        )
+    if not fixed_only:
+        return None
+    if (
+        len(eligibility.ppo_reward_contracts) != 1
+        or len(eligibility.ppo_behavior_policy_contracts) != 1
+    ):
+        raise ValueError(
+            "fixed-only PPO training requires one canonical reward and behavior contract"
+        )
+    if fixed_collection_plan_sha256 is None:
+        raise ValueError(
+            "fixed-only PPO balanced loss requires one expected collection plan"
+        )
+
+    valid = dataset.tensors.valid_masks
+    player_count_rows = dataset.tensors.player_mask.sum(dim=-1).to(torch.long)
+    valid_player_counts = player_count_rows[valid]
+    if (
+        valid_player_counts.numel() == 0
+        or (valid_player_counts < V4_BALANCED_PLAYER_COUNTS[0]).any()
+        or (valid_player_counts > V4_BALANCED_PLAYER_COUNTS[-1]).any()
+    ):
+        raise ValueError("fixed-match player counts must be present from p4 through p10")
+    encoded_player_counts = dataset.tensors.global_features[..., 0]
+    expected_encoding = (player_count_rows.to(torch.float32) - 4.0) / 6.0
+    if not torch.allclose(
+        encoded_player_counts[valid].to(torch.float32),
+        expected_encoding[valid],
+        rtol=0.0,
+        atol=2.0e-6,
+    ):
+        raise ValueError("fixed-match public player-count tensors disagree")
+
+    masks = {
+        "behaviorCloning": nonforced_policy_eligibility(
+            dataset.tensors.legal_masks,
+            eligibility.behavior_cloning & valid,
+        ),
+        "ppo": nonforced_policy_eligibility(
+            dataset.tensors.legal_masks,
+            eligibility.ppo & valid,
+        ),
+        "critic": eligibility.critic & valid,
+    }
+    counts_by_loss: dict[str, dict[str, int]] = {}
+    totals_by_loss: dict[str, int] = {}
+    weights_by_loss: dict[str, dict[str, float]] = {}
+    masses_by_loss: dict[str, dict[str, float]] = {}
+    total_masses_by_loss: dict[str, float] = {}
+    group_count = len(V4_BALANCED_PLAYER_COUNTS)
+    for loss_name, mask in masks.items():
+        counts = {
+            str(player_count): int(
+                (mask & (player_count_rows == player_count)).sum().item()
+            )
+            for player_count in V4_BALANCED_PLAYER_COUNTS
+        }
+        missing = [name for name, count in counts.items() if count == 0]
+        if missing:
+            raise ValueError(
+                f"fixed-match {loss_name} balanced loss is missing eligible rows for "
+                + ", ".join(f"p{name}" for name in missing)
+            )
+        total = sum(counts.values())
+        runtime_weights = {
+            name: float(np.float32(total / (group_count * count)))
+            for name, count in counts.items()
+        }
+        runtime_masses = {
+            name: float(count * runtime_weights[name])
+            for name, count in counts.items()
+        }
+        counts_by_loss[loss_name] = counts
+        totals_by_loss[loss_name] = total
+        weights_by_loss[loss_name] = runtime_weights
+        masses_by_loss[loss_name] = runtime_masses
+        total_masses_by_loss[loss_name] = float(sum(runtime_masses.values()))
+
+    contract: dict[str, object] = {
+        "version": V4_PLAYER_COUNT_BALANCE_VERSION,
+        "playerCounts": list(V4_BALANCED_PLAYER_COUNTS),
+        "playerCountGroupCount": group_count,
+        "trajectoryCount": len(dataset),
+        "samplingUnit": "trajectory",
+        "samplingContract": "uniform shuffled permutation without replacement",
+        "eligibleRowCountsByLossAndPlayerCount": counts_by_loss,
+        "totalEligibleRowsByLoss": totals_by_loss,
+        "runtimeFloat32WeightsByLossAndPlayerCount": weights_by_loss,
+        "runtimeWeightMassByLossAndPlayerCount": masses_by_loss,
+        "runtimeTotalWeightMassByLoss": total_masses_by_loss,
+        "exactWeightFormula": "C_total_loss / (7 * C_loss_player_count)",
+        "actorEligibility": (
+            "loss eligibility AND valid row AND legal-action count greater than one"
+        ),
+        "criticEligibility": "critic loss eligibility AND valid row",
+        "optimizerEstimator": (
+            "objective_weighted_mean * batch_weight_sum / "
+            "(actual_batch_trajectory_count * C_total_loss / trajectory_count)"
+        ),
+        "equivalentOptimizerEstimator": (
+            "trajectory_count / (actual_batch_trajectory_count * C_total_loss) "
+            "* sum_batch(runtime_float32_weight * row_loss)"
+        ),
+        "minibatchWeightRenormalization": False,
+        "epochDiagnosticReduction": (
+            "sum_epoch(runtime_float32_weight * metric_row) / "
+            "sum_epoch(runtime_float32_weight)"
+        ),
+        "ppoRewardContract": eligibility.ppo_reward_contracts[0],
+        "ppoBehaviorPolicyContract": (
+            eligibility.ppo_behavior_policy_contracts[0]
+        ),
+        "fixedCollectionPlanId": eligibility.fixed_collection_plan_ids[0],
+        "fixedCollectionPlanSha256": fixed_collection_plan_sha256,
+        "actorDropout": float(dataset.actor_config.dropout),
+        "rolloutTrainerModeDistributionParity": (
+            "actorConfig.dropout=0.0; raw masked softmax is identical in eval/train"
+        ),
+        "fixedPpoActorForwardDtype": "torch.float32",
+        "fixedPpoActorAutocastDisabled": True,
+        "criticAutocastMayRemainEnabled": True,
+        "initialOldCurrentRatioMathematicallyOneForFrozenActor": True,
+        "initialOldCurrentLogProbabilityAbsoluteTolerance": (
+            V4_FIXED_INITIAL_LOG_PROBABILITY_ABSOLUTE_TOLERANCE
+        ),
+        "requiresFullDatasetInitialPolicyReproductionAudit": True,
+        "requiredDeterministicExecution": {
+            "torchDeterministicAlgorithms": True,
+            "cudaMatmulTf32": False,
+            "cudnnTf32": False,
+            "cudnnDeterministic": True,
+            "cudnnBenchmark": False,
+            "cublasWorkspaceConfig": ":4096:8",
+        },
+    }
+    fingerprint = hashlib.sha256(canonical_json_bytes(contract)).hexdigest()
+    contract["balanceContractFingerprint"] = fingerprint
+    return contract
+
+
+def _resolve_fixed_collection_plan_sha256(
+    dataset: V4TrajectoryDataset,
+    training_config: V4TrainingConfig,
+) -> str | None:
+    """Admit one precommitted, completely merged fixed collection plan."""
+
+    eligibility = dataset.loss_eligibility
+    if eligibility is None:
+        return None
+    fixed_only = eligibility.ppo_source_contracts == (
+        V4_FIXED_PPO_SOURCE_CONTRACT,
+    )
+    expected = training_config.expected_fixed_collection_plan_sha256
+    plan_ids = tuple(getattr(eligibility, "fixed_collection_plan_ids", ()))
+    if not fixed_only:
+        if plan_ids:
+            raise ValueError(
+                "non-fixed PPO data unexpectedly carries fixed collection plans"
+            )
+        if expected is not None:
+            raise ValueError(
+                "expected_fixed_collection_plan_sha256 is valid only for "
+                "fixed-only PPO training"
+            )
+        return None
+    if eligibility.preparation_format != V4_MERGED_PREPARATION_FORMAT:
+        raise ValueError(
+            "fixed-only PPO training requires one completely merged collection plan"
+        )
+    if float(dataset.actor_config.dropout) != 0.0:
+        raise ValueError(
+            "fixed-only PPO training requires actorConfig.dropout=0.0 so "
+            "rollout eval and trainer train distributions are identical"
+        )
+    if expected is None:
+        raise ValueError(
+            "fixed-only PPO training requires "
+            "expected_fixed_collection_plan_sha256"
+        )
+    if len(plan_ids) != 1:
+        raise ValueError(
+            "fixed-only PPO training requires exactly one collection plan"
+        )
+    prefix = f"{V4_FIXED_COLLECTION_PLAN_ID}:sha256="
+    plan_id = plan_ids[0]
+    if (
+        not isinstance(plan_id, str)
+        or not plan_id.startswith(prefix)
+        or len(plan_id) != len(prefix) + 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in plan_id[len(prefix):]
+        )
+    ):
+        raise ValueError("fixed collection plan ID is non-canonical")
+    actual = plan_id[len(prefix):]
+    if expected != actual:
+        raise ValueError(
+            "expected fixed collection plan SHA-256 does not match the corpus"
+        )
+    return actual
+
+
+def _configure_fixed_ppo_execution(device: torch.device) -> dict[str, object]:
+    """Apply and report the collector-compatible deterministic execution mode."""
+
+    cuda = device.type == "cuda"
+    if cuda and not torch.cuda.is_available():
+        raise RuntimeError("CUDA training was requested but CUDA is unavailable")
+    cublas_workspace: str | None = None
+    if cuda:
+        required_workspace = ":4096:8"
+        existing_workspace = os.environ.get("CUBLAS_WORKSPACE_CONFIG")
+        if existing_workspace not in (None, required_workspace):
+            raise ValueError(
+                "fixed-only PPO training requires "
+                "CUBLAS_WORKSPACE_CONFIG=:4096:8"
+            )
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = required_workspace
+        cublas_workspace = required_workspace
+    torch.use_deterministic_algorithms(True)
+    if cuda:
+        torch.backends.cuda.matmul.allow_tf32 = False
+        if hasattr(torch.backends, "cudnn"):
+            torch.backends.cudnn.allow_tf32 = False
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+    contract: dict[str, object] = {
+        "version": V4_FIXED_PPO_EXECUTION_CONTRACT_VERSION,
+        "torchVersion": torch.__version__,
+        "numpyVersion": np.__version__,
+        "device": str(device),
+        "actorForwardDtype": "torch.float32",
+        "actorAutocastEnabled": False,
+        "criticAutocastControlledByTrainingAmp": True,
+        "torchDeterministicAlgorithms": True,
+        "cudaMatmulTf32": False if cuda else None,
+        "cudnnTf32": False if cuda else None,
+        "cudnnDeterministic": True if cuda else None,
+        "cudnnBenchmark": False if cuda else None,
+        "cublasWorkspaceConfig": cublas_workspace,
+    }
+    contract["executionContractFingerprint"] = hashlib.sha256(
+        canonical_json_bytes(contract)
+    ).hexdigest()
+    return contract
+
+
+def _validate_initial_policy_reproduction_audit(
+    value: object,
+    dataset: V4TrajectoryDataset,
+) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise ValueError("fixed PPO initial policy reproduction audit is missing")
+    expected_fields = {
+        "version",
+        "ppoEligibleRowCount",
+        "actorMode",
+        "actorForwardDtype",
+        "actorAutocastEnabled",
+        "storedOldActionLogProbabilityDtype",
+        "absoluteTolerance",
+        "maximumAbsoluteLogProbabilityError",
+        "meanAbsoluteLogProbabilityError",
+        "passed",
+    }
+    if set(value) != expected_fields:
+        raise ValueError(
+            "fixed PPO initial policy reproduction audit fields are non-canonical"
+        )
+    eligibility = dataset.loss_eligibility
+    assert eligibility is not None
+    expected_count = int(
+        (eligibility.ppo & dataset.tensors.valid_masks).sum().item()
+    )
+    count = value.get("ppoEligibleRowCount")
+    maximum = value.get("maximumAbsoluteLogProbabilityError")
+    mean = value.get("meanAbsoluteLogProbabilityError")
+    tolerance = value.get("absoluteTolerance")
+    if (
+        value.get("version") != V4_INITIAL_POLICY_REPRODUCTION_AUDIT_VERSION
+        or isinstance(count, bool)
+        or not isinstance(count, int)
+        or count != expected_count
+        or count < 1
+        or value.get("actorMode") != "eval"
+        or value.get("actorForwardDtype") != "torch.float32"
+        or value.get("actorAutocastEnabled") is not False
+        or value.get("storedOldActionLogProbabilityDtype") != "torch.float32"
+        or isinstance(tolerance, bool)
+        or not isinstance(tolerance, (int, float))
+        or float(tolerance)
+        != V4_FIXED_INITIAL_LOG_PROBABILITY_ABSOLUTE_TOLERANCE
+        or isinstance(maximum, bool)
+        or not isinstance(maximum, (int, float))
+        or not math.isfinite(float(maximum))
+        or float(maximum) < 0.0
+        or isinstance(mean, bool)
+        or not isinstance(mean, (int, float))
+        or not math.isfinite(float(mean))
+        or float(mean) < 0.0
+        or float(mean) > float(maximum) + 1.0e-12
+        or float(maximum) > float(tolerance)
+        or value.get("passed") is not True
+    ):
+        raise ValueError(
+            "fixed PPO initial policy reproduction audit is non-canonical or failed"
+        )
+    return dict(value)
+
+
+def _audit_initial_policy_reproduction(
+    actor: V4PublicActor,
+    dataset: V4TrajectoryDataset,
+    *,
+    device: torch.device,
+    batch_size: int,
+    num_workers: int,
+) -> dict[str, object]:
+    """Replay every PPO row with the frozen FP32 Actor before any update."""
+
+    eligibility = dataset.loss_eligibility
+    if eligibility is None:
+        raise ValueError("fixed PPO initial policy audit requires loss eligibility")
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=device.type == "cuda",
+    )
+    was_training = actor.training
+    actor.eval()
+    count = 0
+    absolute_error_sum = 0.0
+    maximum_absolute_error = 0.0
+    try:
+        with torch.no_grad():
+            for cpu_batch in loader:
+                batch = _batch_to_device(
+                    _trim_public_padding(cpu_batch), device
+                )
+                eligible = (
+                    batch[V4_LOSS_MASK_NAMES["ppo"]].reshape(-1)
+                    & batch["valid_masks"].reshape(-1)
+                )
+                if not bool(eligible.any()):
+                    continue
+                legal = _flatten_time(batch["legal_masks"]).clone()
+                legal[~batch["valid_masks"].reshape(-1), 0] = True
+                with torch.cuda.amp.autocast(enabled=False):
+                    logits = actor(
+                        _flatten_time(batch["global_features"]).float(),
+                        _flatten_time(batch["rank_features"]).float(),
+                        _flatten_time(batch["player_features"]).float(),
+                        _flatten_time(batch["player_mask"]),
+                        _flatten_time(batch["memory_trace_features"]).float(),
+                        _flatten_time(batch["history_features"]).float(),
+                        _flatten_time(batch["history_mask"]),
+                        legal,
+                    ).float()
+                selected_log_probs = masked_log_probabilities(
+                    logits[eligible], legal[eligible]
+                ).gather(
+                    1,
+                    batch["actions"].reshape(-1)[eligible, None],
+                ).squeeze(1)
+                old_log_probs = batch["old_action_log_probs"].reshape(-1)[
+                    eligible
+                ].float()
+                errors = (selected_log_probs - old_log_probs).abs()
+                if not torch.isfinite(errors).all():
+                    raise ValueError(
+                        "fixed PPO initial policy reproduction produced non-finite error"
+                    )
+                count += int(errors.numel())
+                absolute_error_sum += float(errors.to(torch.float64).sum().cpu())
+                maximum_absolute_error = max(
+                    maximum_absolute_error,
+                    float(errors.max().cpu()),
+                )
+    finally:
+        actor.train(was_training)
+    record: dict[str, object] = {
+        "version": V4_INITIAL_POLICY_REPRODUCTION_AUDIT_VERSION,
+        "ppoEligibleRowCount": count,
+        "actorMode": "eval",
+        "actorForwardDtype": "torch.float32",
+        "actorAutocastEnabled": False,
+        "storedOldActionLogProbabilityDtype": "torch.float32",
+        "absoluteTolerance": (
+            V4_FIXED_INITIAL_LOG_PROBABILITY_ABSOLUTE_TOLERANCE
+        ),
+        "maximumAbsoluteLogProbabilityError": maximum_absolute_error,
+        "meanAbsoluteLogProbabilityError": absolute_error_sum / max(1, count),
+        "passed": (
+            count > 0
+            and maximum_absolute_error
+            <= V4_FIXED_INITIAL_LOG_PROBABILITY_ABSOLUTE_TOLERANCE
+        ),
+    }
+    if record["passed"] is not True:
+        raise ValueError(
+            "fixed PPO initial policy reproduction exceeded absolute log-probability "
+            f"tolerance: max={maximum_absolute_error:.9g}, "
+            f"tolerance={V4_FIXED_INITIAL_LOG_PROBABILITY_ABSOLUTE_TOLERANCE:.9g}"
+        )
+    return _validate_initial_policy_reproduction_audit(record, dataset)
 
 
 def _atomic_write(path: Path, data: bytes) -> None:
@@ -166,6 +648,10 @@ def _save_checkpoint(
     scaler: object,
     dataset: V4TrajectoryDataset,
     training_config: V4TrainingConfig,
+    balance_contract_fingerprint: str | None = None,
+    fixed_collection_plan_sha256: str | None = None,
+    fixed_ppo_execution_contract_fingerprint: str | None = None,
+    initial_policy_reproduction_audit: Mapping[str, object] | None = None,
 ) -> Path:
     checkpoint = {
         "format": V4_TRAINING_CHECKPOINT_FORMAT,
@@ -186,6 +672,20 @@ def _save_checkpoint(
         "numpyRngState": np.random.get_state(),
         "pythonRngState": random.getstate(),
     }
+    if balance_contract_fingerprint is not None:
+        checkpoint["balanceContractFingerprint"] = balance_contract_fingerprint
+    if fixed_collection_plan_sha256 is not None:
+        checkpoint["fixedCollectionPlanSha256"] = fixed_collection_plan_sha256
+    if fixed_ppo_execution_contract_fingerprint is not None:
+        checkpoint["fixedPpoExecutionContractFingerprint"] = (
+            fixed_ppo_execution_contract_fingerprint
+        )
+    if initial_policy_reproduction_audit is not None:
+        audit = dict(initial_policy_reproduction_audit)
+        checkpoint["initialPolicyReproductionAudit"] = audit
+        checkpoint["initialPolicyReproductionAuditFingerprint"] = hashlib.sha256(
+            canonical_json_bytes(audit)
+        ).hexdigest()
     buffer = io.BytesIO()
     torch.save(checkpoint, buffer)
     path = output / "checkpoints" / f"epoch-{epoch:04d}.pt"
@@ -200,6 +700,20 @@ def _save_checkpoint(
         "checkpoint": str(path.relative_to(output)).replace("\\", "/"),
         "sha256": sha256_file(path),
     }
+    if balance_contract_fingerprint is not None:
+        latest["balanceContractFingerprint"] = balance_contract_fingerprint
+    if fixed_collection_plan_sha256 is not None:
+        latest["fixedCollectionPlanSha256"] = fixed_collection_plan_sha256
+    if fixed_ppo_execution_contract_fingerprint is not None:
+        latest["fixedPpoExecutionContractFingerprint"] = (
+            fixed_ppo_execution_contract_fingerprint
+        )
+    if initial_policy_reproduction_audit is not None:
+        audit = dict(initial_policy_reproduction_audit)
+        latest["initialPolicyReproductionAudit"] = audit
+        latest["initialPolicyReproductionAuditFingerprint"] = hashlib.sha256(
+            canonical_json_bytes(audit)
+        ).hexdigest()
     _atomic_write(output / "latest.json", canonical_json_bytes(latest))
     return path
 
@@ -227,7 +741,10 @@ def _resume_training(
     dataset: V4TrajectoryDataset,
     training_config: V4TrainingConfig,
     device: torch.device,
-) -> tuple[int, int]:
+    balance_contract_fingerprint: str | None = None,
+    fixed_collection_plan_sha256: str | None = None,
+    fixed_ppo_execution_contract_fingerprint: str | None = None,
+) -> tuple[int, int, dict[str, object] | None]:
     checkpoint = _torch_load(checkpoint_path, device)
     if (
         checkpoint.get("format") != V4_TRAINING_CHECKPOINT_FORMAT
@@ -238,6 +755,35 @@ def _resume_training(
         raise ValueError("resume dataset fingerprint does not match")
     if checkpoint.get("lossContractFingerprint") != dataset.loss_contract_fingerprint:
         raise ValueError("resume loss eligibility contract does not match")
+    if checkpoint.get("balanceContractFingerprint") != balance_contract_fingerprint:
+        raise ValueError("resume player-count balance contract does not match")
+    if checkpoint.get("fixedCollectionPlanSha256") != fixed_collection_plan_sha256:
+        raise ValueError("resume fixed collection plan does not match")
+    if (
+        checkpoint.get("fixedPpoExecutionContractFingerprint")
+        != fixed_ppo_execution_contract_fingerprint
+    ):
+        raise ValueError("resume fixed PPO execution contract does not match")
+    raw_audit = checkpoint.get("initialPolicyReproductionAudit")
+    if fixed_collection_plan_sha256 is None:
+        if raw_audit is not None or checkpoint.get(
+            "initialPolicyReproductionAuditFingerprint"
+        ) is not None:
+            raise ValueError(
+                "legacy resume checkpoint unexpectedly carries a fixed PPO audit"
+            )
+        audit = None
+    else:
+        audit = _validate_initial_policy_reproduction_audit(raw_audit, dataset)
+        audit_fingerprint = hashlib.sha256(
+            canonical_json_bytes(audit)
+        ).hexdigest()
+        if checkpoint.get(
+            "initialPolicyReproductionAuditFingerprint"
+        ) != audit_fingerprint:
+            raise ValueError(
+                "resume initial policy reproduction audit fingerprint does not match"
+            )
     if checkpoint.get("actorConfig") != actor.config.to_dict():
         raise ValueError("resume actor configuration does not match")
     if checkpoint.get("criticConfig") != critic.config.to_dict():
@@ -263,7 +809,7 @@ def _resume_training(
     global_step = int(checkpoint["globalStep"])
     if completed_epoch >= training_config.epochs:
         raise ValueError("resume checkpoint already reached the requested epochs")
-    return completed_epoch, global_step
+    return completed_epoch, global_step, audit
 
 
 def _flatten_time(tensor: torch.Tensor) -> torch.Tensor:
@@ -360,6 +906,54 @@ def _resolve_training_contract(
         "ppo": training_config.ppo_weight,
         "critic": training_config.critic_weight,
     }
+    fixed_source = V4_FIXED_PPO_SOURCE_CONTRACT
+    expected_qboost_zero = fixed_source in eligibility.ppo_source_contracts
+    if eligibility.requires_qboost_coefficient_zero != expected_qboost_zero:
+        raise ValueError(
+            "fixed-match PPO source and q-boost prohibition binding disagree"
+        )
+    requires_qboost_zero = eligibility.requires_qboost_coefficient_zero
+    if requires_qboost_zero and training_config.q_boost_coefficient != 0.0:
+        raise ValueError(
+            "evaluation-aligned fixed-match PPO data requires q_boost_coefficient=0"
+        )
+    if (
+        fixed_source in eligibility.ppo_source_contracts
+        and eligibility.ppo_source_contracts != (fixed_source,)
+    ):
+        raise ValueError(
+            "mixed fixed-match and legacy PPO source contracts cannot be trained together"
+        )
+    if eligibility.requires_player_count_balanced_loss != (
+        eligibility.ppo_source_contracts == (fixed_source,)
+    ):
+        raise ValueError(
+            "fixed-only PPO source provenance and balanced-loss requirement disagree"
+        )
+    fixed_collection_plan_sha256 = _resolve_fixed_collection_plan_sha256(
+        dataset,
+        training_config,
+    )
+    balance_contract = _player_count_balance_contract(
+        dataset,
+        fixed_collection_plan_sha256,
+    )
+    if balance_contract is not None and resume is None:
+        actor_hashes = eligibility.behavior_actor_sha256s
+        if len(actor_hashes) != 1:
+            raise ValueError(
+                "fixed-only PPO training requires exactly one bound behavior Actor"
+            )
+        if initial_actor_sha256 is None:
+            raise ValueError(
+                "fresh fixed-only PPO training requires --initialize-actor-bundle "
+                "for the full-dataset initial policy reproduction audit"
+            )
+        if initial_actor_sha256 != actor_hashes[0]:
+            raise ValueError(
+                "fixed-only PPO initialization Actor does not match the collector "
+                "behavior Actor"
+            )
     for name, weight in requested.items():
         admitted_count = (
             effective_actor_counts[name]
@@ -396,7 +990,7 @@ def _resolve_training_contract(
                 raise ValueError(
                     "PPO initialization Actor does not match the collector behavior Actor"
                 )
-    return {
+    contract: dict[str, object] = {
         "version": 1,
         "preparationFormat": eligibility.preparation_format,
         "preparationVersion": eligibility.preparation_version,
@@ -411,9 +1005,35 @@ def _resolve_training_contract(
         ),
         "requestedWeights": requested,
         "ppoBehaviorActorSha256s": list(eligibility.behavior_actor_sha256s),
+        "ppoSourceContracts": list(eligibility.ppo_source_contracts),
+        "requiresPlayerCountBalancedLoss": eligibility.requires_player_count_balanced_loss,
         "normalAndDaggerAreBcOnly": True,
         "ppoAndCriticAdmitOnlyPpoCollectorSamples": True,
+        "fixedMatchPpoRequiresQBoostCoefficientZero": requires_qboost_zero,
     }
+    if balance_contract is not None:
+        contract["version"] = 3
+        contract["playerCountBalancedLoss"] = balance_contract
+        contract["balanceContractFingerprint"] = balance_contract[
+            "balanceContractFingerprint"
+        ]
+        contract["ppoRewardContracts"] = list(
+            eligibility.ppo_reward_contracts
+        )
+        contract["ppoBehaviorPolicyContracts"] = list(
+            eligibility.ppo_behavior_policy_contracts
+        )
+        contract["fixedCollectionPlanIds"] = list(
+            eligibility.fixed_collection_plan_ids
+        )
+        contract["fixedCollectionPlanSha256"] = fixed_collection_plan_sha256
+        contract["fixedPpoActorForwardDtype"] = "torch.float32"
+        contract["fixedPpoActorAutocastDisabled"] = True
+        contract["initialPolicyReproductionAbsoluteTolerance"] = (
+            V4_FIXED_INITIAL_LOG_PROBABILITY_ABSOLUTE_TOLERANCE
+        )
+        contract["requiresFullDatasetInitialPolicyReproductionAudit"] = True
+    return contract
 
 
 def train_v4(
@@ -448,16 +1068,53 @@ def train_v4(
         resume=resume,
         initial_actor_sha256=initial_actor_sha256,
     )
+    raw_balance_contract = training_contract.get("playerCountBalancedLoss")
+    balance_contract = (
+        raw_balance_contract
+        if isinstance(raw_balance_contract, Mapping)
+        else None
+    )
+    balance_contract_fingerprint = (
+        str(training_contract["balanceContractFingerprint"])
+        if balance_contract is not None
+        else None
+    )
+    fixed_collection_plan_sha256 = (
+        str(training_contract["fixedCollectionPlanSha256"])
+        if balance_contract is not None
+        else None
+    )
     device_value = torch.device(device)
     if device_value.type == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA training was requested but CUDA is unavailable")
-    output.mkdir(parents=True, exist_ok=True)
+    fixed_ppo_execution_contract = (
+        _configure_fixed_ppo_execution(device_value)
+        if balance_contract is not None
+        else None
+    )
+    fixed_ppo_execution_contract_fingerprint = (
+        str(fixed_ppo_execution_contract["executionContractFingerprint"])
+        if fixed_ppo_execution_contract is not None
+        else None
+    )
     use_amp = bool(training_config.amp and device_value.type == "cuda")
     random.seed(training_config.seed)
     np.random.seed(training_config.seed % (2**32))
     torch.manual_seed(training_config.seed)
     if device_value.type == "cuda":
         torch.cuda.manual_seed_all(training_config.seed)
+
+    balance_weight_lookups: dict[str, torch.Tensor] = {}
+    if balance_contract is not None:
+        raw_weights = balance_contract["runtimeFloat32WeightsByLossAndPlayerCount"]
+        assert isinstance(raw_weights, Mapping)
+        for loss_name in ("behaviorCloning", "ppo", "critic"):
+            values = torch.zeros(11, dtype=torch.float32, device=device_value)
+            loss_weights = raw_weights[loss_name]
+            assert isinstance(loss_weights, Mapping)
+            for player_count in V4_BALANCED_PLAYER_COUNTS:
+                values[player_count] = float(loss_weights[str(player_count)])
+            balance_weight_lookups[loss_name] = values
 
     actor = V4PublicActor(dataset.actor_config).to(device_value)
     critic = V4PrivilegedQCritic(dataset.critic_config).to(device_value)
@@ -491,9 +1148,14 @@ def train_v4(
     scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
     start_epoch = 0
     global_step = 0
+    initial_policy_reproduction_audit: dict[str, object] | None = None
     checkpoint_path = _resolve_resume(output, resume)
     if checkpoint_path is not None:
-        start_epoch, global_step = _resume_training(
+        (
+            start_epoch,
+            global_step,
+            initial_policy_reproduction_audit,
+        ) = _resume_training(
             checkpoint_path,
             actor,
             critic,
@@ -503,10 +1165,88 @@ def train_v4(
             dataset,
             training_config,
             device_value,
+            balance_contract_fingerprint,
+            fixed_collection_plan_sha256,
+            fixed_ppo_execution_contract_fingerprint,
         )
+        if str(resume) == "latest":
+            latest = json.loads(
+                (output / "latest.json").read_text(encoding="utf-8")
+            )
+            if latest.get("fixedPpoExecutionContractFingerprint") != (
+                fixed_ppo_execution_contract_fingerprint
+            ):
+                raise ValueError(
+                    "latest fixed PPO execution contract does not match"
+                )
+            if latest.get("initialPolicyReproductionAudit") != (
+                initial_policy_reproduction_audit
+            ):
+                raise ValueError(
+                    "latest initial policy reproduction audit does not match"
+                )
+            audit_fingerprint = (
+                hashlib.sha256(
+                    canonical_json_bytes(initial_policy_reproduction_audit)
+                ).hexdigest()
+                if initial_policy_reproduction_audit is not None
+                else None
+            )
+            if latest.get(
+                "initialPolicyReproductionAuditFingerprint"
+            ) != audit_fingerprint:
+                raise ValueError(
+                    "latest initial policy reproduction audit fingerprint does not match"
+                )
     elif (output / "latest.json").exists():
         raise FileExistsError(
             "the output already contains a run; pass resume='latest' or use a new directory"
+        )
+    elif balance_contract is not None:
+        initial_policy_reproduction_audit = (
+            _audit_initial_policy_reproduction(
+                actor,
+                dataset,
+                device=device_value,
+                batch_size=training_config.batch_size,
+                num_workers=training_config.num_workers,
+            )
+        )
+
+    if fixed_ppo_execution_contract is not None:
+        assert initial_policy_reproduction_audit is not None
+        audit_fingerprint = hashlib.sha256(
+            canonical_json_bytes(initial_policy_reproduction_audit)
+        ).hexdigest()
+        training_contract["fixedPpoExecutionContract"] = (
+            fixed_ppo_execution_contract
+        )
+        training_contract["fixedPpoExecutionContractFingerprint"] = (
+            fixed_ppo_execution_contract_fingerprint
+        )
+        training_contract["initialPolicyReproductionAudit"] = (
+            initial_policy_reproduction_audit
+        )
+        training_contract["initialPolicyReproductionAuditFingerprint"] = (
+            audit_fingerprint
+        )
+
+    # Fixed fresh runs reach this point only after plan/dropout/FP32 policy
+    # reproduction admission has passed, so a failed preflight leaves no output.
+    output.mkdir(parents=True, exist_ok=True)
+    manifest_path = output / "run-manifest.json"
+    if checkpoint_path is not None and manifest_path.exists():
+        existing_initial_actor = json.loads(
+            manifest_path.read_text(encoding="utf-8")
+        ).get("initialActor")
+        if existing_initial_actor is not None and not isinstance(
+            existing_initial_actor, Mapping
+        ):
+            raise ValueError("existing V4 run manifest has an invalid initial Actor")
+        initial_actor = (
+            dict(existing_initial_actor)
+            if isinstance(existing_initial_actor, Mapping)
+            else None
         )
 
     run_manifest = {
@@ -523,7 +1263,6 @@ def train_v4(
         "trainingContract": training_contract,
         "privilegedCriticExported": False,
     }
-    manifest_path = output / "run-manifest.json"
     if manifest_path.exists():
         existing = json.loads(manifest_path.read_text(encoding="utf-8"))
         comparable_existing = dict(existing)
@@ -573,6 +1312,27 @@ def train_v4(
             "behaviorCloning": 0,
             "ppo": 0,
         }
+        balanced_metric_numerators = {
+            "policyLoss": 0.0,
+            "behaviorCloningLoss": 0.0,
+            "criticLoss": 0.0,
+            "entropy": 0.0,
+            "approxKl": 0.0,
+            "clipFraction": 0.0,
+            "meanQBoost": 0.0,
+        }
+        balanced_metric_weight_sums = {
+            "behaviorCloning": 0.0,
+            "ppo": 0.0,
+            "critic": 0.0,
+        }
+        balanced_seen_counts = {
+            loss_name: {
+                str(player_count): 0
+                for player_count in V4_BALANCED_PLAYER_COUNTS
+            }
+            for loss_name in ("behaviorCloning", "ppo", "critic")
+        }
         batches = 0
         optimizer_steps = 0
         for batch_index, cpu_batch in enumerate(loader):
@@ -609,9 +1369,40 @@ def train_v4(
             forced_actor_samples_excluded["ppo"] += int(
                 ppo_eligible_flat.sum() - ppo_flat.sum()
             )
+            batch_balance_weights: dict[str, torch.Tensor | None] = {
+                "behaviorCloning": None,
+                "ppo": None,
+                "critic": None,
+            }
+            if balance_contract is not None:
+                player_counts_flat = batch["player_mask"].sum(dim=-1).reshape(-1)
+                loss_masks = {
+                    "behaviorCloning": bc_flat,
+                    "ppo": ppo_flat,
+                    "critic": critic_flat,
+                }
+                for loss_name, loss_mask in loss_masks.items():
+                    selected_player_counts = player_counts_flat[loss_mask].to(torch.long)
+                    weights = balance_weight_lookups[loss_name][
+                        selected_player_counts
+                    ]
+                    if weights.numel() > 0 and (weights <= 0.0).any():
+                        raise RuntimeError(
+                            f"{loss_name} encountered an unbound player-count weight"
+                        )
+                    batch_balance_weights[loss_name] = weights
+                    for player_count in V4_BALANCED_PLAYER_COUNTS:
+                        balanced_seen_counts[loss_name][str(player_count)] += int(
+                            (selected_player_counts == player_count).sum().item()
+                        )
             legal_flat = _flatten_time(batch["legal_masks"]).clone()
             legal_flat[~valid_flat, 0] = True
-            with torch.cuda.amp.autocast(enabled=use_amp):
+            # The fixed collector records FP32 Actor logits.  Keep the Actor
+            # outside AMP for every fixed PPO optimization forward; the
+            # privileged critic may still use AMP independently.
+            with torch.cuda.amp.autocast(
+                enabled=use_amp and balance_contract is None
+            ):
                 logits_flat = actor(
                     _flatten_time(batch["global_features"]),
                     _flatten_time(batch["rank_features"]),
@@ -622,6 +1413,7 @@ def train_v4(
                     _flatten_time(batch["history_mask"]),
                     legal_flat,
                 )
+            with torch.cuda.amp.autocast(enabled=use_amp):
                 q_flat = critic(
                     _flatten_time(batch["privileged_states"]), legal_flat
                 )
@@ -643,6 +1435,7 @@ def train_v4(
             clip_fraction = actor_zero.detach()
             mean_q_boost = actor_zero.detach()
             if training_config.ppo_weight > 0.0 and bool(ppo_flat.any()):
+                ppo_weights = batch_balance_weights["ppo"]
                 policy_result = vrpo_clipped_policy_loss(
                     logits_flat.float()[ppo_flat],
                     legal_flat[ppo_flat],
@@ -658,6 +1451,7 @@ def train_v4(
                     clip_ratio=training_config.clip_ratio,
                     entropy_coefficient=training_config.entropy_coefficient,
                     normalize_advantages=False,
+                    weights=ppo_weights,
                 )
                 policy_loss = policy_result.loss
                 entropy = policy_result.entropy
@@ -665,16 +1459,61 @@ def train_v4(
                 clip_fraction = policy_result.clip_fraction
                 mean_q_boost = policy_result.mean_q_boost
                 policy_loss_metric = policy_result.policy_loss
+                if balance_contract is not None:
+                    assert ppo_weights is not None
+                    ppo_weight_sum = float(ppo_weights.sum().detach().cpu())
+                    ppo_multiplier = _balanced_batch_estimator_multiplier(
+                        trajectory_count=int(balance_contract["trajectoryCount"]),
+                        batch_trajectory_count=batch_size,
+                        total_eligible_rows=int(
+                            balance_contract["totalEligibleRowsByLoss"]["ppo"]
+                        ),
+                    )
+                    policy_loss = policy_loss * (ppo_weights.sum() * ppo_multiplier)
+                    balanced_metric_weight_sums["ppo"] += ppo_weight_sum
+                    for name, value in (
+                        ("policyLoss", policy_result.policy_loss),
+                        ("entropy", policy_result.entropy),
+                        ("approxKl", policy_result.approx_kl),
+                        ("clipFraction", policy_result.clip_fraction),
+                        ("meanQBoost", policy_result.mean_q_boost),
+                    ):
+                        balanced_metric_numerators[name] += (
+                            float(value.detach().cpu()) * ppo_weight_sum
+                        )
             else:
                 policy_loss_metric = actor_zero.detach()
             if training_config.bc_weight > 0.0 and bool(bc_flat.any()):
-                bc_loss = masked_behavior_cloning_loss(
+                bc_weights = batch_balance_weights["behaviorCloning"]
+                bc_metric_loss = masked_behavior_cloning_loss(
                     logits_flat.float()[bc_flat],
                     legal_flat[bc_flat],
                     batch["expert_actions"].reshape(-1)[bc_flat],
+                    weights=bc_weights,
                 )
+                bc_loss = bc_metric_loss
+                if balance_contract is not None:
+                    assert bc_weights is not None
+                    bc_weight_sum = float(bc_weights.sum().detach().cpu())
+                    bc_multiplier = _balanced_batch_estimator_multiplier(
+                        trajectory_count=int(balance_contract["trajectoryCount"]),
+                        batch_trajectory_count=batch_size,
+                        total_eligible_rows=int(
+                            balance_contract["totalEligibleRowsByLoss"][
+                                "behaviorCloning"
+                            ]
+                        ),
+                    )
+                    bc_loss = bc_loss * (bc_weights.sum() * bc_multiplier)
+                    balanced_metric_weight_sums[
+                        "behaviorCloning"
+                    ] += bc_weight_sum
+                    balanced_metric_numerators[
+                        "behaviorCloningLoss"
+                    ] += float(bc_metric_loss.detach().cpu()) * bc_weight_sum
             else:
                 bc_loss = actor_zero
+                bc_metric_loss = actor_zero.detach()
             if training_config.critic_weight > 0.0 and bool(critic_flat.any()):
                 targets_time = expected_sarsa_lambda_targets(
                     batch["rewards"].float().transpose(0, 1),
@@ -688,14 +1527,35 @@ def train_v4(
                         V4_LOSS_MASK_NAMES["critic"]
                     ].transpose(0, 1),
                 )
-                critic_loss = action_q_regression_loss(
+                critic_weights = batch_balance_weights["critic"]
+                critic_metric_loss = action_q_regression_loss(
                     q_flat.float()[critic_flat],
                     legal_flat[critic_flat],
                     batch["actions"].reshape(-1)[critic_flat],
                     targets_time.transpose(0, 1).reshape(-1)[critic_flat],
+                    weights=critic_weights,
                 )
+                critic_loss = critic_metric_loss
+                if balance_contract is not None:
+                    assert critic_weights is not None
+                    critic_weight_sum = float(critic_weights.sum().detach().cpu())
+                    critic_multiplier = _balanced_batch_estimator_multiplier(
+                        trajectory_count=int(balance_contract["trajectoryCount"]),
+                        batch_trajectory_count=batch_size,
+                        total_eligible_rows=int(
+                            balance_contract["totalEligibleRowsByLoss"]["critic"]
+                        ),
+                    )
+                    critic_loss = critic_loss * (
+                        critic_weights.sum() * critic_multiplier
+                    )
+                    balanced_metric_weight_sums["critic"] += critic_weight_sum
+                    balanced_metric_numerators[
+                        "criticLoss"
+                    ] += float(critic_metric_loss.detach().cpu()) * critic_weight_sum
             else:
                 critic_loss = critic_zero
+                critic_metric_loss = critic_zero.detach()
             total_loss = actor_zero
             if training_config.ppo_weight > 0.0:
                 total_loss = total_loss + training_config.ppo_weight * policy_loss
@@ -736,8 +1596,8 @@ def train_v4(
             batch_metrics = {
                 "loss": total_loss,
                 "policyLoss": policy_loss_metric,
-                "behaviorCloningLoss": bc_loss,
-                "criticLoss": critic_loss,
+                "behaviorCloningLoss": bc_metric_loss,
+                "criticLoss": critic_metric_loss,
                 "entropy": entropy,
                 "approxKl": approx_kl,
                 "clipFraction": clip_fraction,
@@ -754,8 +1614,116 @@ def train_v4(
             "eligibleSamplesSeen": eligible_samples,
             "effectiveNonforcedActorSamplesSeen": effective_actor_samples,
             "forcedActorSamplesExcluded": forced_actor_samples_excluded,
-            **{name: value / max(1, batches) for name, value in totals.items()},
         }
+        if balance_contract is None:
+            epoch_metrics.update(
+                {
+                    name: value / max(1, batches)
+                    for name, value in totals.items()
+                }
+            )
+        else:
+            expected_counts = balance_contract[
+                "eligibleRowCountsByLossAndPlayerCount"
+            ]
+            if balanced_seen_counts != expected_counts:
+                raise RuntimeError(
+                    "epoch player-count eligible rows do not match the balance contract"
+                )
+            runtime_weights = balance_contract[
+                "runtimeFloat32WeightsByLossAndPlayerCount"
+            ]
+            observed_masses = {
+                loss_name: {
+                    player_count: float(
+                        count
+                        * runtime_weights[loss_name][player_count]
+                    )
+                    for player_count, count in counts.items()
+                }
+                for loss_name, counts in balanced_seen_counts.items()
+            }
+            if observed_masses != balance_contract[
+                "runtimeWeightMassByLossAndPlayerCount"
+            ]:
+                raise RuntimeError(
+                    "epoch player-count weight mass does not match the balance contract"
+                )
+            requested_metric_loss = {
+                "behaviorCloning": training_config.bc_weight,
+                "ppo": training_config.ppo_weight,
+                "critic": training_config.critic_weight,
+            }
+            for loss_name, requested_weight in requested_metric_loss.items():
+                if requested_weight <= 0.0:
+                    continue
+                expected_mass = float(
+                    balance_contract["runtimeTotalWeightMassByLoss"][loss_name]
+                )
+                if not math.isclose(
+                    balanced_metric_weight_sums[loss_name],
+                    expected_mass,
+                    rel_tol=2.0e-6,
+                    abs_tol=2.0e-5,
+                ):
+                    raise RuntimeError(
+                        f"epoch {loss_name} diagnostic weight mass drifted from contract"
+                    )
+
+            def balanced_metric(name: str, loss_name: str) -> float:
+                denominator = balanced_metric_weight_sums[loss_name]
+                return (
+                    balanced_metric_numerators[name] / denominator
+                    if denominator > 0.0
+                    else 0.0
+                )
+
+            policy_metric = balanced_metric("policyLoss", "ppo")
+            entropy_metric = balanced_metric("entropy", "ppo")
+            bc_metric = balanced_metric(
+                "behaviorCloningLoss", "behaviorCloning"
+            )
+            critic_metric = balanced_metric("criticLoss", "critic")
+            balanced_values = {
+                "policyLoss": policy_metric,
+                "behaviorCloningLoss": bc_metric,
+                "criticLoss": critic_metric,
+                "entropy": entropy_metric,
+                "approxKl": balanced_metric("approxKl", "ppo"),
+                "clipFraction": balanced_metric("clipFraction", "ppo"),
+                "meanQBoost": balanced_metric("meanQBoost", "ppo"),
+            }
+            balanced_values["loss"] = (
+                training_config.ppo_weight
+                * (
+                    policy_metric
+                    - training_config.entropy_coefficient * entropy_metric
+                )
+                + training_config.bc_weight * bc_metric
+                + training_config.critic_weight * critic_metric
+            )
+            epoch_metrics.update(
+                {
+                    "balanceContractFingerprint": balance_contract_fingerprint,
+                    "fixedCollectionPlanSha256": fixed_collection_plan_sha256,
+                    "fixedPpoExecutionContractFingerprint": (
+                        fixed_ppo_execution_contract_fingerprint
+                    ),
+                    "initialPolicyReproductionAuditFingerprint": (
+                        training_contract[
+                            "initialPolicyReproductionAuditFingerprint"
+                        ]
+                    ),
+                    "balancedEligibleRowsSeenByLossAndPlayerCount": (
+                        balanced_seen_counts
+                    ),
+                    "balancedWeightMassSeenByLossAndPlayerCount": observed_masses,
+                    "balancedDiagnosticWeightMassByLoss": (
+                        balanced_metric_weight_sums
+                    ),
+                    **balanced_values,
+                }
+            )
         if any(
             isinstance(value, float) and not math.isfinite(value)
             for value in epoch_metrics.values()
@@ -777,6 +1745,10 @@ def train_v4(
                 scaler,
                 dataset,
                 training_config,
+                balance_contract_fingerprint,
+                fixed_collection_plan_sha256,
+                fixed_ppo_execution_contract_fingerprint,
+                initial_policy_reproduction_audit,
             )
 
     actor.eval()
@@ -855,6 +1827,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-gradient-norm", type=float, default=1.0)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--checkpoint-every", type=int, default=1)
+    parser.add_argument(
+        "--expected-fixed-collection-plan-sha256",
+        help=(
+            "required precommitted collection-plan SHA-256 for fixed-only PPO data"
+        ),
+    )
     return parser
 
 
@@ -906,6 +1884,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         amp=not args.no_amp,
         num_workers=args.num_workers,
         checkpoint_every=args.checkpoint_every,
+        expected_fixed_collection_plan_sha256=(
+            args.expected_fixed_collection_plan_sha256
+        ),
     )
     if args.device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"

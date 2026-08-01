@@ -2,10 +2,11 @@ from __future__ import annotations
 
 """Strict deterministic merger for prepared V4 trajectory datasets.
 
-The merger accepts only the two currently documented producers (Normal
-warm-start conversion and direct DAgger collection), plus its own output.  It
-does not reinterpret samples: valid tensor values are copied byte-for-byte,
-and only invalid suffix dimensions are padded.  The privileged critic tensor
+The merger accepts the documented Normal, DAgger, legacy PPO, and
+evaluation-aligned fixed-match PPO producers, plus its own output.  It does
+not reinterpret source observations or actions: valid tensor values are
+copied byte-for-byte, invalid suffix dimensions are padded, and PPO baselines
+are recomputed only after the complete merge.  The privileged critic tensor
 remains a separate training-only array throughout.
 """
 
@@ -32,8 +33,18 @@ from v3_action_conditioned import (
 from v4_dataset import (
     V4_DATASET_FORMAT,
     V4_DATASET_VERSION,
+    V4_FIXED_MATCH_PPO_PREPARATION_FORMAT,
+    V4_FIXED_PPO_SOURCE_CONTRACT,
+    V4_LEGACY_PPO_SOURCE_CONTRACT,
     V4TrajectoryDataset,
     V4TrajectoryTensors,
+    canonical_fixed_collection_plan,
+    canonical_fixed_ppo_behavior_policy_contract,
+    canonical_fixed_ppo_reward_contract,
+    complete_fixed_collection_plan_record,
+    load_v4_dataset_npz,
+    validate_merged_fixed_collection_plans,
+    validate_merged_ppo_provenance,
 )
 from v4_env import (
     PRIVILEGED_STATE_LAYOUT,
@@ -55,6 +66,7 @@ from v4_ppo_advantages import (
 NORMAL_PREPARATION_FORMAT = "dalmuti-v4-prepared-dataset-metadata"
 DAGGER_PREPARATION_FORMAT = "dalmuti-v4-dagger-direct-npz"
 PPO_PREPARATION_FORMAT = "dalmuti-v4-ppo-league-direct-npz"
+FIXED_MATCH_PPO_PREPARATION_FORMAT = V4_FIXED_MATCH_PPO_PREPARATION_FORMAT
 MERGED_PREPARATION_FORMAT = "dalmuti-v4-merged-prepared-dataset-metadata"
 MERGED_PREPARATION_VERSION = 1
 
@@ -70,7 +82,7 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 # Explicit resource limits make malformed archives fail before unbounded work.
 MAX_INPUTS = 256
-MAX_ARCHIVE_MEMBERS = 64
+MAX_ARCHIVE_MEMBERS = 128
 MAX_ARCHIVE_UNCOMPRESSED_BYTES = 128 * 1024**3
 MAX_TRAJECTORIES = 10_000_000
 MAX_TIME_STEPS = 1_000_000
@@ -103,6 +115,17 @@ SAMPLE_AUXILIARY_DTYPES: dict[str, np.dtype] = {
     "selected_action_probabilities": np.dtype(np.float64),
     "policy_entropies": np.dtype(np.float32),
     "terminal_chip_awards": np.dtype(np.int8),
+    "raw_act_candidate_mean_chips": np.dtype(np.float32),
+    "raw_act_normal_mean_chips": np.dtype(np.float32),
+    "raw_act_group_chip_differences": np.dtype(np.float32),
+    "raw_act_pairwise_rates": np.dtype(np.float32),
+    "raw_act_pairwise_centered_rewards": np.dtype(np.float32),
+    "raw_act_total_rewards": np.dtype(np.float32),
+    "suffix_group_chip_sums": np.dtype(np.float32),
+    "suffix_pairwise_centered_returns": np.dtype(np.float32),
+    "suffix_total_returns": np.dtype(np.float32),
+    "pairwise_candidate_before_normal_counts": np.dtype(np.int16),
+    "pairwise_candidate_normal_comparison_counts": np.dtype(np.int16),
 }
 TRAJECTORY_AUXILIARY_DTYPES: dict[str, np.dtype | None] = {
     "trajectory_ids": None,
@@ -117,6 +140,23 @@ TRAJECTORY_AUXILIARY_DTYPES: dict[str, np.dtype | None] = {
     "trajectory_finish_places": np.dtype(np.int16),
     "trajectory_monte_carlo_gammas": np.dtype(np.float64),
     "trajectory_source_npz_sha256s": None,
+    "trajectory_complete_match_ids": None,
+    "trajectory_learner_initial_seats": np.dtype(np.int16),
+    "trajectory_initial_player_orders": None,
+    "trajectory_candidate_initial_seats": None,
+    "trajectory_candidate_ids": None,
+    "trajectory_act_player_orders": None,
+    "trajectory_act_finish_orders": None,
+    "trajectory_act_chip_awards_by_physical_id": None,
+    "trajectory_act_candidate_mean_chips": np.dtype(np.float32),
+    "trajectory_act_normal_mean_chips": np.dtype(np.float32),
+    "trajectory_act_group_chip_differences": np.dtype(np.float32),
+    "trajectory_act_pairwise_rates": np.dtype(np.float32),
+    "trajectory_act_pairwise_centered_rewards": np.dtype(np.float32),
+    "trajectory_act_total_rewards": np.dtype(np.float32),
+    "trajectory_suffix_group_chip_sums": np.dtype(np.float32),
+    "trajectory_suffix_pairwise_centered_returns": np.dtype(np.float32),
+    "trajectory_suffix_total_returns": np.dtype(np.float32),
 }
 KNOWN_ARRAYS = (
     set(STANDARD_FIELDS)
@@ -145,7 +185,26 @@ PPO_REQUIRED_AUX = {
     "trajectory_match_seeds", "trajectory_match_clusters",
     "trajectory_finish_places",
 }
-MERGED_REQUIRED_AUX = set(SAMPLE_AUXILIARY_DTYPES) | set(TRAJECTORY_AUXILIARY_DTYPES)
+FIXED_MATCH_PPO_REQUIRED_AUX = PPO_REQUIRED_AUX | {
+    "raw_act_candidate_mean_chips", "raw_act_normal_mean_chips",
+    "raw_act_group_chip_differences", "raw_act_pairwise_rates",
+    "raw_act_pairwise_centered_rewards", "raw_act_total_rewards",
+    "suffix_group_chip_sums", "suffix_pairwise_centered_returns",
+    "suffix_total_returns", "pairwise_candidate_before_normal_counts",
+    "pairwise_candidate_normal_comparison_counts",
+    "trajectory_complete_match_ids", "trajectory_learner_initial_seats",
+    "trajectory_initial_player_orders", "trajectory_candidate_initial_seats",
+    "trajectory_candidate_ids", "trajectory_act_player_orders",
+    "trajectory_act_finish_orders", "trajectory_act_chip_awards_by_physical_id",
+    "trajectory_act_candidate_mean_chips", "trajectory_act_normal_mean_chips",
+    "trajectory_act_group_chip_differences", "trajectory_act_pairwise_rates",
+    "trajectory_act_pairwise_centered_rewards", "trajectory_act_total_rewards",
+    "trajectory_suffix_group_chip_sums",
+    "trajectory_suffix_pairwise_centered_returns", "trajectory_suffix_total_returns",
+}
+FIXED_MATCH_ONLY_AUX = FIXED_MATCH_PPO_REQUIRED_AUX - PPO_REQUIRED_AUX
+MERGED_DOCUMENTED_AUX = set(SAMPLE_AUXILIARY_DTYPES) | set(TRAJECTORY_AUXILIARY_DTYPES)
+MERGED_REQUIRED_AUX = MERGED_DOCUMENTED_AUX - FIXED_MATCH_ONLY_AUX
 
 
 @dataclass(frozen=True)
@@ -421,6 +480,7 @@ def _validate_preparation(
         NORMAL_PREPARATION_FORMAT,
         DAGGER_PREPARATION_FORMAT,
         PPO_PREPARATION_FORMAT,
+        FIXED_MATCH_PPO_PREPARATION_FORMAT,
         MERGED_PREPARATION_FORMAT,
     } or metadata.get("preparationVersion") != 1:
         raise ValueError("unsupported V4 preparation semantics")
@@ -496,7 +556,8 @@ def _validate_preparation(
             "environmentBinding": dict(environment),
         }, layout
 
-    if preparation == PPO_PREPARATION_FORMAT:
+    if preparation in {PPO_PREPARATION_FORMAT, FIXED_MATCH_PPO_PREPARATION_FORMAT}:
+        fixed_match = preparation == FIXED_MATCH_PPO_PREPARATION_FORMAT
         privacy = metadata.get("privacy")
         collection = metadata.get("collection")
         environment = metadata.get("environmentBinding")
@@ -515,7 +576,10 @@ def _validate_preparation(
             raise ValueError("PPO public-only privacy contract is missing")
         if (
             not isinstance(collection, dict)
-            or collection.get("algorithm") != "on-policy PPO league rollout"
+            or collection.get("algorithm") != (
+                "evaluation-aligned fixed-physical-ID five-act suffix PPO rollout"
+                if fixed_match else "on-policy PPO league rollout"
+            )
             or collection.get("exactOldLogProbabilityForEveryLearnerDecision") is not True
             or collection.get("exactNormalExpertLabelForEveryLearnerDecision") is not True
             or not isinstance(returns, dict)
@@ -528,6 +592,20 @@ def _validate_preparation(
             or environment.get("normalExpertCallback") != "DalmutiScalarEnv.normal_action"
             or not isinstance(model, dict)
             or model.get("criticExcluded") is not True
+            or (
+                fixed_match
+                and (
+                    collection.get("actsPerCompleteMatch") != 5
+                    or collection.get("completeMatchesOnly") is not True
+                    or collection.get("evaluationCandidateIdentityParity") is not True
+                    or collection.get("candidateIdentitySetFixedForCompleteMatch") is not True
+                    or collection.get("learnerPhysicalIdentityFixedForCompleteMatch") is not True
+                    or collection.get("candidateTeammateBehavior")
+                    != "frozen candidate greedy masked argmax"
+                    or collection.get("normalOpponentBehavior")
+                    != "exact DalmutiScalarEnv.normal_action"
+                )
+            )
         ):
             raise ValueError("PPO action/return semantics drifted")
         sources = _validate_sha_mapping(metadata.get("sourceHashes"), "PPO sourceHashes")
@@ -591,6 +669,7 @@ def _validate_preparation(
         or any(not isinstance(value, str) or not SHA256_RE.fullmatch(value) for value in behavior_hashes)
     ):
         raise ValueError("merged PPO behavior actor bindings are invalid")
+    validate_merged_ppo_provenance(eligibility, behavior_hashes)
     returns = metadata.get("returnsAndAdvantages")
     if not isinstance(returns, dict):
         raise ValueError("merged dataset lacks its global PPO advantage contract")
@@ -735,6 +814,7 @@ def _validate_auxiliary(
         NORMAL_REQUIRED_AUX if preparation == NORMAL_PREPARATION_FORMAT
         else DAGGER_REQUIRED_AUX if preparation == DAGGER_PREPARATION_FORMAT
         else PPO_REQUIRED_AUX if preparation == PPO_PREPARATION_FORMAT
+        else FIXED_MATCH_PPO_REQUIRED_AUX if preparation == FIXED_MATCH_PPO_PREPARATION_FORMAT
         else MERGED_REQUIRED_AUX
     )
     missing = sorted(required - set(arrays))
@@ -778,6 +858,17 @@ def _validate_auxiliary(
         "selected_action_probabilities": 0.0,
         "policy_entropies": 0.0,
         "terminal_chip_awards": 0,
+        "raw_act_candidate_mean_chips": 0.0,
+        "raw_act_normal_mean_chips": 0.0,
+        "raw_act_group_chip_differences": 0.0,
+        "raw_act_pairwise_rates": 0.0,
+        "raw_act_pairwise_centered_rewards": 0.0,
+        "raw_act_total_rewards": 0.0,
+        "suffix_group_chip_sums": 0.0,
+        "suffix_pairwise_centered_returns": 0.0,
+        "suffix_total_returns": 0.0,
+        "pairwise_candidate_before_normal_counts": 0,
+        "pairwise_candidate_normal_comparison_counts": 0,
         "bc_eligible_masks": False,
         "ppo_eligible_masks": False,
         "critic_eligible_masks": False,
@@ -811,11 +902,12 @@ def _validate_auxiliary(
             raise ValueError("Normal source_steps must be non-negative")
     if "source_decision_indices" in arrays and preparation in {
         DAGGER_PREPARATION_FORMAT, PPO_PREPARATION_FORMAT,
+        FIXED_MATCH_PPO_PREPARATION_FORMAT,
     }:
         if np.any(arrays["source_decision_indices"][valid] < 0):
             raise ValueError("direct-rollout source_decision_indices must be non-negative")
 
-    if preparation == PPO_PREPARATION_FORMAT:
+    if preparation in {PPO_PREPARATION_FORMAT, FIXED_MATCH_PPO_PREPARATION_FORMAT}:
         selected = arrays["selected_action_probabilities"]
         if np.any(valid & ((selected <= 0.0) | (selected > 1.0) | ~np.isfinite(selected))):
             raise ValueError("PPO selected action probabilities must be finite in (0, 1]")
@@ -849,12 +941,13 @@ def _validate_auxiliary(
         ):
             raise ValueError("PPO training advantages do not match their bound derivation")
         terminal = arrays["dones"] & valid
-        expected_reward = (arrays["terminal_chip_awards"].astype(np.float32) - 2.0) / 2.0
-        if not np.allclose(
-            arrays["rewards"][terminal], expected_reward[terminal],
-            rtol=0.0, atol=1.0e-7,
-        ):
-            raise ValueError("PPO terminal reward does not match its chip award")
+        if preparation == PPO_PREPARATION_FORMAT:
+            expected_reward = (arrays["terminal_chip_awards"].astype(np.float32) - 2.0) / 2.0
+            if not np.allclose(
+                arrays["rewards"][terminal], expected_reward[terminal],
+                rtol=0.0, atol=1.0e-7,
+            ):
+                raise ValueError("PPO terminal reward does not match its chip award")
         if np.any(valid & ~arrays["dones"] & (arrays["terminal_chip_awards"] != 0)):
             raise ValueError("PPO non-terminal samples cannot carry a chip award")
         if np.any(valid & (arrays["baseline_tiers"] < 0)) or np.any(
@@ -894,7 +987,7 @@ def _validate_auxiliary(
             raise ValueError("merged BC eligibility must equal every valid exact-Normal label")
         if np.any(ppo & ~valid) or np.any(critic & ~valid) or not np.array_equal(ppo, critic):
             raise ValueError("merged PPO and critic eligibility masks must match within valid samples")
-    if preparation == PPO_PREPARATION_FORMAT:
+    if preparation in {PPO_PREPARATION_FORMAT, FIXED_MATCH_PPO_PREPARATION_FORMAT}:
         if any(not str(value) for value in arrays["trajectory_match_clusters"]):
             raise ValueError("PPO trajectory match clusters must be non-empty")
         if np.any(arrays["trajectory_actor_ids"] < 0) or np.any(
@@ -925,7 +1018,8 @@ def _load_input(path: Path, checksum: Path) -> _PreparedInput:
             NORMAL_REQUIRED_AUX if preparation == NORMAL_PREPARATION_FORMAT
             else DAGGER_REQUIRED_AUX if preparation == DAGGER_PREPARATION_FORMAT
             else PPO_REQUIRED_AUX if preparation == PPO_PREPARATION_FORMAT
-            else MERGED_REQUIRED_AUX
+            else FIXED_MATCH_PPO_REQUIRED_AUX if preparation == FIXED_MATCH_PPO_PREPARATION_FORMAT
+            else MERGED_DOCUMENTED_AUX
         )
         incompatible_aux = sorted(
             set(archive.files) - set(STANDARD_FIELDS) - documented_aux - {"metadata_json"}
@@ -966,12 +1060,12 @@ def _load_input(path: Path, checksum: Path) -> _PreparedInput:
     returns_metadata = metadata.get("returnsAndAdvantages")
     ppo_standardized = (
         bool(returns_metadata["standardized"])
-        if preparation == PPO_PREPARATION_FORMAT and isinstance(returns_metadata, dict)
+        if preparation in {PPO_PREPARATION_FORMAT, FIXED_MATCH_PPO_PREPARATION_FORMAT} and isinstance(returns_metadata, dict)
         else None
     )
     ppo_gamma = (
         float(returns_metadata["monteCarloGamma"])
-        if preparation == PPO_PREPARATION_FORMAT and isinstance(returns_metadata, dict)
+        if preparation in {PPO_PREPARATION_FORMAT, FIXED_MATCH_PPO_PREPARATION_FORMAT} and isinstance(returns_metadata, dict)
         else None
     )
     _validate_auxiliary(
@@ -979,6 +1073,11 @@ def _load_input(path: Path, checksum: Path) -> _PreparedInput:
         ppo_standardized=ppo_standardized,
         ppo_gamma=ppo_gamma,
     )
+    if preparation in {FIXED_MATCH_PPO_PREPARATION_FORMAT, MERGED_PREPARATION_FORMAT}:
+        # Reuse the direct loader's full evaluator-ID, raw outcome, suffix,
+        # role, log-probability and complete-cluster validation rather than
+        # maintaining a weaker parallel interpretation in the merger.
+        load_v4_dataset_npz(path)
     if preparation == MERGED_PREPARATION_FORMAT:
         eligibility = metadata["lossEligibility"]
         assert isinstance(eligibility, dict)
@@ -991,6 +1090,11 @@ def _load_input(path: Path, checksum: Path) -> _PreparedInput:
         }
         if counts != expected_counts:
             raise ValueError("merged loss eligibility counts do not match their masks")
+        if (
+            metadata.get("eligibilityByPlayerCount") is not None
+            and metadata.get("eligibilityByPlayerCount") != _eligibility_by_player_count(arrays)
+        ):
+            raise ValueError("merged per-player-count eligibility counts do not match arrays")
         returns_contract = metadata.get("returnsAndAdvantages")
         assert isinstance(returns_contract, dict)
         validate_merged_ppo_advantages(arrays, returns_contract)
@@ -1107,6 +1211,18 @@ def _allocate_output(
         "trajectory_monte_carlo_gammas": np.zeros(trajectories, np.float64),
         "trajectory_source_npz_sha256s": np.empty(trajectories, dtype="<U64"),
     }
+    for name, dtype in SAMPLE_AUXILIARY_DTYPES.items():
+        if name not in arrays:
+            arrays[name] = np.zeros(prefix, dtype=dtype)
+    for name, dtype in TRAJECTORY_AUXILIARY_DTYPES.items():
+        if name in arrays:
+            continue
+        if dtype is None:
+            arrays[name] = np.full(trajectories, "", dtype="<U512")
+        elif np.issubdtype(dtype, np.floating):
+            arrays[name] = np.zeros(trajectories, dtype=dtype)
+        else:
+            arrays[name] = np.full(trajectories, -1, dtype=dtype)
     arrays["trajectory_input_sha256s"].fill("")
     arrays["trajectory_match_clusters"].fill("")
     return arrays
@@ -1136,12 +1252,16 @@ def _copy_input(output: dict[str, np.ndarray], source: _PreparedInput, start: in
         output["bc_eligible_masks"][start:stop, :time_steps] = source.arrays["valid_masks"]
     if (
         "ppo_eligible_masks" not in source.arrays
-        and source.metadata["preparationFormat"] == PPO_PREPARATION_FORMAT
+        and source.metadata["preparationFormat"] in {
+            PPO_PREPARATION_FORMAT, FIXED_MATCH_PPO_PREPARATION_FORMAT,
+        }
     ):
         output["ppo_eligible_masks"][start:stop, :time_steps] = source.arrays["valid_masks"]
     if (
         "critic_eligible_masks" not in source.arrays
-        and source.metadata["preparationFormat"] == PPO_PREPARATION_FORMAT
+        and source.metadata["preparationFormat"] in {
+            PPO_PREPARATION_FORMAT, FIXED_MATCH_PPO_PREPARATION_FORMAT,
+        }
     ):
         output["critic_eligible_masks"][start:stop, :time_steps] = source.arrays["valid_masks"]
     # Safe, explicit defaults for a Normal input's documented missing DAgger fields.
@@ -1161,14 +1281,12 @@ def _copy_input(output: dict[str, np.ndarray], source: _PreparedInput, start: in
     output["trajectory_player_counts"][start:stop] = source.player_counts
     output["trajectory_roles"][start:stop] = source.roles
     output["trajectory_acts"][start:stop] = source.acts
-    for name in (
-        "trajectory_input_sha256s", "trajectory_actor_ids", "trajectory_match_indices",
-        "trajectory_match_seeds", "trajectory_match_clusters",
-        "trajectory_finish_places", "trajectory_monte_carlo_gammas",
-    ):
+    for name in TRAJECTORY_AUXILIARY_DTYPES:
         if name in source.arrays:
             output[name][start:stop] = source.arrays[name]
-    if source.metadata["preparationFormat"] == PPO_PREPARATION_FORMAT:
+    if source.metadata["preparationFormat"] in {
+        PPO_PREPARATION_FORMAT, FIXED_MATCH_PPO_PREPARATION_FORMAT,
+    }:
         returns = source.metadata.get("returnsAndAdvantages")
         if not isinstance(returns, dict):
             raise ValueError("PPO input lacks its return derivation metadata")
@@ -1204,6 +1322,41 @@ def _balance(arrays: Mapping[str, np.ndarray]) -> dict[str, object]:
             record["trajectories"] += 1
             record["samples"] += int(samples)
     return scopes
+
+
+def _eligibility_by_player_count(arrays: Mapping[str, np.ndarray]) -> dict[str, dict[str, int]]:
+    output: dict[str, dict[str, int]] = {}
+    for index, player_count in enumerate(arrays["trajectory_player_counts"].tolist()):
+        key = str(int(player_count))
+        record = output.setdefault(key, {
+            "trajectories": 0,
+            "validSamples": 0,
+            "forcedSamples": 0,
+            "nonforcedSamples": 0,
+            "behaviorCloningEligibleSamples": 0,
+            "behaviorCloningEligibleForcedSamples": 0,
+            "behaviorCloningEligibleNonforcedSamples": 0,
+            "ppoEligibleSamples": 0,
+            "criticEligibleSamples": 0,
+            "ppoEligibleForcedSamples": 0,
+            "ppoEligibleNonforcedSamples": 0,
+        })
+        valid = arrays["valid_masks"][index]
+        forced = arrays["forced_masks"][index] & valid
+        ppo = arrays["ppo_eligible_masks"][index] & valid
+        bc = arrays["bc_eligible_masks"][index] & valid
+        record["trajectories"] += 1
+        record["validSamples"] += int(valid.sum())
+        record["forcedSamples"] += int(forced.sum())
+        record["nonforcedSamples"] += int((valid & ~forced).sum())
+        record["behaviorCloningEligibleSamples"] += int(bc.sum())
+        record["behaviorCloningEligibleForcedSamples"] += int((bc & forced).sum())
+        record["behaviorCloningEligibleNonforcedSamples"] += int((bc & ~forced).sum())
+        record["ppoEligibleSamples"] += int(ppo.sum())
+        record["criticEligibleSamples"] += int((arrays["critic_eligible_masks"][index] & valid).sum())
+        record["ppoEligibleForcedSamples"] += int((ppo & forced).sum())
+        record["ppoEligibleNonforcedSamples"] += int((ppo & ~forced).sum())
+    return output
 
 
 def _write_deterministic_npz(path: Path, arrays: Mapping[str, np.ndarray]) -> None:
@@ -1333,12 +1486,16 @@ def merge_v4_datasets(
         item_ppo = (
             int(item.arrays["ppo_eligible_masks"].sum())
             if "ppo_eligible_masks" in item.arrays
-            else item.sample_count if item_preparation == PPO_PREPARATION_FORMAT else 0
+            else item.sample_count if item_preparation in {
+                PPO_PREPARATION_FORMAT, FIXED_MATCH_PPO_PREPARATION_FORMAT,
+            } else 0
         )
         item_critic = (
             int(item.arrays["critic_eligible_masks"].sum())
             if "critic_eligible_masks" in item.arrays
-            else item.sample_count if item_preparation == PPO_PREPARATION_FORMAT else 0
+            else item.sample_count if item_preparation in {
+                PPO_PREPARATION_FORMAT, FIXED_MATCH_PPO_PREPARATION_FORMAT,
+            } else 0
         )
         ordered_inputs.append({
             "sha256": item.sha256,
@@ -1364,24 +1521,160 @@ def merge_v4_datasets(
 
     defaulted: dict[str, list[str]] = {}
     ppo_behavior_actor_sha256s: set[str] = set()
+    ppo_source_contracts: set[str] = set()
+    ppo_reward_contract_records: dict[str, dict[str, object]] = {}
+    ppo_behavior_policy_contract_records: dict[str, dict[str, object]] = {}
+    fixed_collection_plan_bases: dict[str, dict[str, object]] = {}
+    fixed_collection_plan_coverage_counts: dict[str, dict[int, int]] = {}
+
+    def add_fixed_collection_plan(record: Mapping[str, object]) -> None:
+        identifier = str(record.get("opaqueId"))
+        base = {
+            "opaqueId": record.get("opaqueId"),
+            "canonicalSha256": record.get("canonicalSha256"),
+            "canonicalFields": record.get("canonicalFields"),
+        }
+        existing = fixed_collection_plan_bases.setdefault(identifier, base)
+        if existing != base:
+            raise ValueError("fixed collection plan binding changed across inputs")
+        covered = record.get("coveredShardIndices")
+        if not isinstance(covered, list):
+            raise ValueError("fixed collection plan shard coverage is missing")
+        counts = fixed_collection_plan_coverage_counts.setdefault(identifier, {})
+        for shard_index in covered:
+            if isinstance(shard_index, bool) or not isinstance(shard_index, int):
+                raise ValueError("fixed collection plan shard index is invalid")
+            counts[shard_index] = counts.get(shard_index, 0) + 1
+
     for item in loaded:
         item_preparation = str(item.metadata["preparationFormat"])
-        if item_preparation == PPO_PREPARATION_FORMAT:
+        if item_preparation in {PPO_PREPARATION_FORMAT, FIXED_MATCH_PPO_PREPARATION_FORMAT}:
             model_binding = item.metadata["modelBinding"]
             assert isinstance(model_binding, dict)
             ppo_behavior_actor_sha256s.add(str(model_binding["actorCheckpointSha256"]))
+            ppo_source_contracts.add(
+                V4_FIXED_PPO_SOURCE_CONTRACT
+                if item_preparation == FIXED_MATCH_PPO_PREPARATION_FORMAT
+                else V4_LEGACY_PPO_SOURCE_CONTRACT
+            )
+            if item_preparation == FIXED_MATCH_PPO_PREPARATION_FORMAT:
+                reward_value = item.metadata.get("rewardContract")
+                collection_value = item.metadata.get("collection")
+                assert isinstance(reward_value, dict)
+                assert isinstance(collection_value, dict)
+                reward_id, reward_record = canonical_fixed_ppo_reward_contract(
+                    reward_value
+                )
+                behavior_id, behavior_record = (
+                    canonical_fixed_ppo_behavior_policy_contract(collection_value)
+                )
+                ppo_reward_contract_records.setdefault(reward_id, reward_record)
+                ppo_behavior_policy_contract_records.setdefault(
+                    behavior_id, behavior_record
+                )
+                _, plan_record = canonical_fixed_collection_plan(
+                    item.metadata,
+                    reward_id,
+                    behavior_id,
+                )
+                add_fixed_collection_plan(plan_record)
         elif item_preparation == MERGED_PREPARATION_FORMAT:
             loss_eligibility = item.metadata["lossEligibility"]
             assert isinstance(loss_eligibility, dict)
             ppo_behavior_actor_sha256s.update(
                 str(value) for value in loss_eligibility["ppoBehaviorActorSha256s"]
             )
+            (
+                nested_sources,
+                _,
+                _,
+                nested_reward_contracts,
+                nested_behavior_contracts,
+            ) = validate_merged_ppo_provenance(
+                loss_eligibility,
+                loss_eligibility["ppoBehaviorActorSha256s"],
+            )
+            ppo_source_contracts.update(nested_sources)
+            nested_reward_records = loss_eligibility.get(
+                "ppoRewardContractRecords", []
+            )
+            nested_behavior_records = loss_eligibility.get(
+                "ppoBehaviorPolicyContractRecords", []
+            )
+            assert isinstance(nested_reward_records, list)
+            assert isinstance(nested_behavior_records, list)
+            nested_reward_record_map = {
+                str(record["opaqueId"]): record
+                for record in nested_reward_records
+                if isinstance(record, dict)
+            }
+            nested_behavior_record_map = {
+                str(record["opaqueId"]): record
+                for record in nested_behavior_records
+                if isinstance(record, dict)
+            }
+            for identifier in nested_reward_contracts:
+                record = nested_reward_record_map[identifier]
+                assert isinstance(record, dict)
+                ppo_reward_contract_records.setdefault(identifier, dict(record))
+            for identifier in nested_behavior_contracts:
+                record = nested_behavior_record_map[identifier]
+                assert isinstance(record, dict)
+                ppo_behavior_policy_contract_records.setdefault(
+                    identifier, dict(record)
+                )
+            nested_plans = validate_merged_fixed_collection_plans(
+                loss_eligibility,
+                has_fixed_source=V4_FIXED_PPO_SOURCE_CONTRACT in nested_sources,
+            )
+            for plan_record in nested_plans:
+                add_fixed_collection_plan(plan_record)
         missing = sorted(
             (set(SAMPLE_AUXILIARY_DTYPES) | set(TRAJECTORY_AUXILIARY_DTYPES))
             - set(item.arrays)
             - {"trajectory_source_npz_sha256s"}
         )
         defaulted[item.sha256] = missing
+    has_fixed_ppo = V4_FIXED_PPO_SOURCE_CONTRACT in ppo_source_contracts
+    if has_fixed_ppo and (
+        len(ppo_reward_contract_records) != 1
+        or len(ppo_behavior_policy_contract_records) != 1
+    ):
+        raise ValueError(
+            "all fixed-match PPO inputs must share one reward lambda/formula and "
+            "one canonical behavior policy"
+        )
+    if not has_fixed_ppo and (
+        ppo_reward_contract_records or ppo_behavior_policy_contract_records
+    ):
+        raise ValueError("legacy-only PPO inputs unexpectedly carry fixed contracts")
+    requires_qboost_zero = has_fixed_ppo
+    fixed_collection_plans: list[dict[str, object]] = []
+    for identifier in sorted(fixed_collection_plan_bases):
+        base = fixed_collection_plan_bases[identifier]
+        fields_value = base["canonicalFields"]
+        assert isinstance(fields_value, dict)
+        shard_count = int(fields_value["matchShardCount"])
+        counts = fixed_collection_plan_coverage_counts[identifier]
+        if set(counts) != set(range(shard_count)) or any(
+            counts[index] != 1 for index in range(shard_count)
+        ):
+            raise ValueError(
+                "fixed collection plan must include every shard index exactly once"
+            )
+        fixed_collection_plans.append(
+            complete_fixed_collection_plan_record(
+                base,
+                list(range(shard_count)),
+            )
+        )
+    if has_fixed_ppo != bool(fixed_collection_plans):
+        raise ValueError("fixed PPO source and collection plan coverage disagree")
+    fixed_collection_plan_coverage_sha256 = hashlib.sha256(
+        _canonical_json(
+            {"fixedCollectionPlans": fixed_collection_plans}
+        )
+    ).hexdigest()
     metadata: dict[str, object] = {
         "format": V4_DATASET_FORMAT,
         "version": V4_DATASET_VERSION,
@@ -1426,6 +1719,7 @@ def merge_v4_datasets(
         "maxTimeSteps": max_time,
         "trajectoryIds": all_ids,
         "balance": _balance(arrays),
+        "eligibilityByPlayerCount": _eligibility_by_player_count(arrays),
         "arrays": {
             "standard": list(STANDARD_FIELDS),
             "auxiliary": sorted(set(SAMPLE_AUXILIARY_DTYPES) | set(TRAJECTORY_AUXILIARY_DTYPES)),
@@ -1492,6 +1786,26 @@ def merge_v4_datasets(
                 "critic": int(arrays["critic_eligible_masks"].sum()),
             },
             "ppoBehaviorActorSha256s": sorted(ppo_behavior_actor_sha256s),
+            "ppoSourceContracts": sorted(ppo_source_contracts),
+            "ppoRewardContracts": sorted(ppo_reward_contract_records),
+            "ppoRewardContractRecords": [
+                ppo_reward_contract_records[identifier]
+                for identifier in sorted(ppo_reward_contract_records)
+            ],
+            "ppoBehaviorPolicyContracts": sorted(
+                ppo_behavior_policy_contract_records
+            ),
+            "ppoBehaviorPolicyContractRecords": [
+                ppo_behavior_policy_contract_records[identifier]
+                for identifier in sorted(ppo_behavior_policy_contract_records)
+            ],
+            "fixedCollectionPlans": fixed_collection_plans,
+            "fixedCollectionPlanCoverageSha256": (
+                fixed_collection_plan_coverage_sha256
+            ),
+            "requiresPlayerCountBalancedLoss": ppo_source_contracts
+            == {V4_FIXED_PPO_SOURCE_CONTRACT},
+            "requiresQBoostCoefficientZero": requires_qboost_zero,
         },
         "padding": {
             "rule": "copy every valid sample unchanged; pad only invalid time/player/history suffix dimensions",
@@ -1585,6 +1899,7 @@ if __name__ == "__main__":
 
 __all__ = [
     "DAGGER_PREPARATION_FORMAT",
+    "FIXED_MATCH_PPO_PREPARATION_FORMAT",
     "MERGED_PREPARATION_FORMAT",
     "MERGED_PREPARATION_VERSION",
     "MergeResult",

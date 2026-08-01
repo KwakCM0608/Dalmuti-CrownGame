@@ -27,6 +27,7 @@ from v4_evaluate import (
     evaluate_benchmark,
     evaluate_player_count,
     history_inference_bucket,
+    role_for_seat,
     rotating_candidate_seats,
     resolve_cli_evaluation_bindings,
     validate_benchmark_report,
@@ -79,6 +80,7 @@ class _FakeExactAdapter:
         env.cursor += 1
         if env.cursor < env.player_count:
             return _FakeStep({"acting_player_id": actor})
+        player_order = tuple(env.order)
         original_position = {player_id: index for index, player_id in enumerate(env.order)}
         finish_order = tuple(
             sorted(
@@ -108,6 +110,7 @@ class _FakeExactAdapter:
             {
                 "acting_player_id": actor,
                 "act_result": {
+                    "player_order": player_order,
                     "finish_order": finish_order,
                     "chip_awards": chips,
                 },
@@ -116,6 +119,30 @@ class _FakeExactAdapter:
 
     def terminated(self, env: _FakeEnv) -> bool:
         return env.done
+
+
+class _FakeGreatRevolutionAdapter(_FakeExactAdapter):
+    """Reverse the next act's social order once, after act one finishes."""
+
+    def __init__(self) -> None:
+        self.initial_orders: list[tuple[int, ...]] = []
+        self.completed_player_orders: list[tuple[int, ...]] = []
+
+    def make_env(self, player_count: int, acts: int, seed: int) -> _FakeEnv:
+        env = super().make_env(player_count, acts, seed)
+        self.initial_orders.append(tuple(env.order))
+        return env
+
+    def step(self, env: _FakeEnv, action: int) -> _FakeStep:
+        result = super().step(env, action)
+        act_result = result.info.get("act_result")
+        if isinstance(act_result, dict):
+            self.completed_player_orders.append(
+                tuple(int(value) for value in act_result["player_order"])
+            )
+            if env.act == 1 and not env.done:
+                env.order.reverse()
+        return result
 
 
 def _candidate_policy(_: object) -> int:
@@ -478,6 +505,55 @@ class V4EvaluationTests(unittest.TestCase):
             ),
             35 * 5 * 5,
         )
+
+    def test_role_audit_uses_each_acts_post_revolution_player_order(self) -> None:
+        adapter = _FakeGreatRevolutionAdapter()
+        schedule = EvaluationSeedSchedule(
+            "screening", "great-revolution-role-audit", 175_001
+        )
+        result = evaluate_player_count(
+            player_count=4,
+            matches=1,
+            acts=ACTS_PER_MATCH,
+            seed_schedule=schedule,
+            candidate_policy=_candidate_policy,
+            adapter=adapter,
+            gates=DEVELOPMENT_GATES,
+            bootstrap_resamples=10,
+        )
+
+        self.assertEqual(len(adapter.initial_orders), 1)
+        self.assertEqual(
+            len(adapter.completed_player_orders), ACTS_PER_MATCH
+        )
+        initial_order = adapter.initial_orders[0]
+        candidate_ids = {
+            initial_order[seat]
+            for seat in rotating_candidate_seats(4, 0)
+        }
+        expected = {
+            role: {"candidate": 0, "normal": 0}
+            for role in (
+                "great-dalmuti",
+                "lesser-dalmuti",
+                "merchant",
+                "lesser-peon",
+                "great-peon",
+            )
+        }
+        for player_order in adapter.completed_player_orders:
+            for seat, player_id in enumerate(player_order):
+                role = role_for_seat(seat, 4)
+                group = "candidate" if player_id in candidate_ids else "normal"
+                expected[role][group] += 1
+
+        role_audit = result["roleAudit"]["allActRoles"]
+        for role, groups in expected.items():
+            for group, count in groups.items():
+                self.assertEqual(
+                    role_audit[role][group]["seatActs"],
+                    count,
+                )
 
     def test_cluster_bootstrap_is_deterministic_and_match_clustered(self) -> None:
         samples = [-1.0, 0.0, 1.0, 2.0]

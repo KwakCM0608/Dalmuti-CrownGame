@@ -382,3 +382,94 @@ candidate.
   environment. The complete remote V4 suite passed `139/139` with two optional
   environment skips. Product regression passed `254/254`; TypeScript checking
   passed; lint reports zero errors and the pre-existing seven image warnings.
+
+## Attempt 005: corrected PPO signal diagnostic
+
+- Attempt 005 initialized attempt 004's exact behavior Actor and trained one
+  epoch on iteration 002 global-advantage v2 with PPO `1.0`, non-forced Normal
+  BC `0.05`, entropy `0.001`, Actor LR `1e-5`, and clip ratio `0.10`. Q-boost
+  remained disabled. CUDA training took `81.27` seconds for `1,120` optimizer
+  steps.
+- The epoch saw all `48,686` raw PPO rows, excluded `30,512` singleton-legal
+  rows from both Actor objectives, and used `18,174` effective decisions.
+  Approximate KL was `0.002048` and clip fraction `0.07559`, both below the
+  precommitted stop limits `0.012` and `0.15`.
+- Epoch-1 Actor SHA-256:
+  `32f7f366c0a65d7b2b67baf5aeb2e33c49c87ddf4bcac513317bf710fc351466`.
+  Candidate manifest SHA-256:
+  `6485004cfc936f1c711e84bbf6cdfe365eddf7055db6abb6a2780a24ed1c3b5c`.
+  The Actor, manifest, training result, run manifest, metrics, and sidecars are
+  checksum-verified and preserved locally and remotely.
+- Common-random-number screening reused attempt 004's exact family
+  `attempt004-screening-seed450000001`. Four whole-player-count GPU workers
+  completed all 420 matches in `258.04` seconds. Report SHA-256:
+  `f8f2087b9c1cf5262ed7f80e926a46fcd804d3aa9e918f7f92f9641b29d98905`.
+
+| Players | Attempt 005 chip diff | Gain vs 004 | 95% LCB | Pairwise | Pair gain |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 4 | -0.6300 | +0.1467 | -0.9567 | 0.3817 | +0.0258 |
+| 5 | -0.5417 | +0.0000 | -0.7833 | 0.3917 | +0.0000 |
+| 6 | -0.3578 | +0.1333 | -0.5556 | 0.4237 | +0.0315 |
+| 7 | -0.3092 | -0.0836 | -0.4550 | 0.4094 | -0.0208 |
+| 8 | -0.2000 | +0.0267 | -0.3217 | 0.4373 | +0.0063 |
+| 9 | -0.1845 | +0.1110 | -0.3015 | 0.4385 | +0.0208 |
+| 10 | -0.0387 | +0.0440 | -0.1440 | 0.4827 | +0.0177 |
+
+The corrected signal improved five table sizes, but failed every part of the
+precommitted permission rule for one more rotating-ID iteration: p4 gain was
+below `+0.25`, p5 below `+0.15`, fewer than six table sizes improved, median
+gain was only `+0.044`, p7 regressed beyond `-0.08`, and both pairwise-gain
+requirements failed. Training therefore stops at epoch 1 rather than reusing
+the mismatched collector. The next corpus must keep evaluator-equivalent
+candidate physical IDs fixed across all five acts and assign suffix-of-match
+outcomes to each learner act segment.
+
+## Fixed-identity PPO iteration 001: precommitted production plan
+
+This plan was sealed before any production trajectory was generated. It does
+not authorize product integration or deployment.
+
+- Fresh remote run directory:
+  `/home/pangmin/dalmuti/v4-fixedid-ppo-i001-s530000001-run-001`.
+- Run namespace: `v4-fixedid-ppo-i001-s530000001`.
+- Environment seed base: `530000001`; training seed: `540000001`.
+- Complete five-act match counts are p4 `320`, p5 `256`, p6 `192`, p7
+  `160`, p8 `128`, p9 `112`, and p10 `96`: `1,264` complete matches and
+  `6,320` learner act trajectories in total.
+- The corpus is partitioned into exactly 12 modulo shards, match start `0`.
+  Every shard must use CUDA, requested lanes `16`, temperature `1.0`, epsilon
+  floor `0.0`, pairwise coefficient `0.25`, standardized advantages,
+  deterministic algorithms, TF32 disabled, and
+  `CUBLAS_WORKSPACE_CONFIG=:4096:8`.
+- Shards 0 through 5 run concurrently, followed only after complete success
+  by shards 6 through 11. Collection, merge, training, and evaluation never
+  overlap.
+- The immutable behaviour Actor is attempt 005 epoch 1. Actor SHA-256:
+  `32f7f366c0a65d7b2b67baf5aeb2e33c49c87ddf4bcac513317bf710fc351466`;
+  manifest SHA-256:
+  `6485004cfc936f1c711e84bbf6cdfe365eddf7055db6abb6a2780a24ed1c3b5c`.
+- Before training, all 12 direct artifacts and the strict merged artifact
+  must prove the same canonical collection plan, exact shard indices
+  `0..11`, exact match-index ranges and deterministic seeds, the settings
+  above, identical execution metadata, identical source hashes, and the
+  attempt 005 bindings. The trainer receives the sole plan's
+  `canonicalSha256`, never the coverage SHA.
+- Epoch 1 uses Actor LR `2e-5`, critic LR `2e-4`, PPO `1.0`, Normal BC anchor
+  `0.05`, critic `0.2`, entropy `0.0005`, clip `0.12`, batch size `2`, weight
+  decay `1e-4`, max gradient norm `1.0`, and Q-boost `0.0`. The Actor stays
+  FP32 with autocast disabled; only the critic may use AMP.
+- Training is forbidden unless a full pre-update replay of every PPO-eligible
+  row reproduces the stored selected-action log probability with maximum
+  absolute error at most `2e-5`.
+- Epoch 1 stops immediately on non-finite metrics, approximate KL above
+  `0.020`, clip fraction above `0.25`, or entropy collapse beyond 30%. Values
+  in KL `0.012..0.020` or clip `0.15..0.25` allow screening but forbid a
+  second epoch. A second epoch is considered only when KL is below `0.0015`,
+  clip fraction below `0.03`, and the common-random-number screen improves.
+- Screening reuses family `attempt004-screening-seed450000001`, base seed
+  `450000001`, 60 complete five-act matches per p4-p10, four whole-player-
+  count workers, pure Actor policy, and no fallback. Each epoch candidate is
+  checksum-preserved before any resume.
+- No final-reservation seed is consumed until a candidate passes two fresh
+  development families with the stricter all-p gates `+0.30` mean chip
+  difference, `+0.20` clustered 95% lower bound, and `0.57` pairwise rate.

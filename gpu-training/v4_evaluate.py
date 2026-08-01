@@ -1115,16 +1115,22 @@ def evaluate_player_count(
                     finish_order = tuple(
                         int(value) for value in act_result.get("finish_order", ())
                     )
+                    player_order = tuple(
+                        int(value) for value in act_result.get("player_order", ())
+                    )
                     chip_awards = act_result.get("chip_awards")
                     if (
                         len(finish_order) != player_count
                         or set(finish_order) != set(lane.order)
+                        or len(player_order) != player_count
+                        or len(set(player_order)) != player_count
+                        or set(player_order) != set(lane.order)
                         or not isinstance(chip_awards, Mapping)
                     ):
                         raise ValueError("environment returned an invalid act result")
                     roles_by_id = {
                         player_id: role_for_seat(index, player_count)
-                        for index, player_id in enumerate(lane.order)
+                        for index, player_id in enumerate(player_order)
                     }
                     for place, player_id in enumerate(finish_order, start=1):
                         chips_value = chip_awards.get(player_id)

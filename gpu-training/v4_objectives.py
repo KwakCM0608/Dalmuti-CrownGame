@@ -20,6 +20,40 @@ def _validate_action_matrix(
         raise ValueError("every policy row requires a legal action")
 
 
+def _validate_row_weights(
+    weights: torch.Tensor | None,
+    *,
+    batch_size: int,
+    device: torch.device,
+) -> tuple[torch.Tensor, torch.Tensor] | None:
+    if weights is None:
+        return None
+    if not isinstance(weights, torch.Tensor) or weights.shape != (batch_size,):
+        raise ValueError("weights must have shape [batch]")
+    if not weights.dtype.is_floating_point:
+        raise ValueError("weights must use a floating-point dtype")
+    if weights.device != device:
+        raise ValueError("weights must be on the same device as the loss rows")
+    if not torch.isfinite(weights).all():
+        raise ValueError("weights must be finite")
+    weight_sum = weights.sum()
+    if not torch.isfinite(weight_sum) or weight_sum <= 0.0:
+        raise ValueError("weights must have a positive finite sum")
+    if (weights <= 0.0).any():
+        raise ValueError("weights must be strictly positive")
+    return weights, weight_sum
+
+
+def _weighted_row_mean(
+    row_values: torch.Tensor,
+    validated_weights: tuple[torch.Tensor, torch.Tensor],
+) -> torch.Tensor:
+    weights, weight_sum = validated_weights
+    if row_values.shape != weights.shape:
+        raise ValueError("loss rows and weights must have matching shapes")
+    return (weights * row_values).sum() / weight_sum
+
+
 def masked_log_probabilities(
     logits: torch.Tensor, legal_masks: torch.Tensor
 ) -> torch.Tensor:
@@ -179,6 +213,7 @@ def vrpo_clipped_policy_loss(
     clip_ratio: float = 0.15,
     entropy_coefficient: float = 0.01,
     normalize_advantages: bool = False,
+    weights: torch.Tensor | None = None,
 ) -> V4PolicyLoss:
     """Clipped PPO with a detached centered action-Q advantage (VRPO utility)."""
 
@@ -186,6 +221,11 @@ def vrpo_clipped_policy_loss(
         raise ValueError("policy logits must be [batch, 236]")
     batch_size = policy_logits.shape[0]
     _validate_action_matrix(policy_logits, legal_masks, "policy logits")
+    validated_weights = _validate_row_weights(
+        weights,
+        batch_size=batch_size,
+        device=policy_logits.device,
+    )
     if actions.dtype != torch.long or actions.shape != (batch_size,):
         raise ValueError("actions must be torch.long [batch]")
     for value, label in (
@@ -242,21 +282,38 @@ def vrpo_clipped_policy_loss(
     ratio = log_ratio.exp()
     unclipped = ratio * combined_advantages
     clipped = ratio.clamp(1.0 - clip_value, 1.0 + clip_value) * combined_advantages
-    policy_loss = -torch.minimum(unclipped, clipped).mean()
+    surrogate_rows = torch.minimum(unclipped, clipped)
     probabilities = log_probabilities.exp().masked_fill(~legal_masks, 0.0)
-    entropy = -(probabilities * log_probabilities.masked_fill(~legal_masks, 0.0)).sum(
-        dim=-1
-    ).mean()
+    entropy_sums = (
+        probabilities * log_probabilities.masked_fill(~legal_masks, 0.0)
+    ).sum(dim=-1)
+    approx_kl_rows = (ratio - 1.0) - log_ratio
+    clip_fraction_rows = ((ratio - 1.0).abs() > clip_value).to(
+        policy_logits.dtype
+    )
+    if validated_weights is None:
+        # Preserve the original unweighted reduction path exactly.
+        policy_loss = -surrogate_rows.mean()
+        entropy = -entropy_sums.mean()
+        approx_kl = approx_kl_rows.mean()
+        clip_fraction = clip_fraction_rows.mean()
+        mean_q_boost = q_boost.mean()
+    else:
+        policy_loss = _weighted_row_mean(-surrogate_rows, validated_weights)
+        entropy = _weighted_row_mean(-entropy_sums, validated_weights)
+        approx_kl = _weighted_row_mean(approx_kl_rows, validated_weights)
+        clip_fraction = _weighted_row_mean(
+            clip_fraction_rows, validated_weights
+        )
+        mean_q_boost = _weighted_row_mean(q_boost, validated_weights)
     total_loss = policy_loss - entropy_value * entropy
-    approx_kl = ((ratio - 1.0) - log_ratio).mean()
-    clip_fraction = ((ratio - 1.0).abs() > clip_value).to(policy_logits.dtype).mean()
     return V4PolicyLoss(
         loss=total_loss,
         policy_loss=policy_loss,
         entropy=entropy,
         approx_kl=approx_kl,
         clip_fraction=clip_fraction,
-        mean_q_boost=q_boost.mean(),
+        mean_q_boost=mean_q_boost,
     )
 
 
@@ -264,17 +321,31 @@ def masked_behavior_cloning_loss(
     policy_logits: torch.Tensor,
     legal_masks: torch.Tensor,
     expert_actions: torch.Tensor,
+    *,
+    weights: torch.Tensor | None = None,
 ) -> torch.Tensor:
     _validate_action_matrix(policy_logits, legal_masks, "policy logits")
+    validated_weights = _validate_row_weights(
+        weights,
+        batch_size=policy_logits.shape[0],
+        device=policy_logits.device,
+    )
     if expert_actions.dtype != torch.long or expert_actions.shape != (
         policy_logits.shape[0],
     ):
         raise ValueError("expert actions must be torch.long [batch]")
     if not legal_masks.gather(1, expert_actions[:, None]).all():
         raise ValueError("expert actions must be legal")
-    return F.nll_loss(
-        masked_log_probabilities(policy_logits, legal_masks), expert_actions
+    log_probabilities = masked_log_probabilities(policy_logits, legal_masks)
+    if validated_weights is None:
+        # Keep the legacy fused mean reduction for exact compatibility.
+        return F.nll_loss(log_probabilities, expert_actions)
+    row_losses = F.nll_loss(
+        log_probabilities,
+        expert_actions,
+        reduction="none",
     )
+    return _weighted_row_mean(row_losses, validated_weights)
 
 
 def action_q_regression_loss(
@@ -284,9 +355,15 @@ def action_q_regression_loss(
     targets: torch.Tensor,
     *,
     huber_delta: float = 1.0,
+    weights: torch.Tensor | None = None,
 ) -> torch.Tensor:
     _validate_action_matrix(q_values, legal_masks, "Q values")
     batch_size = q_values.shape[0]
+    validated_weights = _validate_row_weights(
+        weights,
+        batch_size=batch_size,
+        device=q_values.device,
+    )
     if actions.dtype != torch.long or actions.shape != (batch_size,):
         raise ValueError("actions must be torch.long [batch]")
     if targets.shape != (batch_size,) or not torch.isfinite(targets).all():
@@ -297,7 +374,15 @@ def action_q_regression_loss(
     if not math.isfinite(delta) or delta <= 0.0:
         raise ValueError("huber delta must be positive and finite")
     predictions = q_values.gather(1, actions[:, None]).squeeze(1)
-    return F.huber_loss(predictions, targets.detach(), delta=delta)
+    if validated_weights is None:
+        return F.huber_loss(predictions, targets.detach(), delta=delta)
+    row_losses = F.huber_loss(
+        predictions,
+        targets.detach(),
+        delta=delta,
+        reduction="none",
+    )
+    return _weighted_row_mean(row_losses, validated_weights)
 
 
 __all__ = [

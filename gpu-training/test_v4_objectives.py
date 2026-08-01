@@ -1,6 +1,7 @@
 import unittest
 
 import torch
+from torch.nn import functional as F
 
 from v4_model import V4_ACTION_COUNT
 from v4_objectives import (
@@ -8,6 +9,7 @@ from v4_objectives import (
     expected_action_q,
     expected_sarsa_lambda_targets,
     masked_behavior_cloning_loss,
+    masked_log_probabilities,
     masked_probabilities,
     nonforced_policy_eligibility,
     vrpo_clipped_policy_loss,
@@ -161,6 +163,271 @@ class V4ObjectiveTests(unittest.TestCase):
         self.assertTrue(torch.isfinite(q_loss))
         with self.assertRaisesRegex(ValueError, "legal"):
             masked_behavior_cloning_loss(logits.detach(), legal, torch.tensor([0, 2]))
+
+    def test_weighted_bc_and_q_losses_use_exact_row_reduction(self) -> None:
+        logits = torch.zeros(3, V4_ACTION_COUNT)
+        logits[:, :3] = torch.tensor(
+            [[2.0, -1.0, 0.5], [-0.5, 1.5, 0.25], [0.1, -0.2, 0.8]]
+        )
+        q_values = torch.zeros(3, V4_ACTION_COUNT)
+        q_values[:, :3] = torch.tensor(
+            [[2.0, -1.0, 0.5], [0.0, 1.5, -0.5], [3.0, 0.25, -2.0]]
+        )
+        legal = torch.zeros(3, V4_ACTION_COUNT, dtype=torch.bool)
+        legal[:, :3] = True
+        actions = torch.tensor([0, 1, 2], dtype=torch.long)
+        targets = torch.tensor([0.5, 2.0, -0.5])
+        weights = torch.tensor([1.0, 3.0, 2.0])
+
+        bc = masked_behavior_cloning_loss(
+            logits, legal, actions, weights=weights
+        )
+        bc_rows = F.nll_loss(
+            masked_log_probabilities(logits, legal),
+            actions,
+            reduction="none",
+        )
+        expected_bc = (weights * bc_rows).sum() / weights.sum()
+        self.assertTrue(torch.equal(bc, expected_bc))
+
+        q_loss = action_q_regression_loss(
+            q_values,
+            legal,
+            actions,
+            targets,
+            huber_delta=0.75,
+            weights=weights,
+        )
+        predictions = q_values.gather(1, actions[:, None]).squeeze(1)
+        q_rows = F.huber_loss(
+            predictions,
+            targets,
+            delta=0.75,
+            reduction="none",
+        )
+        expected_q = (weights * q_rows).sum() / weights.sum()
+        self.assertTrue(torch.equal(q_loss, expected_q))
+
+    def test_weighted_vrpo_reduces_loss_and_diagnostics_with_same_weights(self) -> None:
+        logits = torch.zeros(3, V4_ACTION_COUNT)
+        logits[:, :3] = torch.tensor(
+            [[0.5, -0.25, 1.0], [1.25, -0.75, 0.0], [-0.5, 0.25, 0.75]]
+        )
+        behavior_logits = torch.zeros_like(logits)
+        behavior_logits[:, :3] = torch.tensor(
+            [[0.1, 0.2, -0.1], [-0.5, 0.5, 0.25], [0.75, -0.25, 0.0]]
+        )
+        q_values = torch.zeros_like(logits)
+        q_values[:, :3] = torch.tensor(
+            [[2.0, -1.0, 0.5], [0.0, 1.5, -0.5], [3.0, 0.25, -2.0]]
+        )
+        legal = torch.zeros(3, V4_ACTION_COUNT, dtype=torch.bool)
+        legal[:, :3] = True
+        actions = torch.tensor([0, 1, 2], dtype=torch.long)
+        advantages = torch.tensor([1.0, -2.0, 0.5])
+        desired_ratios = torch.tensor([1.4, 0.7, 1.05])
+        log_probabilities = masked_log_probabilities(logits, legal)
+        action_log_probs = log_probabilities.gather(
+            1, actions[:, None]
+        ).squeeze(1)
+        old_action_log_probs = action_log_probs - desired_ratios.log()
+        weights = torch.tensor([1.0, 2.0, 5.0])
+        clip_ratio = 0.15
+        entropy_coefficient = 0.07
+        q_boost_coefficient = 0.4
+
+        result = vrpo_clipped_policy_loss(
+            logits,
+            legal,
+            actions,
+            old_action_log_probs,
+            advantages,
+            q_values=q_values,
+            behavior_policy_logits=behavior_logits,
+            q_boost_coefficient=q_boost_coefficient,
+            clip_ratio=clip_ratio,
+            entropy_coefficient=entropy_coefficient,
+            weights=weights,
+        )
+
+        ratio = (action_log_probs - old_action_log_probs).exp()
+        q_baseline = expected_action_q(q_values, behavior_logits, legal)
+        q_taken = q_values.gather(1, actions[:, None]).squeeze(1)
+        q_boost = q_taken - q_baseline
+        combined_advantages = advantages + q_boost_coefficient * q_boost
+        unclipped = ratio * combined_advantages
+        clipped = ratio.clamp(
+            1.0 - clip_ratio, 1.0 + clip_ratio
+        ) * combined_advantages
+        policy_rows = -torch.minimum(unclipped, clipped)
+        probabilities = log_probabilities.exp().masked_fill(~legal, 0.0)
+        entropy_rows = -(
+            probabilities * log_probabilities.masked_fill(~legal, 0.0)
+        ).sum(dim=-1)
+        log_ratio = action_log_probs - old_action_log_probs
+        kl_rows = (ratio - 1.0) - log_ratio
+        clip_rows = ((ratio - 1.0).abs() > clip_ratio).to(logits.dtype)
+
+        def weighted(values: torch.Tensor) -> torch.Tensor:
+            return (weights * values).sum() / weights.sum()
+
+        expected_policy = weighted(policy_rows)
+        expected_entropy = weighted(entropy_rows)
+        self.assertTrue(torch.equal(result.policy_loss, expected_policy))
+        self.assertTrue(torch.equal(result.entropy, expected_entropy))
+        self.assertTrue(torch.equal(result.approx_kl, weighted(kl_rows)))
+        self.assertTrue(torch.equal(result.clip_fraction, weighted(clip_rows)))
+        self.assertTrue(torch.equal(result.mean_q_boost, weighted(q_boost)))
+        self.assertTrue(
+            torch.equal(
+                result.loss,
+                expected_policy - entropy_coefficient * expected_entropy,
+            )
+        )
+
+    def test_none_weights_preserve_unweighted_results_exactly(self) -> None:
+        torch.manual_seed(29)
+        logits = torch.randn(4, V4_ACTION_COUNT)
+        q_values = torch.randn(4, V4_ACTION_COUNT)
+        legal = torch.zeros(4, V4_ACTION_COUNT, dtype=torch.bool)
+        legal[:, :5] = True
+        actions = torch.tensor([0, 1, 2, 3], dtype=torch.long)
+        targets = torch.tensor([1.0, -0.5, 2.0, 0.25])
+        advantages = torch.tensor([0.5, -1.0, 0.25, 1.5])
+        old_action_log_probs = masked_log_probabilities(
+            logits, legal
+        ).gather(1, actions[:, None]).squeeze(1)
+
+        legacy_bc = masked_behavior_cloning_loss(logits, legal, actions)
+        explicit_bc = masked_behavior_cloning_loss(
+            logits, legal, actions, weights=None
+        )
+        expected_bc = F.nll_loss(
+            masked_log_probabilities(logits, legal), actions
+        )
+        self.assertTrue(torch.equal(legacy_bc, explicit_bc))
+        self.assertTrue(torch.equal(legacy_bc, expected_bc))
+
+        legacy_q = action_q_regression_loss(
+            q_values, legal, actions, targets
+        )
+        explicit_q = action_q_regression_loss(
+            q_values, legal, actions, targets, weights=None
+        )
+        expected_q = F.huber_loss(
+            q_values.gather(1, actions[:, None]).squeeze(1),
+            targets,
+            delta=1.0,
+        )
+        self.assertTrue(torch.equal(legacy_q, explicit_q))
+        self.assertTrue(torch.equal(legacy_q, expected_q))
+
+        legacy_vrpo = vrpo_clipped_policy_loss(
+            logits,
+            legal,
+            actions,
+            old_action_log_probs,
+            advantages,
+            q_values=q_values,
+        )
+        explicit_vrpo = vrpo_clipped_policy_loss(
+            logits,
+            legal,
+            actions,
+            old_action_log_probs,
+            advantages,
+            q_values=q_values,
+            weights=None,
+        )
+        log_probabilities = masked_log_probabilities(logits, legal)
+        action_log_probs = log_probabilities.gather(
+            1, actions[:, None]
+        ).squeeze(1)
+        detached_q = q_values.detach()
+        q_baseline = expected_action_q(detached_q, logits.detach(), legal)
+        q_taken = detached_q.gather(1, actions[:, None]).squeeze(1)
+        q_boost = q_taken - q_baseline
+        combined_advantages = (advantages + q_boost).detach()
+        log_ratio = action_log_probs - old_action_log_probs
+        ratio = log_ratio.exp()
+        unclipped = ratio * combined_advantages
+        clipped = ratio.clamp(0.85, 1.15) * combined_advantages
+        expected_policy = -torch.minimum(unclipped, clipped).mean()
+        probabilities = log_probabilities.exp().masked_fill(~legal, 0.0)
+        expected_entropy = -(
+            probabilities * log_probabilities.masked_fill(~legal, 0.0)
+        ).sum(dim=-1).mean()
+        expected_vrpo = {
+            "loss": expected_policy - 0.01 * expected_entropy,
+            "policy_loss": expected_policy,
+            "entropy": expected_entropy,
+            "approx_kl": ((ratio - 1.0) - log_ratio).mean(),
+            "clip_fraction": ((ratio - 1.0).abs() > 0.15)
+            .to(logits.dtype)
+            .mean(),
+            "mean_q_boost": q_boost.mean(),
+        }
+        for field in (
+            "loss",
+            "policy_loss",
+            "entropy",
+            "approx_kl",
+            "clip_fraction",
+            "mean_q_boost",
+        ):
+            self.assertTrue(
+                torch.equal(getattr(legacy_vrpo, field), getattr(explicit_vrpo, field)),
+                field,
+            )
+            self.assertTrue(
+                torch.equal(getattr(legacy_vrpo, field), expected_vrpo[field]),
+                f"legacy {field}",
+            )
+
+    def test_all_weighted_losses_fail_closed_on_invalid_weights(self) -> None:
+        logits = torch.zeros(3, V4_ACTION_COUNT)
+        q_values = torch.zeros(3, V4_ACTION_COUNT)
+        legal = torch.zeros(3, V4_ACTION_COUNT, dtype=torch.bool)
+        legal[:, :2] = True
+        actions = torch.tensor([0, 1, 0], dtype=torch.long)
+        targets = torch.tensor([1.0, -1.0, 0.5])
+        old_action_log_probs = masked_log_probabilities(
+            logits, legal
+        ).gather(1, actions[:, None]).squeeze(1)
+        advantages = torch.tensor([0.25, -0.5, 1.0])
+        calls = {
+            "bc": lambda row_weights: masked_behavior_cloning_loss(
+                logits, legal, actions, weights=row_weights
+            ),
+            "q": lambda row_weights: action_q_regression_loss(
+                q_values, legal, actions, targets, weights=row_weights
+            ),
+            "vrpo": lambda row_weights: vrpo_clipped_policy_loss(
+                logits,
+                legal,
+                actions,
+                old_action_log_probs,
+                advantages,
+                weights=row_weights,
+            ),
+        }
+        invalid_weights = {
+            "wrong shape": torch.ones(3, 1),
+            "non-floating": torch.ones(3, dtype=torch.long),
+            "nan": torch.tensor([1.0, float("nan"), 1.0]),
+            "infinity": torch.tensor([1.0, float("inf"), 1.0]),
+            "zero entry": torch.tensor([1.0, 0.0, 1.0]),
+            "negative entry": torch.tensor([1.0, -0.25, 1.0]),
+            "zero sum": torch.zeros(3),
+            "non-finite sum": torch.full(
+                (3,), torch.finfo(torch.float32).max
+            ),
+        }
+        for call_name, call in calls.items():
+            for weight_name, row_weights in invalid_weights.items():
+                with self.subTest(call=call_name, weights=weight_name):
+                    with self.assertRaises(ValueError):
+                        call(row_weights)
 
 
 if __name__ == "__main__":
