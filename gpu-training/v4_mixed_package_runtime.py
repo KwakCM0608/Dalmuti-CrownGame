@@ -35,7 +35,7 @@ TERMINAL_STATES = frozenset({"succeeded", "failed", "cancelled"})
 PACKAGE_FORMAT = "dalmuti-v4-mixed-run-package"
 BINDING_FORMAT = "dalmuti-v4-mixed-source-binding"
 RECIPE_FORMAT = "dalmuti-v4-mixed-package-recipe"
-RUN_NAMESPACE = "v4-fixedid-ppo-i001-mixedmathfp32env-s640000001"
+RUN_NAMESPACE = "v4-fixedid-ppo-i001-mixedmathfp32env-s660000001"
 V4_POLICY_NUMERICS_FIELDS = frozenset(
     {
         "actorForwardDtype",
@@ -106,6 +106,7 @@ V4_REPLAY_STRATUM_FIELDS = frozenset(
     }
 )
 V4_REPLAY_TOLERANCE = 2.0e-5
+V4_REPLAY_AUDIT_BATCH_SIZE = 4
 V4_MIXED_BACKEND_MAP = ("cpu", "cpu", *("cuda" for _ in range(12)))
 FROZEN_BASELINE_BUNDLE_NAME = "dalmuti-e0c52b0.bundle"
 FROZEN_BASELINE_BUNDLE_SHA256 = (
@@ -1154,7 +1155,7 @@ def _screening_promotion_snapshots(
     candidate_root = (
         run_root
         / "training"
-        / "train-seed-650000001-run-001"
+        / "train-seed-670000001-run-001"
         / "candidate"
     )
     candidate_actor, candidate_actor_sidecar = snapshot_with_sidecar(
@@ -1442,7 +1443,7 @@ def _validate_pretraining_replay(
         and set(audit) == V4_REPLAY_AUDIT_FIELDS
         and audit.get("version") == 2
         and audit.get("passed") is True
-        and audit.get("auditBatchSize") == 64
+        and audit.get("auditBatchSize") == V4_REPLAY_AUDIT_BATCH_SIZE
         and audit.get("actorMode") == "eval"
         and audit.get("actorForwardDtype") == "torch.float32"
         and audit.get("actorAutocastEnabled") is False
@@ -1707,7 +1708,7 @@ def _verify_remote_semantic_inventory(root: Path) -> dict[str, StableSnapshot]:
     )
     snapshots["pretraining replay"] = replay
     snapshots["pretraining replay sidecar"] = replay_sidecar
-    training_root = root / "training" / "train-seed-650000001-run-001"
+    training_root = root / "training" / "train-seed-670000001-run-001"
     for relative, label in (
         ("result.json", "training result"),
         ("run-manifest.json", "training run manifest"),

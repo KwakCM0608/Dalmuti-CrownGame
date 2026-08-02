@@ -64,7 +64,10 @@ V4_POST_EPOCH_POLICY_DRIFT_AUDIT_VERSION = 1
 V4_POST_EPOCH_POLICY_DRIFT_AUDIT_CONTRACT_VERSION = 1
 V4_FIXED_INITIAL_LOG_PROBABILITY_ABSOLUTE_TOLERANCE = 2.0e-5
 V4_ENTROPY_COLLAPSE_FRACTION = 0.30
-V4_CUDA_POLICY_AUDIT_BATCH_SIZE = 64
+# Policy replays are part of the sealed numerical contract, not a throughput
+# workload.  Keep the CUDA batch small and fixed so the audit exercises the
+# same kernel shape in pre-training replay and every pre/post-update audit.
+V4_CUDA_POLICY_AUDIT_BATCH_SIZE = 4
 V4_ACTOR_STATE_SHA256_CONTRACT_VERSION = 1
 V4_FIXED_CHECKPOINT_RNG_CONTRACT_VERSION = 1
 V4_LATEST_COMMON_FIELDS = frozenset(
@@ -617,7 +620,7 @@ def _post_epoch_policy_drift_audit_contract(
         "actorAutocastEnabled": False,
         "datasetTraversal": "full dataset; shuffle=false",
         "auditBatchSelectionRule": (
-            "cuda uses fixed 64; cpu uses trainingConfig.batch_size"
+            "cuda uses fixed 4; cpu uses trainingConfig.batch_size"
         ),
         "auditBatchSize": audit_batch_size,
         "auditMustNotMutateOptimizationRngOrWeights": True,

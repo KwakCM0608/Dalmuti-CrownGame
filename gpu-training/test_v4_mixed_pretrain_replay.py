@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 from v4_mixed_pretrain_replay import (
+    V4_MIXED_REPLAY_AUDIT_BATCH_SIZE,
     _fixed_plan,
     _freeze_file,
     _parser,
@@ -24,6 +25,7 @@ from v4_mixed_workflow import (
     canonical_json_bytes,
 )
 from v4_model import canonical_v4_policy_numerics_contract
+from v4_train import V4_CUDA_POLICY_AUDIT_BATCH_SIZE
 
 
 def _write_canonical(path: Path, value: object, *, sidecar: bool = False) -> str:
@@ -39,6 +41,13 @@ def _write_canonical(path: Path, value: object, *, sidecar: bool = False) -> str
 
 
 class MixedPretrainingAuditTests(unittest.TestCase):
+    def test_replay_batch_is_bound_to_training_audit_contract(self) -> None:
+        self.assertEqual(V4_CUDA_POLICY_AUDIT_BATCH_SIZE, 4)
+        self.assertEqual(
+            V4_MIXED_REPLAY_AUDIT_BATCH_SIZE,
+            V4_CUDA_POLICY_AUDIT_BATCH_SIZE,
+        )
+
     def test_fixed_plan_requires_canonical_string_key_backend_map(self) -> None:
         digest = "d" * 64
         fields = {
@@ -134,7 +143,7 @@ class MixedPretrainingAuditTests(unittest.TestCase):
             "metadata": {
                 "datasetFingerprint": dataset,
                 "initialActor": initial_actor,
-                "seed": 650000001,
+                "seed": 670000001,
             },
             "version": 2,
         }
@@ -175,7 +184,7 @@ class MixedPretrainingAuditTests(unittest.TestCase):
                 "num_workers": 0,
                 "ppo_weight": 1.0,
                 "q_boost_coefficient": 0.0,
-                "seed": 650000001,
+                "seed": 670000001,
                 "weight_decay": 0.0001,
             },
             "trainingContract": training_contract,

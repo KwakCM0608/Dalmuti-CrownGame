@@ -41,6 +41,7 @@ from v4_model import (
 )
 from v4_objectives import masked_behavior_cloning_loss as real_bc_loss
 from v4_train import (
+    V4_CUDA_POLICY_AUDIT_BATCH_SIZE,
     V4TrainingConfig,
     _actor_state_sha256,
     _audit_initial_policy_reproduction,
@@ -526,14 +527,63 @@ class V4BalancedTrainingTests(unittest.TestCase):
                 )
             self.assertFalse(output.exists())
 
+    def test_cpu_policy_audit_evidence_is_batch_invariant(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            actor, _, actor_sha = export_bound_actor(root, seed=820)
+            dataset = fixed_dataset(
+                list(range(4, 11)),
+                lengths=[2, 4, 3, 5, 2, 4, 3],
+                force_first_row=True,
+                behavior_actor=actor,
+                behavior_actor_sha256=actor_sha,
+            )
+            batch_one = _audit_initial_policy_reproduction(
+                actor,
+                dataset,
+                device=torch.device("cpu"),
+                batch_size=1,
+                num_workers=0,
+            )
+            batch_four = _audit_initial_policy_reproduction(
+                actor,
+                dataset,
+                device=torch.device("cpu"),
+                batch_size=4,
+                num_workers=0,
+            )
+            self.assertEqual(batch_one.pop("auditBatchSize"), 1)
+            self.assertEqual(batch_four.pop("auditBatchSize"), 4)
+
+            def assert_same_evidence(left: object, right: object) -> None:
+                self.assertIs(type(left), type(right))
+                if isinstance(left, dict):
+                    assert isinstance(right, dict)
+                    self.assertEqual(set(left), set(right))
+                    for key in left:
+                        assert_same_evidence(left[key], right[key])
+                elif isinstance(left, float):
+                    assert isinstance(right, float)
+                    # Batch shape can select a different CPU reduction kernel,
+                    # but the evidence must remain far tighter than the sealed
+                    # 2e-5 replay gate even after the full suite mutates backend
+                    # settings before this test runs.  The cross-batch check
+                    # remains exactly 100x tighter than that sealed gate.
+                    self.assertLessEqual(abs(left - right), 2.0e-7)
+                else:
+                    self.assertEqual(left, right)
+
+            assert_same_evidence(batch_one, batch_four)
+
     def test_policy_audit_batch_selection_is_device_bound(self) -> None:
         config = V4TrainingConfig(batch_size=3, amp=False)
         self.assertEqual(
             _policy_audit_batch_size(config, torch.device("cpu")), 3
         )
         self.assertEqual(
-            _policy_audit_batch_size(config, torch.device("cuda")), 64
+            _policy_audit_batch_size(config, torch.device("cuda")), 4
         )
+        self.assertEqual(V4_CUDA_POLICY_AUDIT_BATCH_SIZE, 4)
 
     def test_actor_state_sha_is_order_stable_and_x86_byte_compatible(self) -> None:
         torch.manual_seed(820)
@@ -1165,7 +1215,7 @@ class V4BalancedTrainingTests(unittest.TestCase):
         self.assertEqual(post_contract["auditBatchSize"], 4)
         self.assertEqual(
             post_contract["auditBatchSelectionRule"],
-            "cuda uses fixed 64; cpu uses trainingConfig.batch_size",
+            "cuda uses fixed 4; cpu uses trainingConfig.batch_size",
         )
         self.assertTrue(post_contract["auditMustNotMutateOptimizationRngOrWeights"])
         self.assertEqual(

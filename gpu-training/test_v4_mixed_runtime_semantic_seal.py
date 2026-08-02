@@ -77,7 +77,7 @@ def _valid_pretraining_replay(
             "actorAutocastEnabled": False,
             "actorForwardDtype": "torch.float32",
             "actorMode": "eval",
-            "auditBatchSize": 64,
+            "auditBatchSize": runtime.V4_REPLAY_AUDIT_BATCH_SIZE,
             "effectiveNonforcedPpoRowCount": 98,
             "forcedMaximumAbsoluteLogProbabilityError": 0.0,
             "forcedSingletonPpoRowCount": 0,
@@ -149,6 +149,9 @@ def _make_writable(root: Path) -> None:
 
 
 class MixedRuntimeSemanticSealTests(unittest.TestCase):
+    def test_pretraining_replay_batch_contract_is_sealed_at_four(self) -> None:
+        self.assertEqual(runtime.V4_REPLAY_AUDIT_BATCH_SIZE, 4)
+
     def test_finalization_audit_is_bound_to_sealed_plan_and_current_counterparts(
         self,
     ) -> None:
@@ -606,6 +609,13 @@ class MixedRuntimeSemanticSealTests(unittest.TestCase):
                 valid, recipe, merged_snapshot, metadata
             )
 
+            wrong_batch = json.loads(json.dumps(valid))
+            wrong_batch["audit"]["auditBatchSize"] = 64
+            with self.assertRaisesRegex(ValueError, "audit is missing"):
+                runtime._validate_pretraining_replay(
+                    wrong_batch, recipe, merged_snapshot, metadata
+                )
+
             missing_policy = json.loads(json.dumps(valid))
             del missing_policy["policyNumerics"]
             with self.assertRaisesRegex(ValueError, "report header"):
@@ -709,13 +719,13 @@ class MixedRuntimeSemanticSealTests(unittest.TestCase):
                     merged_path, plan_sha, dataset_fingerprint
                 ),
             )
-            training = root / "training" / "train-seed-650000001-run-001"
+            training = root / "training" / "train-seed-670000001-run-001"
             (training / "result.json").parent.mkdir(parents=True, exist_ok=True)
             (training / "result.json").write_bytes(
                 canonical_json_bytes({"passed": True})
             )
             (training / "run-manifest.json").write_bytes(
-                canonical_json_bytes({"seed": 650000001})
+                canonical_json_bytes({"seed": 670000001})
             )
             candidate = training / "candidate"
             actor_sha = _pair(candidate / "actor.pt", b"candidate")

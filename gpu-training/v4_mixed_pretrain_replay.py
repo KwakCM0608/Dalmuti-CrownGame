@@ -32,11 +32,18 @@ from v4_model import (
 )
 from v4_objectives import masked_log_probabilities
 from v4_train import (
+    V4_CUDA_POLICY_AUDIT_BATCH_SIZE,
     _audit_initial_policy_reproduction,
     _batch_to_device,
     _flatten_time,
     _trim_public_padding,
 )
+
+
+# Both independent CUDA replay passes must use the exact training-audit kernel
+# shape.  Importing the sealed training constant prevents these trust
+# boundaries from silently drifting apart.
+V4_MIXED_REPLAY_AUDIT_BATCH_SIZE = V4_CUDA_POLICY_AUDIT_BATCH_SIZE
 
 
 def _require(condition: bool, message: str) -> None:
@@ -371,7 +378,7 @@ def replay(
             actor,
             dataset,
             device=device,
-            batch_size=64,
+            batch_size=V4_MIXED_REPLAY_AUDIT_BATCH_SIZE,
             num_workers=0,
             clip_ratio=0.12,
         )
@@ -384,7 +391,7 @@ def replay(
             dataset,
             frozen_dataset_path,
             device=device,
-            batch_size=64,
+            batch_size=V4_MIXED_REPLAY_AUDIT_BATCH_SIZE,
         )
         rows = strata["byPlayerCountShardAndBackend"]
         assert isinstance(rows, list)
@@ -504,7 +511,7 @@ def _verify_training_gates_frozen(
             "num_workers": 0,
             "ppo_weight": 1.0,
             "q_boost_coefficient": 0.0,
-            "seed": 650000001,
+            "seed": 670000001,
             "weight_decay": 0.0001,
         },
         "training hyperparameters drifted",
@@ -602,7 +609,7 @@ def _verify_training_gates_frozen(
         and isinstance(candidate_metadata, Mapping)
         and candidate_metadata.get("datasetFingerprint") == dataset_fingerprint
         and candidate_metadata.get("initialActor") == initial_actor
-        and candidate_metadata.get("seed") == 650000001,
+        and candidate_metadata.get("seed") == 670000001,
         "dataset, plan, initial Actor, or training seed binding drifted",
     )
     per_player = audit.get("perPlayerCount")

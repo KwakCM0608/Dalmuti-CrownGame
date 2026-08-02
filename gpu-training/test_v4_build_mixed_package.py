@@ -104,13 +104,13 @@ class MixedPackageBuilderTests(unittest.TestCase):
             },
             "format": "dalmuti-v4-mixed-package-recipe",
             "ledgerPath": "docs/ledger.md",
-            "packageId": "v4-fixedid-ppo-i001-mixedmathfp32env-s640000001-test",
+            "packageId": "v4-fixedid-ppo-i001-mixedmathfp32env-s660000001-test",
             "packagingBuilderPath": "gpu-training/v4_build_mixed_package.py",
             "runContract": {
                 "backendMap": ["cpu", "cpu", *(["cuda"] * 12)],
-                "environmentSeed": 640000001,
+                "environmentSeed": 660000001,
                 "policyNumerics": canonical_v4_policy_numerics_contract(),
-                "trainingSeed": 650000001,
+                "trainingSeed": 670000001,
             },
             "runtimeVerifierPath": "gpu-training/v4_mixed_package_runtime.py",
             "screening": {
@@ -422,7 +422,7 @@ class MixedPackageBuilderTests(unittest.TestCase):
         candidate = (
             run
             / "training"
-            / "train-seed-650000001-run-001"
+            / "train-seed-670000001-run-001"
             / "candidate"
         )
         candidate.parent.mkdir(parents=True)

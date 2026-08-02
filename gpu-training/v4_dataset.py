@@ -3086,7 +3086,24 @@ def save_v4_dataset_npz(
 def load_v4_dataset_npz(path: str | Path) -> V4TrajectoryDataset:
     source = Path(path)
     with np.load(source, allow_pickle=False) as archive:
-        metadata = json.loads(str(archive["metadata_json"].item()))
+        member_names = tuple(archive.files)
+        seen_members: set[str] = set()
+        duplicate_member: str | None = None
+        for name in member_names:
+            if name in seen_members:
+                duplicate_member = name
+                break
+            seen_members.add(name)
+        if duplicate_member is not None:
+            raise ValueError(
+                f"V4 dataset NPZ contains duplicate member key: {duplicate_member}"
+            )
+        # NpzFile lazily decompresses on every __getitem__.  Materialize each
+        # unique member exactly once, then keep all semantic checks on this
+        # shared mapping so the large core tensors are never decompressed or
+        # copied merely because multiple validators inspect them.
+        arrays = {name: archive[name] for name in member_names}
+        metadata = json.loads(str(arrays["metadata_json"].item()))
         if (
             metadata.get("format") != V4_DATASET_FORMAT
             or metadata.get("version") != V4_DATASET_VERSION
@@ -3100,7 +3117,7 @@ def load_v4_dataset_npz(path: str | Path) -> V4TrajectoryDataset:
         integer_names = {"actions", "expert_actions"}
         tensors: dict[str, torch.Tensor] = {}
         for field in fields(V4TrajectoryTensors):
-            array = archive[field.name]
+            array = arrays[field.name]
             if field.name in boolean_names:
                 tensor = torch.from_numpy(array.astype(np.bool_, copy=False))
             elif field.name in integer_names:
@@ -3111,11 +3128,11 @@ def load_v4_dataset_npz(path: str | Path) -> V4TrajectoryDataset:
         tensor_values = V4TrajectoryTensors(**tensors)
         if metadata.get("preparationFormat") == V4_MERGED_PREPARATION_FORMAT:
             eligibility = _merged_loss_eligibility(
-                metadata, archive, tensor_values
+                metadata, arrays, tensor_values
             )
         else:
             eligibility = _direct_loss_eligibility(
-                metadata, archive, tensor_values
+                metadata, arrays, tensor_values
             )
     dataset = V4TrajectoryDataset(
         tensor_values,

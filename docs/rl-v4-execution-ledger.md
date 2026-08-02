@@ -797,3 +797,82 @@ new execution identities even though the failure occurred before rollout:
 All semantic, numerical, training, screening, promotion, and prohibition
 contracts remain unchanged. The new package hashes remain unassigned until
 this identity amendment is committed and built from that exact commit.
+
+## Environment retry collection success and CUDA replay OOM retry
+
+The environment-corrected package was built from commit `a2fe1c8` with package
+manifest SHA-256
+`aca6aba47608cfcef161c7292bd423f6c2c6583e3358bc5fe233a6adaf53aae0`,
+source archive SHA-256
+`04178a49cde26f29a440b2ac30ac2e6576e6299ec55916d1b468e100240830b9`,
+source binding SHA-256
+`e2ecc3f76ff04bc0b25f5c61dfb2ed9786d126d3a7d3b37e741e70819a92ecb2`,
+and source inventory SHA-256
+`927a1daf792d1c34be705bfdf608dc1bbd802f4a079fb31bfbe576601f645885`.
+Windows and Linux verification, extraction, and the canonical 26-phase dry
+run passed. The workflow plan SHA-256 was
+`3121a459e7c2656f4606ae3ceb4dc48e3805365f5eb79c491225828fac5fd6e7`.
+
+Cross-backend calibration passed with 7 complete matches, 35 learner-act
+trajectories, 775 decision samples, and exact agreement for all 61 exact
+arrays. The largest selected-action old-log-probability difference was
+`1.6689300537109375e-6`, below the immutable `2e-5` limit. The calibration
+report SHA-256 is
+`6cfc366b466491b0effa2522873f54dc84a415dfdd16afaae603fc29260863e7`.
+
+All 14 production shards passed their pre-publication validators and checksum
+checks. They contain 1,264 complete matches, 6,320 learner-act trajectories,
+136,940 valid decision samples, and 814,576 environment decisions. Strict
+merge also passed, directly proving that the serialized-float32 advantage fix
+removed the preceding derivation failure. The merged NPZ SHA-256 is
+`8e9327c0a32ce0a2f39ce858b1b32f83377fce296532fce223b8a54f7ef88641`
+and its metadata SHA-256 is
+`4b98bf35d1183a769a845af82113c1a8bf1404f36e5a423559f3e9a31827b6ea`.
+
+The run then failed closed before training during the first full CUDA policy
+replay. This was not a policy-probability, dataset, reward, or fingerprint
+failure. The replay hard-coded an audit trajectory batch of 64; the first
+Transformer attention forward requested another 4.61 GiB when the RTX 3080
+had 2.29 GiB free out of 9.78 GiB. PyTorch reported 4.81 GiB allocated and
+1.36 GiB reserved but unused, so allocator tuning alone could not satisfy the
+request. No replay report, checkpoint, candidate, screening report, or Normal
+comparison was created. The local terminal failure record SHA-256 is
+`0ffaa7be6198786f3a4f9b329d44ddb11e19273eb970e644a99f96c0cf175d26`.
+The complete remote failure evidence was archived locally and remotely with
+SHA-256
+`6b6370ba213e52adff2d0e065e5d0fcbef8665e76b465a326edeeb185d127d73`.
+The failed local and remote run directories remain immutable and are never
+resumed, rewritten, or promoted.
+
+The retry binds every independent and trainer pre/post-update CUDA policy
+audit to a fixed trajectory batch of 4. The sealed runtime verifier rejects
+the former batch of 64. This changes only memory shape: actor eval mode, FP32
+forward, disabled autocast, deterministic policy numerics, full-dataset
+coverage, and the `2e-5` tolerance remain unchanged. A new loader also
+materializes each unique NPZ member exactly once before running the unchanged
+strict semantic and fingerprint validators. This avoids repeatedly inflating
+the 37 MB compressed merged file, whose arrays occupy 4.115 GB, without
+copying the 3.970 GB core tensor storage. Duplicate logical NPZ members fail
+closed.
+
+Before a new production controller is allowed to run, the preserved s640
+merged dataset must pass a disposable full CUDA replay with the committed
+batch-4 implementation. The actual retry then uses wholly new execution
+identities and directories:
+
+- Package ID and production namespace:
+  `v4-fixedid-ppo-i001-mixedmathfp32env-s660000001`.
+- Calibration namespace and seed:
+  `v4-fixedid-mixedmathfp32env-calibration-s655000001` and `655000001`.
+- Environment seed base: `660000001`; training seed: `670000001`.
+- Fresh local run directory:
+  `artifacts/rl/v4-fixedid-ppo-i001-mixedmathfp32env-s660000001-local-run-001`.
+- Fresh remote run directory:
+  `/home/pangmin/dalmuti/v4-fixedid-ppo-i001-mixedmathfp32env-s660000001-run-001`.
+- Fresh package directory:
+  `artifacts/rl/v4-fixedid-ppo-i001-mixedmathfp32env-s660000001-package-run-001`.
+
+All behavior-Actor, frozen-Normal, observation, reward, collection topology,
+optimization, hard-gate, screening, promotion, and prohibition contracts
+remain unchanged. Package and source hashes remain unassigned until this fix
+and identity amendment are committed and built from that exact commit.
