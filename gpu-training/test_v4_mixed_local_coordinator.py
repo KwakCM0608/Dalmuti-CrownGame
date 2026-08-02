@@ -121,7 +121,7 @@ class MixedLocalCoordinatorTests(unittest.TestCase):
             root = Path(temporary)
             source = root / "source"
             actor = root / "actor"
-            run = root / "v4-fixedid-ppo-i001-mixedmath-s600000001-local-run-001"
+            run = root / "v4-fixedid-ppo-i001-mixedmathfp32-s620000001-local-run-001"
             for path in (source, actor, run):
                 path.mkdir()
             replacements = _materialized_replacements(
@@ -129,7 +129,7 @@ class MixedLocalCoordinatorTests(unittest.TestCase):
                 local_run=run,
                 actor_bundle=actor,
                 local_python=str(Path(os.__file__).resolve()),
-                remote_run="/home/pangmin/dalmuti/v4-fixedid-ppo-i001-mixedmath-s600000001-run-001",
+                remote_run="/home/pangmin/dalmuti/v4-fixedid-ppo-i001-mixedmathfp32-s620000001-run-001",
                 remote_python="/usr/bin/python3",
                 package_manifest_sha256="b" * 64,
             )
@@ -152,9 +152,9 @@ class MixedLocalCoordinatorTests(unittest.TestCase):
     def test_recipe_enforces_exact_local_and_remote_run_paths(self) -> None:
         recipe = load_recipe(Path(__file__).with_name("v4_mixed_execution_recipe.json"))
         local = Path(
-            "C:/runs/v4-fixedid-ppo-i001-mixedmath-s600000001-local-run-001"
+            "C:/runs/v4-fixedid-ppo-i001-mixedmathfp32-s620000001-local-run-001"
         )
-        remote = "/home/pangmin/dalmuti/v4-fixedid-ppo-i001-mixedmath-s600000001-run-001"
+        remote = "/home/pangmin/dalmuti/v4-fixedid-ppo-i001-mixedmathfp32-s620000001-run-001"
         self.assertEqual(validate_run_layout(recipe, local, remote), remote)
         with self.assertRaisesRegex(ValueError, "local run directory"):
             validate_run_layout(recipe, local.with_name("wrong-local"), remote)
@@ -309,7 +309,7 @@ class MixedLocalCoordinatorTests(unittest.TestCase):
     def test_top_level_preflight_failure_always_leaves_998_status(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            run = root / "v4-fixedid-ppo-i001-mixedmath-s600000001-local-run-001"
+            run = root / "v4-fixedid-ppo-i001-mixedmathfp32-s620000001-local-run-001"
             (run / "status").mkdir(parents=True)
             (run / "logs").mkdir()
             (run / "source").mkdir()
@@ -320,7 +320,7 @@ class MixedLocalCoordinatorTests(unittest.TestCase):
                     package_manifest_sha256="a" * 64,
                     local_run_directory=run,
                     remote_endpoint="pangmin@220.70.2.226",
-                    remote_run_directory="/home/pangmin/dalmuti/v4-fixedid-ppo-i001-mixedmath-s600000001-run-001",
+                    remote_run_directory="/home/pangmin/dalmuti/v4-fixedid-ppo-i001-mixedmathfp32-s620000001-run-001",
                     behavior_actor_bundle=root / "actor",
                     frozen_baseline_bundle=root / "baseline.bundle",
                     port=2222,

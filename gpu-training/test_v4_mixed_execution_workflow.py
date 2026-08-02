@@ -69,15 +69,15 @@ class MixedExecutionWorkflowTests(unittest.TestCase):
         self.assertEqual(contract["policyNumerics"], POLICY_NUMERICS_CONTRACT)
         self.assertEqual(
             layout["localRunDirectory"],
-            "v4-fixedid-ppo-i001-mixedmath-s600000001-local-run-001",
+            "v4-fixedid-ppo-i001-mixedmathfp32-s620000001-local-run-001",
         )
         self.assertEqual(
             layout["remoteRunDirectory"],
-            "/home/pangmin/dalmuti/v4-fixedid-ppo-i001-mixedmath-s600000001-run-001",
+            "/home/pangmin/dalmuti/v4-fixedid-ppo-i001-mixedmathfp32-s620000001-run-001",
         )
         self.assertEqual(
             layout["trainingCandidate"],
-            "training/train-seed-610000001-run-001/candidate",
+            "training/train-seed-630000001-run-001/candidate",
         )
         self.assertEqual(
             self.recipe["screening"]["candidateDirectory"],

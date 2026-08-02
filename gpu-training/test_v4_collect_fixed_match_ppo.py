@@ -25,6 +25,7 @@ from v4_collect_fixed_match_ppo import (
     FixedMatchPPOCollectionConfig,
     _build_complete_match_specs,
     _parser,
+    _store_quantized_advantage_fields,
     assert_evaluator_candidate_seat_parity,
     balanced_learner_physical_ids,
     collect_v4_fixed_match_ppo,
@@ -226,6 +227,40 @@ class FixedMatchPPOTests(unittest.TestCase):
         self.assertEqual(float(suffix_pair[0]), 0.0)
         self.assertEqual(float(suffix_total[0]), 3.0)
         self.assertEqual(float(suffix_total[-1]), (5 + 0.25 * 0.5) / 5)
+
+    def test_standardized_advantage_is_derived_from_serialized_float32_fields(self) -> None:
+        arrays = {
+            name: np.zeros((1, 1), dtype=np.float32)
+            for name in (
+                "raw_returns",
+                "baseline_values",
+                "raw_advantages",
+                "advantage_scales",
+                "advantages",
+            )
+        }
+        raw_return = -0.8708333333333333
+        baseline = -0.2520833333333333
+        scale = 0.0020833333333333333
+
+        _store_quantized_advantage_fields(
+            arrays,
+            0,
+            0,
+            raw_return=raw_return,
+            baseline=baseline,
+            scale=scale,
+            standardized=True,
+        )
+
+        expected_raw = arrays["raw_returns"] - arrays["baseline_values"]
+        expected = expected_raw / arrays["advantage_scales"]
+        self.assertTrue(np.array_equal(arrays["raw_advantages"], expected_raw))
+        self.assertTrue(np.array_equal(arrays["advantages"], expected))
+        self.assertNotEqual(
+            float(arrays["advantages"][0, 0]),
+            float(np.float32((raw_return - baseline) / scale)),
+        )
 
     def test_behavior_policy_is_canonical_raw_masked_softmax_only(self) -> None:
         defaults = FixedMatchPPOCollectionConfig("canonical", 1)
@@ -755,6 +790,73 @@ class FixedMatchPPOTests(unittest.TestCase):
         self.assertEqual(metadata["playerCountDistribution"]["4"]["learnerActTrajectories"], 5)
         for relative, digest in metadata["sourceHashes"].items():
             self.assertEqual(len(digest), 64, relative)
+
+    def test_standardized_collection_is_valid_before_publish_and_after_load(self) -> None:
+        output = self._collect_variant(
+            "standardized-float32-binding",
+            950_000_101,
+            match_counts=((4, 2),),
+            standardize_advantages=True,
+        )
+        dataset = load_v4_dataset_npz(output)
+        with np.load(output, allow_pickle=False) as archive:
+            valid = archive["valid_masks"]
+            expected_raw = archive["raw_returns"] - archive["baseline_values"]
+            expected = expected_raw / archive["advantage_scales"]
+            self.assertTrue(np.array_equal(archive["raw_advantages"][valid], expected_raw[valid]))
+            self.assertTrue(np.array_equal(archive["advantages"][valid], expected[valid]))
+        self.assertGreater(int(dataset.tensors.valid_masks.sum()), 0)
+
+    def test_standardized_float32_shards_merge_under_the_strict_contract(self) -> None:
+        first = self._collect_variant(
+            "standardized-two-shard",
+            950_000_102,
+            match_counts=((4, 24),),
+            match_shard_count=2,
+            match_shard_index=0,
+            standardize_advantages=True,
+        )
+        second = self._collect_variant(
+            "standardized-two-shard",
+            950_000_102,
+            match_counts=((4, 24),),
+            match_shard_count=2,
+            match_shard_index=1,
+            standardize_advantages=True,
+        )
+        merged = merge_v4_datasets(
+            [first, second],
+            self.root / "standardized-two-shard" / "merged.npz",
+        )
+        dataset = load_v4_dataset_npz(merged.output_path)
+        self.assertEqual(len(dataset), 24 * 5)
+        self.assertTrue(torch.equal(dataset.loss_eligibility.ppo, dataset.tensors.valid_masks))
+
+    def test_prepublish_validation_failure_leaves_no_artifacts(self) -> None:
+        output = self.root / "prepublish-failure" / "shard.npz"
+        config = FixedMatchPPOCollectionConfig(
+            run_namespace="prepublish-failure",
+            seed_base=950_000_103,
+            match_counts=((4, 1),),
+            standardize_advantages=True,
+            lane_count=1,
+            device="cpu",
+        )
+        with mock.patch(
+            "v4_collect_fixed_match_ppo._batch_candidate_logits",
+            side_effect=self.deterministic_logits,
+        ), mock.patch(
+            "v4_collect_fixed_match_ppo._validate_fixed_match_ppo_contract",
+            side_effect=ValueError("injected prepublish validation failure"),
+        ), self.assertRaisesRegex(ValueError, "injected prepublish"):
+            collect_v4_fixed_match_ppo(self.bundle, output, config)
+        for path in (
+            output,
+            Path(f"{output}.sha256"),
+            Path(f"{output}.metadata.json"),
+            Path(f"{output}.metadata.json.sha256"),
+        ):
+            self.assertFalse(path.exists(), path)
 
     def test_resume_existing_is_exact_and_fail_closed(self) -> None:
         resumed_config = FixedMatchPPOCollectionConfig(**{

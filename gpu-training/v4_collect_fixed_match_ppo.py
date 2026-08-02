@@ -59,6 +59,7 @@ from v4_dataset import (
     V4_DATASET_VERSION,
     V4TrajectoryDataset,
     V4TrajectoryTensors,
+    _validate_fixed_match_ppo_contract,
     fixed_match_shard_identity_sha256,
 )
 from v4_compare_fixed_match_backends import (
@@ -755,6 +756,33 @@ def _finalize_complete_match_rewards(
         trajectory["terminal_reward"] = float(suffix_total[index])
 
 
+def _store_quantized_advantage_fields(
+    arrays: Mapping[str, np.ndarray],
+    trajectory_index: int,
+    time_index: int,
+    *,
+    raw_return: float,
+    baseline: float,
+    scale: float,
+    standardized: bool,
+) -> None:
+    """Bind every derived advantage to the float32 values that are serialized."""
+
+    arrays["raw_returns"][trajectory_index, time_index] = raw_return
+    arrays["baseline_values"][trajectory_index, time_index] = baseline
+    arrays["advantage_scales"][trajectory_index, time_index] = scale
+    arrays["raw_advantages"][trajectory_index, time_index] = (
+        arrays["raw_returns"][trajectory_index, time_index]
+        - arrays["baseline_values"][trajectory_index, time_index]
+    )
+    arrays["advantages"][trajectory_index, time_index] = (
+        arrays["raw_advantages"][trajectory_index, time_index]
+        / arrays["advantage_scales"][trajectory_index, time_index]
+        if standardized
+        else arrays["raw_advantages"][trajectory_index, time_index]
+    )
+
+
 def _build_arrays(
     trajectories: Sequence[Mapping[str, object]],
     actor: V4ActorConfig,
@@ -808,16 +836,17 @@ def _build_arrays(
                 arrays[name][trajectory_index, time_index] = row[name]
             for name in row_names:
                 arrays[name][trajectory_index, time_index] = row[name]
-            raw_advantage = suffix_total - baseline.baseline
-            arrays["raw_returns"][trajectory_index, time_index] = suffix_total
-            arrays["baseline_values"][trajectory_index, time_index] = baseline.baseline
-            arrays["raw_advantages"][trajectory_index, time_index] = raw_advantage
-            arrays["advantage_scales"][trajectory_index, time_index] = baseline.scale
+            _store_quantized_advantage_fields(
+                arrays,
+                trajectory_index,
+                time_index,
+                raw_return=suffix_total,
+                baseline=baseline.baseline,
+                scale=baseline.scale,
+                standardized=standardize,
+            )
             arrays["baseline_tiers"][trajectory_index, time_index] = baseline.tier
             arrays["baseline_reference_counts"][trajectory_index, time_index] = baseline.reference_count
-            arrays["advantages"][trajectory_index, time_index] = (
-                raw_advantage / baseline.scale if standardize else raw_advantage
-            )
             arrays["suffix_group_chip_sums"][trajectory_index, time_index] = trajectory["suffix_group_chip_sum"]
             arrays["suffix_pairwise_centered_returns"][trajectory_index, time_index] = trajectory["suffix_pairwise_centered_return"]
             arrays["suffix_total_returns"][trajectory_index, time_index] = suffix_total
@@ -1436,6 +1465,10 @@ def collect_v4_fixed_match_ppo(
         "auxiliaryArrays": sorted(set(arrays) - {field.name for field in fields(V4TrajectoryTensors)}),
         "padding": "zero-valued invalid suffix; documented integer sentinels remain canonical",
     }
+    # Validate the exact in-memory payload before publishing a completion-bound
+    # shard.  Merge/load must never be the first place a collector defect is
+    # discovered.
+    _validate_fixed_match_ppo_contract(metadata, arrays, dataset.tensors)
     arrays["metadata_json"] = np.asarray(_canonical_text(metadata))
     npz_bytes = _deterministic_npz_bytes(arrays)
     npz_sha = _sha256_bytes(npz_bytes)

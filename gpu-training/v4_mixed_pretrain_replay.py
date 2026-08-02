@@ -504,7 +504,7 @@ def _verify_training_gates_frozen(
             "num_workers": 0,
             "ppo_weight": 1.0,
             "q_boost_coefficient": 0.0,
-            "seed": 610000001,
+            "seed": 630000001,
             "weight_decay": 0.0001,
         },
         "training hyperparameters drifted",
@@ -602,7 +602,7 @@ def _verify_training_gates_frozen(
         and isinstance(candidate_metadata, Mapping)
         and candidate_metadata.get("datasetFingerprint") == dataset_fingerprint
         and candidate_metadata.get("initialActor") == initial_actor
-        and candidate_metadata.get("seed") == 610000001,
+        and candidate_metadata.get("seed") == 630000001,
         "dataset, plan, initial Actor, or training seed binding drifted",
     )
     per_player = audit.get("perPlayerCount")

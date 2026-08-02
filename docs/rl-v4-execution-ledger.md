@@ -697,3 +697,58 @@ unassigned until the deterministic-math changes and this identity amendment
 are committed and the package is built from that exact commit. This retry
 still prohibits V3/i2 resumption, final-reservation seeds, product
 integration, and deployment.
+
+## Deterministic-math run collection success and float32-binding retry
+
+The deterministic-math run passed cross-backend calibration before starting
+production collection. CPU and CUDA produced the same 7 complete matches, 35
+learner-act trajectories, and 771 samples. All exact arrays matched. The
+maximum absolute differences were `1.9073486328125e-6` for selected-action old
+log probability, `4.0316981358978765e-7` for selected probability, and
+`7.152557373046875e-7` for entropy, all below the immutable `2e-5` limit. The
+calibration report bound to production has SHA-256
+`dc5333c8c8e647b09f48164c410f83f22f7352e2d8865e24dbcd9ebab5ec7782`.
+
+All 14 production shards then completed and were transferred successfully:
+`1,264` complete matches, `6,320` learner-act trajectories, and `135,788`
+valid decision samples. Every NPZ, metadata, completion, retrieval, and status
+sidecar matched its recorded SHA-256. Merge nevertheless failed closed before
+training because 284 rows in 8 shards did not satisfy the exact serialized
+advantage derivation. The terminal failure record SHA-256 is
+`60cd90c766995a2d5b99a06bc23c8c4a3776ab429777376aba50ef4792b32ad3`.
+
+The failure was a serialization-contract defect, not a game, reward, policy,
+or CPU/CUDA rollout mismatch. The collector independently computed return,
+baseline, raw advantage, scale, and standardized advantage with Python
+float64 intermediates and then stored each as float32. The loader recomputed
+the derivation from the stored float32 operands. For 14 trajectories with
+shard-local scales between `0.001` and `0.00625`, float32 quantization error
+was amplified to as much as two output ULPs past the strict `2e-6` derivation
+tolerance. The affected 284 rows are
+`0.20915%` of the corpus and the maximum discrepancy is
+`3.0517578125e-5`. The failed local and remote directories remain immutable
+and are never resumed, rewritten, or promoted.
+
+The collector now stores return, baseline, and scale first and derives both
+advantage arrays exclusively from those serialized float32 operands. It also
+runs the unchanged strict fixed-match validator before publishing any shard;
+validation failure leaves no artifact. The tolerance is not relaxed. The
+retry uses a new source package, seeds, namespace, and directories:
+
+- Package ID and production namespace:
+  `v4-fixedid-ppo-i001-mixedmathfp32-s620000001`.
+- Calibration namespace and seed:
+  `v4-fixedid-mixedmathfp32-calibration-s615000001` and `615000001`.
+- Environment seed base: `620000001`; training seed: `630000001`.
+- Fresh local run directory:
+  `artifacts/rl/v4-fixedid-ppo-i001-mixedmathfp32-s620000001-local-run-001`.
+- Fresh remote run directory:
+  `/home/pangmin/dalmuti/v4-fixedid-ppo-i001-mixedmathfp32-s620000001-run-001`.
+- Fresh package directory:
+  `artifacts/rl/v4-fixedid-ppo-i001-mixedmathfp32-s620000001-package-run-001`.
+
+All behavior-Actor, frozen-Normal, observation, deterministic policy-math,
+collection topology, optimization, hard-gate, screening, and promotion
+contracts remain unchanged. Package and source hashes remain unassigned until
+this fix and amendment are committed and built from that exact commit. Product
+integration and deployment remain prohibited.
