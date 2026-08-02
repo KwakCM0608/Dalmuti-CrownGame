@@ -752,3 +752,48 @@ collection topology, optimization, hard-gate, screening, and promotion
 contracts remain unchanged. Package and source hashes remain unassigned until
 this fix and amendment are committed and built from that exact commit. Product
 integration and deployment remain prohibited.
+
+## Float32-binding launcher preflight failure and environment retry
+
+The first float32-binding package was built from commit `9312381` with package
+manifest SHA-256
+`6d6c0e543724cc83ee9f10b5bee85518dcd6be3c23c0b8d0d6bacf0e12d83e28`,
+source archive SHA-256
+`8d38135a63e0399e816e0f522028e4b3c57238c79e089a632fe7bb7e9e7acb35`,
+and source inventory SHA-256
+`fda2213cdb0257124a037d6f37579ad6c9b54a38bfc12166de9430847c3307b9`.
+Windows and Linux package verification, extraction, and the canonical 26-phase
+dry-run plan all passed with plan SHA-256
+`015fc003db4a871aa67e85d5d46370378174d530000a24fcef25363982bd55c4`.
+
+The actual controller then failed during the first local Actor verification,
+before remote staging, calibration, collection, merge, replay, training, or
+screening. The selected local Python executable depends on the external
+`artifacts/rl/python-deps` package directory, but the launcher process did not
+inherit that directory through `PYTHONPATH`; importing `torch` therefore
+raised `ModuleNotFoundError`. The immutable local failure directory is
+`artifacts/rl/v4-fixedid-ppo-i001-mixedmathfp32-s620000001-local-run-001` and
+its failure record has SHA-256
+`fd3a19f3037d0ef7d0925f23ecb76c7afb6455fe5f30dc28d7b1fe5a38eefe5f`.
+The corresponding remote run directory was never created. This local run is
+not reused or rewritten.
+
+The next controller invocation must set `PYTHONPATH` to the absolute local
+`artifacts/rl/python-deps` directory before process creation. It uses wholly
+new execution identities even though the failure occurred before rollout:
+
+- Package ID and production namespace:
+  `v4-fixedid-ppo-i001-mixedmathfp32env-s640000001`.
+- Calibration namespace and seed:
+  `v4-fixedid-mixedmathfp32env-calibration-s635000001` and `635000001`.
+- Environment seed base: `640000001`; training seed: `650000001`.
+- Fresh local run directory:
+  `artifacts/rl/v4-fixedid-ppo-i001-mixedmathfp32env-s640000001-local-run-001`.
+- Fresh remote run directory:
+  `/home/pangmin/dalmuti/v4-fixedid-ppo-i001-mixedmathfp32env-s640000001-run-001`.
+- Fresh package directory:
+  `artifacts/rl/v4-fixedid-ppo-i001-mixedmathfp32env-s640000001-package-run-001`.
+
+All semantic, numerical, training, screening, promotion, and prohibition
+contracts remain unchanged. The new package hashes remain unassigned until
+this identity amendment is committed and built from that exact commit.

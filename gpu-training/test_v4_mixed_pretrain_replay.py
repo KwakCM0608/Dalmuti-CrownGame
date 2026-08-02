@@ -134,7 +134,7 @@ class MixedPretrainingAuditTests(unittest.TestCase):
             "metadata": {
                 "datasetFingerprint": dataset,
                 "initialActor": initial_actor,
-                "seed": 630000001,
+                "seed": 650000001,
             },
             "version": 2,
         }
@@ -175,7 +175,7 @@ class MixedPretrainingAuditTests(unittest.TestCase):
                 "num_workers": 0,
                 "ppo_weight": 1.0,
                 "q_boost_coefficient": 0.0,
-                "seed": 630000001,
+                "seed": 650000001,
                 "weight_decay": 0.0001,
             },
             "trainingContract": training_contract,

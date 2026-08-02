@@ -709,13 +709,13 @@ class MixedRuntimeSemanticSealTests(unittest.TestCase):
                     merged_path, plan_sha, dataset_fingerprint
                 ),
             )
-            training = root / "training" / "train-seed-630000001-run-001"
+            training = root / "training" / "train-seed-650000001-run-001"
             (training / "result.json").parent.mkdir(parents=True, exist_ok=True)
             (training / "result.json").write_bytes(
                 canonical_json_bytes({"passed": True})
             )
             (training / "run-manifest.json").write_bytes(
-                canonical_json_bytes({"seed": 630000001})
+                canonical_json_bytes({"seed": 650000001})
             )
             candidate = training / "candidate"
             actor_sha = _pair(candidate / "actor.pt", b"candidate")

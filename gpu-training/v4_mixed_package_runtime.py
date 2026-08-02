@@ -35,7 +35,7 @@ TERMINAL_STATES = frozenset({"succeeded", "failed", "cancelled"})
 PACKAGE_FORMAT = "dalmuti-v4-mixed-run-package"
 BINDING_FORMAT = "dalmuti-v4-mixed-source-binding"
 RECIPE_FORMAT = "dalmuti-v4-mixed-package-recipe"
-RUN_NAMESPACE = "v4-fixedid-ppo-i001-mixedmathfp32-s620000001"
+RUN_NAMESPACE = "v4-fixedid-ppo-i001-mixedmathfp32env-s640000001"
 V4_POLICY_NUMERICS_FIELDS = frozenset(
     {
         "actorForwardDtype",
@@ -1154,7 +1154,7 @@ def _screening_promotion_snapshots(
     candidate_root = (
         run_root
         / "training"
-        / "train-seed-630000001-run-001"
+        / "train-seed-650000001-run-001"
         / "candidate"
     )
     candidate_actor, candidate_actor_sidecar = snapshot_with_sidecar(
@@ -1707,7 +1707,7 @@ def _verify_remote_semantic_inventory(root: Path) -> dict[str, StableSnapshot]:
     )
     snapshots["pretraining replay"] = replay
     snapshots["pretraining replay sidecar"] = replay_sidecar
-    training_root = root / "training" / "train-seed-630000001-run-001"
+    training_root = root / "training" / "train-seed-650000001-run-001"
     for relative, label in (
         ("result.json", "training result"),
         ("run-manifest.json", "training run manifest"),
