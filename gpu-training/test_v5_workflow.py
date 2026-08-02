@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -12,6 +13,7 @@ import v5_workflow
 import v5_gpu_memory_preflight
 from v5_evaluate import SCREENING_MATCH_COUNTS
 from v5_workflow import (
+    _remove_tree_force_writable,
     bootstrap_v5_run,
     evaluate_v5_run_stage,
     materialize_v5_source_checkout,
@@ -36,7 +38,7 @@ def _repository(root: Path) -> str:
     _git(root, "config", "user.name", "V5 Workflow Test")
     _git(root, "config", "user.email", "v5-workflow@example.invalid")
     _git(root, "config", "core.autocrlf", "false")
-    (root / "tracked.txt").write_text("sealed\n", encoding="utf-8")
+    (root / "tracked.txt").write_bytes(b"sealed\n")
     _git(root, "add", "tracked.txt")
     _git(root, "commit", "-m", "sealed source")
     return _git(root, "rev-parse", "HEAD")
@@ -115,6 +117,8 @@ class V5WorkflowTests(unittest.TestCase):
             self.assertTrue((run / "workflow.json.sha256").is_file())
             self.assertEqual(result["workflow"]["sourceCommit"], commit)
             self.assertEqual(publish.call_args.kwargs["seed"], 830_000_001)
+            global_config = parent / "forced-global.gitconfig"
+            global_config.write_bytes(b"[core]\n\tautocrlf = true\n")
             with mock.patch.object(
                 v5_workflow,
                 "resolve_v5_evaluation_source_binding",
@@ -127,11 +131,26 @@ class V5WorkflowTests(unittest.TestCase):
                 return_value="f" * 64,
             ), mock.patch.object(
                 v5_workflow, "verify_v5_model_pair", return_value=pair
+            ), mock.patch.dict(
+                os.environ,
+                {
+                    "GIT_CONFIG_GLOBAL": str(global_config),
+                    "GIT_CONFIG_NOSYSTEM": "1",
+                },
             ):
                 materialized = materialize_v5_source_checkout(run)
             checkout = Path(materialized["repositoryRoot"])
             self.assertEqual(_git(checkout, "rev-parse", "HEAD"), commit)
             self.assertEqual(_git(checkout, "status", "--porcelain=v1"), "")
+            self.assertEqual(
+                _git(checkout, "config", "--local", "--get", "core.autocrlf"),
+                "false",
+            )
+            self.assertEqual(
+                _git(checkout, "config", "--local", "--get", "core.eol"),
+                "lf",
+            )
+            self.assertEqual((checkout / "tracked.txt").read_bytes(), b"sealed\n")
             with self.assertRaises(FileExistsError):
                 bootstrap_v5_run(
                     run,
@@ -140,6 +159,70 @@ class V5WorkflowTests(unittest.TestCase):
                     iteration=1,
                     run_number=1,
                 )
+
+    def test_private_staging_cleanup_handles_read_only_git_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            staging = Path(temporary) / ".source-checkout.staging-test"
+            objects = staging / ".git" / "objects" / "pack"
+            objects.mkdir(parents=True)
+            packed = objects / "pack-test.idx"
+            packed.write_bytes(b"sealed pack")
+            packed.chmod(0o444)
+
+            _remove_tree_force_writable(staging)
+
+            self.assertFalse(staging.exists())
+
+    def test_materialize_failure_preserves_read_only_checkout_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "sealed-run"
+            seal_root = root / "source-seal"
+            seal_root.mkdir(parents=True)
+            bundle = seal_root / "source.bundle"
+            bundle.write_bytes(b"bundle")
+            marker = RuntimeError("checkout verification failed")
+
+            def clone(command: list[str], **_: object) -> subprocess.CompletedProcess[bytes]:
+                staging = Path(command[-1])
+                pack_root = staging / ".git" / "objects" / "pack"
+                pack_root.mkdir(parents=True)
+                packed = pack_root / "pack-failure.idx"
+                packed.write_bytes(b"failed checkout evidence")
+                packed.chmod(0o444)
+                return subprocess.CompletedProcess(command, 0, b"", b"")
+
+            seal = {
+                "artifacts": {"gitBundle": bundle.name},
+                "sealId": "b" * 64,
+            }
+            try:
+                with mock.patch.object(
+                    v5_workflow,
+                    "load_v5_run",
+                    return_value={"sourceCommit": "a" * 40},
+                ), mock.patch.object(
+                    v5_workflow,
+                    "_load_canonical_with_sidecar",
+                    return_value=(seal, "c" * 64),
+                ), mock.patch.object(
+                    v5_workflow, "_validate_source_seal", return_value=seal
+                ), mock.patch.object(
+                    v5_workflow.subprocess, "run", side_effect=clone
+                ), mock.patch.object(v5_workflow, "_run_git", side_effect=marker):
+                    with self.assertRaises(RuntimeError) as raised:
+                        materialize_v5_source_checkout(root)
+
+                self.assertIs(raised.exception, marker)
+                self.assertFalse((root / "source-checkout").exists())
+                staging = list(root.glob(".source-checkout.staging-*"))
+                self.assertEqual(len(staging), 1)
+                self.assertEqual(
+                    (staging[0] / ".git" / "objects" / "pack" / "pack-failure.idx").read_bytes(),
+                    b"failed checkout evidence",
+                )
+            finally:
+                for staging in root.glob(".source-checkout.staging-*"):
+                    _remove_tree_force_writable(staging)
 
     def test_atomic_run_publish_refuses_racing_empty_target(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

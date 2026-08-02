@@ -20,6 +20,7 @@ from pathlib import PurePosixPath
 import re
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import tarfile
@@ -163,6 +164,30 @@ def _fsync_directory(directory: Path) -> None:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+
+
+def _remove_tree_force_writable(path: Path) -> None:
+    """Remove unpublished bootstrap staging, including read-only Git files.
+
+    Git for Windows can mark generated object files read-only.  Bootstrap has
+    no published run in which to retain a failed private staging tree, so its
+    cleanup must not mask the original exception.
+    """
+
+    def make_writable_and_retry(
+        operation: object,
+        raw_path: str,
+        error_info: tuple[type[BaseException], BaseException, object],
+    ) -> None:
+        error = error_info[1]
+        if not isinstance(error, PermissionError) or not callable(operation):
+            raise error
+        target = Path(raw_path)
+        mode = os.stat(target, follow_symlinks=False).st_mode
+        os.chmod(target, mode | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+        operation(raw_path)
+
+    shutil.rmtree(path, onerror=make_writable_and_retry)
 
 
 def _atomic_link_bytes_noreplace(path: Path, payload: bytes) -> None:
@@ -542,7 +567,7 @@ def bootstrap_v5_run(
         }
     finally:
         if staging.exists():
-            shutil.rmtree(staging)
+            _remove_tree_force_writable(staging)
 
 
 def materialize_v5_source_checkout(
@@ -590,6 +615,11 @@ def materialize_v5_source_checkout(
             )
         except (OSError, subprocess.CalledProcessError) as error:
             raise ValueError("could not clone the sealed V5 Git bundle") from error
+        # Materialized bytes are part of the cryptographic source binding.
+        # Never inherit a host-level core.autocrlf setting that rewrites LF
+        # blobs to CRLF during checkout (notably the bundled Git on Windows).
+        _run_git(staging, "config", "--local", "core.autocrlf", "false")
+        _run_git(staging, "config", "--local", "core.eol", "lf")
         _run_git(staging, "checkout", "--detach", source_commit)
         _require_clean_exact_head(staging, source_commit)
         evaluation = resolve_v5_evaluation_source_binding(staging, source_commit)
@@ -608,9 +638,15 @@ def materialize_v5_source_checkout(
             "sourceCommit": source_commit,
             "sourceSealId": seal["sealId"],
         }
-    finally:
-        if staging.exists():
-            shutil.rmtree(staging)
+    except BaseException as error:
+        # Preserve an unsuccessful checkout byte-for-byte as failure evidence.
+        # The canonical target remains absent, so an operator can inspect the
+        # hidden tree and retry this same sealed run without ambiguity.
+        try:
+            error.add_note(f"failed sealed checkout preserved at {staging}")
+        except (AttributeError, TypeError):
+            pass
+        raise
 
 
 def load_v5_run(run_root: str | Path) -> dict[str, object]:
