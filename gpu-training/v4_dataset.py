@@ -44,6 +44,9 @@ V4_FIXED_PPO_SOURCE_CONTRACT = "fixed-physical-id-five-act-suffix-v1"
 V4_FIXED_PPO_REWARD_CONTRACT_ID = "fixed-group-chip-pairwise-five-act-suffix-v1"
 V4_FIXED_PPO_BEHAVIOR_POLICY_CONTRACT_ID = "raw-masked-softmax-v1"
 V4_FIXED_COLLECTION_PLAN_ID = "fixed-complete-shard-plan-v1"
+V4_FIXED_MIXED_BACKEND_COLLECTION_PLAN_ID = (
+    "fixed-complete-mixed-backend-shard-plan-v2"
+)
 _FIXED_COLLECTION_NAMESPACE_CHARACTERS = frozenset(
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
 )
@@ -684,7 +687,7 @@ def canonical_fixed_ppo_behavior_policy_contract(
     }
 
 
-_FIXED_COLLECTION_PLAN_FIELDS = {
+_FIXED_COLLECTION_PLAN_V1_FIELDS = {
     "version",
     "runNamespace",
     "seedBase",
@@ -698,12 +701,202 @@ _FIXED_COLLECTION_PLAN_FIELDS = {
     "behaviorPolicyContract",
     "sourceHashesSha256",
 }
+_FIXED_COLLECTION_PLAN_V2_FIELDS = (
+    _FIXED_COLLECTION_PLAN_V1_FIELDS
+    | {
+        "shardBackendMap",
+        "crossBackendCalibrationReportSha256",
+    }
+)
+
+
+def _canonical_shard_backend_map(
+    value: object,
+    shard_count: int,
+) -> dict[str, str]:
+    """Canonicalize a complete numeric shard-index -> cpu/cuda map."""
+
+    if not isinstance(value, Mapping) or len(value) != shard_count:
+        raise ValueError("fixed collection plan shard backend map is invalid")
+    parsed: dict[int, str] = {}
+    for key, backend in value.items():
+        try:
+            shard_index = int(key)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "fixed collection plan shard backend index is invalid"
+            ) from error
+        if (
+            not isinstance(key, str)
+            or key != str(shard_index)
+            or not 0 <= shard_index < shard_count
+            or shard_index in parsed
+            or backend not in {"cpu", "cuda"}
+        ):
+            raise ValueError(
+                "fixed collection plan shard backend map is non-canonical"
+            )
+        parsed[shard_index] = str(backend)
+    if set(parsed) != set(range(shard_count)) or set(parsed.values()) != {
+        "cpu",
+        "cuda",
+    }:
+        raise ValueError(
+            "fixed collection plan v2 requires every shard and both cpu/cuda backends"
+        )
+    return {str(index): parsed[index] for index in range(shard_count)}
+
+
+def fixed_match_shard_identity_sha256(
+    shard: Mapping[str, object],
+    preparation_format: str = V4_FIXED_MATCH_PPO_PREPARATION_FORMAT,
+) -> str:
+    """Recompute one direct shard identity from its declared canonical fields.
+
+    The v1 payload is byte-for-byte compatible with the original collector.
+    V2 adds an explicit generation marker, the complete backend plan, and the
+    immutable CPU/CUDA calibration report hash.  Keeping this derivation in the
+    loader prevents metadata-only removal of the v2 fields from being accepted
+    while the original v2 identity remains attached.
+    """
+
+    if not isinstance(shard, Mapping):
+        raise ValueError("fixed-match shard identity metadata is missing")
+    if preparation_format != V4_FIXED_MATCH_PPO_PREPARATION_FORMAT:
+        raise ValueError("fixed-match shard identity preparation format is invalid")
+    namespace = shard.get("runNamespace")
+    seed_base = shard.get("seedBase")
+    match_start = shard.get("matchStart")
+    shard_count = shard.get("matchShardCount")
+    shard_index = shard.get("matchShardIndex")
+    match_counts_value = shard.get("matchCounts")
+    if (
+        not _is_canonical_fixed_collection_namespace(namespace)
+        or isinstance(seed_base, bool)
+        or not isinstance(seed_base, int)
+        or not 0 <= seed_base <= 0xFFFF_FFFF
+        or isinstance(match_start, bool)
+        or not isinstance(match_start, int)
+        or match_start < 0
+        or isinstance(shard_count, bool)
+        or not isinstance(shard_count, int)
+        or shard_count < 1
+        or isinstance(shard_index, bool)
+        or not isinstance(shard_index, int)
+        or not 0 <= shard_index < shard_count
+        or not isinstance(match_counts_value, Mapping)
+        or not match_counts_value
+    ):
+        raise ValueError("fixed-match shard identity fields are invalid")
+    parsed_match_counts: dict[int, int] = {}
+    for key, raw_count in match_counts_value.items():
+        try:
+            player_count = int(key)
+        except (TypeError, ValueError) as error:
+            raise ValueError("fixed-match shard identity match counts are invalid") from error
+        if (
+            not isinstance(key, str)
+            or key != str(player_count)
+            or not 4 <= player_count <= 10
+            or player_count in parsed_match_counts
+            or isinstance(raw_count, bool)
+            or not isinstance(raw_count, int)
+            or raw_count < 1
+        ):
+            raise ValueError("fixed-match shard identity match counts are invalid")
+        parsed_match_counts[player_count] = raw_count
+    ordered_match_counts = [
+        [player_count, parsed_match_counts[player_count]]
+        for player_count in sorted(parsed_match_counts)
+    ]
+
+    version = shard.get("collectionPlanVersion", 1)
+    if version == 1:
+        if any(
+            name in shard
+            for name in (
+                "collectionPlanVersion",
+                "shardBackendMap",
+                "crossBackendCalibrationReportSha256",
+            )
+        ):
+            raise ValueError("fixed-match shard v1 identity carries v2 fields")
+        payload: list[object] = [
+            preparation_format,
+            namespace,
+            seed_base,
+            ordered_match_counts,
+            match_start,
+            shard_count,
+            shard_index,
+        ]
+    elif version == 2:
+        backend_map = _canonical_shard_backend_map(
+            shard.get("shardBackendMap"), shard_count
+        )
+        calibration_sha256 = shard.get("crossBackendCalibrationReportSha256")
+        if not _is_sha256(calibration_sha256):
+            raise ValueError(
+                "fixed-match shard v2 calibration report hash is invalid"
+            )
+        payload = [
+            preparation_format,
+            namespace,
+            seed_base,
+            ordered_match_counts,
+            match_start,
+            shard_count,
+            shard_index,
+            2,
+            backend_map,
+            calibration_sha256,
+        ]
+    else:
+        raise ValueError("fixed-match shard identity version is unsupported")
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def fixed_collection_plan_sha256(value: object) -> str:
+    """Extract the SHA from either canonical fixed collection plan generation."""
+
+    if not isinstance(value, str):
+        raise ValueError("fixed collection plan ID is non-canonical")
+    for contract_id in (
+        V4_FIXED_COLLECTION_PLAN_ID,
+        V4_FIXED_MIXED_BACKEND_COLLECTION_PLAN_ID,
+    ):
+        prefix = f"{contract_id}:sha256="
+        if value.startswith(prefix):
+            digest = value[len(prefix) :]
+            if _is_sha256(digest):
+                return digest
+            break
+    raise ValueError("fixed collection plan ID is non-canonical")
 
 
 def _canonical_fixed_collection_plan_fields(
     value: Mapping[str, object],
 ) -> tuple[str, dict[str, object]]:
-    if not isinstance(value, Mapping) or set(value) != _FIXED_COLLECTION_PLAN_FIELDS:
+    if not isinstance(value, Mapping):
+        raise ValueError("fixed collection plan fields are non-canonical")
+    version = value.get("version")
+    if isinstance(version, bool) or not isinstance(version, int):
+        raise ValueError("fixed collection plan integer field is invalid")
+    expected_fields = (
+        _FIXED_COLLECTION_PLAN_V1_FIELDS
+        if version == 1
+        else _FIXED_COLLECTION_PLAN_V2_FIELDS
+        if version == 2
+        else None
+    )
+    if expected_fields is None or set(value) != expected_fields:
         raise ValueError("fixed collection plan fields are non-canonical")
     match_counts_value = value.get("matchCounts")
     if not isinstance(match_counts_value, Mapping) or not match_counts_value:
@@ -741,8 +934,7 @@ def _canonical_fixed_collection_plan_fields(
     ):
         raise ValueError("fixed collection plan integer field is invalid")
     if (
-        value.get("version") != 1
-        or int(value["seedBase"]) < 0
+        int(value["seedBase"]) < 0
         or int(value["seedBase"]) > 0xFFFF_FFFF
         or int(value["matchStart"]) < 0
         or int(value["matchShardCount"]) < 1
@@ -755,10 +947,16 @@ def _canonical_fixed_collection_plan_fields(
         or not _is_sha256(value.get("sourceHashesSha256"))
         or not isinstance(value.get("rewardContract"), str)
         or not isinstance(value.get("behaviorPolicyContract"), str)
+        or (
+            version == 2
+            and not _is_sha256(
+                value.get("crossBackendCalibrationReportSha256")
+            )
+        )
     ):
         raise ValueError("fixed collection plan provenance is invalid")
-    canonical_fields = {
-        "version": 1,
+    canonical_fields: dict[str, object] = {
+        "version": version,
         "runNamespace": str(value["runNamespace"]),
         "seedBase": int(value["seedBase"]),
         "matchCounts": match_counts,
@@ -773,10 +971,23 @@ def _canonical_fixed_collection_plan_fields(
         "behaviorPolicyContract": str(value["behaviorPolicyContract"]),
         "sourceHashesSha256": str(value["sourceHashesSha256"]),
     }
+    if version == 2:
+        canonical_fields["shardBackendMap"] = _canonical_shard_backend_map(
+            value.get("shardBackendMap"),
+            int(value["matchShardCount"]),
+        )
+        canonical_fields["crossBackendCalibrationReportSha256"] = str(
+            value["crossBackendCalibrationReportSha256"]
+        )
     if dict(value) != canonical_fields:
         raise ValueError("fixed collection plan canonicalization drifted")
     digest = _canonical_contract_sha256(canonical_fields)
-    return f"{V4_FIXED_COLLECTION_PLAN_ID}:sha256={digest}", canonical_fields
+    contract_id = (
+        V4_FIXED_COLLECTION_PLAN_ID
+        if version == 1
+        else V4_FIXED_MIXED_BACKEND_COLLECTION_PLAN_ID
+    )
+    return f"{contract_id}:sha256={digest}", canonical_fields
 
 
 def canonical_fixed_collection_plan(
@@ -811,8 +1022,26 @@ def canonical_fixed_collection_plan(
             match_counts_value.items(), key=lambda item: int(item[0])
         )
     }
-    fields_value = {
-        "version": 1,
+    collection_plan_version = shard.get("collectionPlanVersion", 1)
+    if (
+        isinstance(collection_plan_version, bool)
+        or not isinstance(collection_plan_version, int)
+        or collection_plan_version not in {1, 2}
+        or (
+            collection_plan_version == 1
+            and (
+                "collectionPlanVersion" in shard
+                or "shardBackendMap" in shard
+            )
+        )
+        or (
+            collection_plan_version == 2
+            and "shardBackendMap" not in shard
+        )
+    ):
+        raise ValueError("fixed collection plan version/backend metadata is invalid")
+    fields_value: dict[str, object] = {
+        "version": collection_plan_version,
         "runNamespace": shard.get("runNamespace"),
         "seedBase": shard.get("seedBase"),
         "matchCounts": match_counts,
@@ -827,6 +1056,11 @@ def canonical_fixed_collection_plan(
         "behaviorPolicyContract": behavior_policy_contract,
         "sourceHashesSha256": _canonical_contract_sha256(source_hashes),
     }
+    if collection_plan_version == 2:
+        fields_value["shardBackendMap"] = shard.get("shardBackendMap")
+        fields_value["crossBackendCalibrationReportSha256"] = shard.get(
+            "crossBackendCalibrationReportSha256"
+        )
     opaque_id, canonical_fields = _canonical_fixed_collection_plan_fields(
         fields_value
     )
@@ -1176,13 +1410,13 @@ def _validate_loss_masks(
         )
         if behavior_id != expected_behavior_id:
             raise ValueError("V4 PPO canonical behavior policy contract is invalid")
-        plan_prefix = f"{V4_FIXED_COLLECTION_PLAN_ID}:sha256="
-        if any(
-            not value.startswith(plan_prefix)
-            or not _is_sha256(value[len(plan_prefix):])
-            for value in eligibility.fixed_collection_plan_ids
-        ):
-            raise ValueError("V4 PPO fixed collection plan ID is invalid")
+        try:
+            for value in eligibility.fixed_collection_plan_ids:
+                fixed_collection_plan_sha256(value)
+        except ValueError as error:
+            raise ValueError(
+                "V4 PPO fixed collection plan ID is invalid"
+            ) from error
     return eligibility
 
 
@@ -1332,6 +1566,86 @@ def _fixed_suffix_reward_components(
     return suffix_chip, suffix_pair, (suffix_chip + coefficient * suffix_pair) / 5.0
 
 
+def _validate_fixed_shard_backend_execution(
+    shard: Mapping[str, object],
+    collection: Mapping[str, object],
+    execution: object,
+) -> None:
+    """Bind a v2 direct shard's declared execution to its precommitted slot."""
+
+    version = shard.get("collectionPlanVersion", 1)
+    if version == 1:
+        if (
+            "collectionPlanVersion" in shard
+            or "shardBackendMap" in shard
+            or "crossBackendCalibrationReportSha256" in shard
+            or (
+                isinstance(execution, Mapping)
+                and (
+                    "fixedCollectionPlanVersion" in execution
+                    or "plannedShardBackend" in execution
+                )
+            )
+        ):
+            raise ValueError(
+                "fixed collection plan v1 cannot carry mixed backend metadata"
+            )
+        return
+    if version != 2:
+        raise ValueError("fixed collection plan version is unsupported")
+    shard_count = shard.get("matchShardCount")
+    shard_index = shard.get("matchShardIndex")
+    if (
+        isinstance(shard_count, bool)
+        or not isinstance(shard_count, int)
+        or shard_count < 1
+        or isinstance(shard_index, bool)
+        or not isinstance(shard_index, int)
+        or not 0 <= shard_index < shard_count
+    ):
+        raise ValueError("fixed collection plan shard index is invalid")
+    backend_map = _canonical_shard_backend_map(
+        shard.get("shardBackendMap"), shard_count
+    )
+    planned_backend = backend_map[str(shard_index)]
+    if not isinstance(execution, Mapping):
+        raise ValueError("fixed collection plan execution binding is missing")
+    device = execution.get("device")
+    if not isinstance(device, str) or not device:
+        raise ValueError("fixed collection plan execution device is invalid")
+    try:
+        actual_backend = torch.device(device).type
+    except (RuntimeError, TypeError, ValueError) as error:
+        raise ValueError("fixed collection plan execution device is invalid") from error
+    if (
+        actual_backend != planned_backend
+        or execution.get("fixedCollectionPlanVersion") != 2
+        or execution.get("plannedShardBackend") != planned_backend
+        or execution.get("deterministicAlgorithms") is not True
+        or collection.get("batchedGpuMaskedLogitInference")
+        is not (planned_backend == "cuda")
+        or (
+            planned_backend == "cuda"
+            and (
+                execution.get("cudaAvailable") is not True
+                or execution.get("tf32Allowed") is not False
+                or execution.get("cublasWorkspaceConfig") != ":4096:8"
+            )
+        )
+        or (
+            planned_backend == "cpu"
+            and (
+                execution.get("cudaAvailable") is not False
+                or execution.get("tf32Allowed") is not None
+                or execution.get("cublasWorkspaceConfig") is not None
+            )
+        )
+    ):
+        raise ValueError(
+            "fixed collection shard execution does not match its precommitted backend"
+        )
+
+
 def _validate_fixed_match_ppo_contract(
     metadata: Mapping[str, object],
     archive: Mapping[str, np.ndarray],
@@ -1350,6 +1664,7 @@ def _validate_fixed_match_ppo_contract(
     environment = metadata.get("environmentBinding")
     sources = metadata.get("sourceHashes")
     shard = metadata.get("shard")
+    execution = metadata.get("execution")
     if not isinstance(collection, Mapping):
         raise ValueError("fixed-match PPO collection contract is missing")
     if not isinstance(reward, Mapping):
@@ -1443,6 +1758,14 @@ def _validate_fixed_match_ppo_contract(
         or not _is_sha256(shard.get("completeUnshardedLearnerAssignmentSha256"))
     ):
         raise ValueError("fixed-match PPO metadata semantics are missing or incompatible")
+    assert isinstance(shard, Mapping)
+    expected_shard_identity = fixed_match_shard_identity_sha256(
+        shard,
+        str(metadata.get("preparationFormat")),
+    )
+    if shard.get("identitySha256") != expected_shard_identity:
+        raise ValueError("fixed-match shard identitySha256 is invalid")
+    _validate_fixed_shard_backend_execution(shard, collection, execution)
 
     sample_float32 = {
         "raw_returns", "baseline_values", "raw_advantages", "advantage_scales",
@@ -2810,6 +3133,7 @@ __all__ = [
     "V4_DATASET_VERSION",
     "V4_DAGGER_PREPARATION_FORMAT",
     "V4_FIXED_COLLECTION_PLAN_ID",
+    "V4_FIXED_MIXED_BACKEND_COLLECTION_PLAN_ID",
     "V4_FIXED_MATCH_PPO_PREPARATION_FORMAT",
     "V4_FIXED_PPO_BEHAVIOR_POLICY_CONTRACT_ID",
     "V4_FIXED_PPO_REWARD_CONTRACT_ID",
@@ -2831,6 +3155,8 @@ __all__ = [
     "complete_fixed_collection_plan_record",
     "create_v4_smoke_dataset",
     "fingerprint_v4_tensors",
+    "fixed_collection_plan_sha256",
+    "fixed_match_shard_identity_sha256",
     "load_v4_dataset_npz",
     "save_v4_dataset_npz",
     "tensorize_v4_public_observation",

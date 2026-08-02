@@ -19,12 +19,12 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from v4_dataset import (
-    V4_FIXED_COLLECTION_PLAN_ID,
     V4_FIXED_PPO_SOURCE_CONTRACT,
     V4_LOSS_MASK_NAMES,
     V4_MERGED_PREPARATION_FORMAT,
     V4TrajectoryDataset,
     create_v4_smoke_dataset,
+    fixed_collection_plan_sha256,
     load_v4_dataset_npz,
 )
 from v4_export import (
@@ -466,19 +466,11 @@ def _resolve_fixed_collection_plan_sha256(
         raise ValueError(
             "fixed-only PPO training requires exactly one collection plan"
         )
-    prefix = f"{V4_FIXED_COLLECTION_PLAN_ID}:sha256="
     plan_id = plan_ids[0]
-    if (
-        not isinstance(plan_id, str)
-        or not plan_id.startswith(prefix)
-        or len(plan_id) != len(prefix) + 64
-        or any(
-            character not in "0123456789abcdef"
-            for character in plan_id[len(prefix):]
-        )
-    ):
-        raise ValueError("fixed collection plan ID is non-canonical")
-    actual = plan_id[len(prefix):]
+    try:
+        actual = fixed_collection_plan_sha256(plan_id)
+    except ValueError as error:
+        raise ValueError("fixed collection plan ID is non-canonical") from error
     if expected != actual:
         raise ValueError(
             "expected fixed collection plan SHA-256 does not match the corpus"

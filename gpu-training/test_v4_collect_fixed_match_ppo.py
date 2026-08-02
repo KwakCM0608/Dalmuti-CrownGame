@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,6 +24,7 @@ from v4_collect_fixed_match_ppo import (
     FIXED_MATCH_PPO_PREPARATION_FORMAT,
     FixedMatchPPOCollectionConfig,
     _build_complete_match_specs,
+    _parser,
     assert_evaluator_candidate_seat_parity,
     balanced_learner_physical_ids,
     collect_v4_fixed_match_ppo,
@@ -32,10 +34,16 @@ from v4_collect_fixed_match_ppo import (
     suffix_reward_components,
 )
 from v4_collect_ppo import masked_categorical_probabilities
+from v4_compare_fixed_match_backends import (
+    FixedMatchBackendCalibrationVerification,
+    _snapshot_file,
+)
 from v4_dataset import (
+    V4_FIXED_MIXED_BACKEND_COLLECTION_PLAN_ID,
     V4LossEligibility,
     _canonical_fixed_collection_plan_fields,
     _loss_contract_fingerprint,
+    fixed_match_shard_identity_sha256,
     load_v4_dataset_npz,
 )
 from v4_env import ACTION_COUNT, V4ActorObservation, round_chip_award
@@ -43,7 +51,23 @@ from v4_evaluate import rotating_candidate_seats
 from v4_export import export_v4_actor_bundle
 from v4_model import V4ActorConfig, V4PublicActor
 from v4_merge_datasets import merge_v4_datasets
-from v4_train import V4TrainingConfig, train_v4
+from v4_train import (
+    V4TrainingConfig,
+    _resolve_fixed_collection_plan_sha256,
+    train_v4,
+)
+
+
+def _mock_calibration_verification(
+    report_sha256: str,
+    *,
+    recheck_side_effect: object | None = None,
+) -> mock.Mock:
+    verification = mock.Mock()
+    verification.report_sha256 = report_sha256
+    if recheck_side_effect is not None:
+        verification.recheck_unchanged.side_effect = recheck_side_effect
+    return verification
 
 
 def _rewrite_npz(
@@ -67,6 +91,8 @@ def _rewrite_npz(
 
 
 class FixedMatchPPOTests(unittest.TestCase):
+    MOCK_CALIBRATION_SHA256 = "e" * 64
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.temporary = tempfile.TemporaryDirectory()
@@ -135,11 +161,32 @@ class FixedMatchPPOTests(unittest.TestCase):
             "device": "cpu",
         }
         values.update(overrides)
+        if (
+            values.get("shard_backend_map") is not None
+            and "cross_backend_calibration_report" not in values
+        ):
+            values["cross_backend_calibration_report"] = (
+                self.root / "mock-calibration.json"
+            )
+        if values.get("shard_backend_map") is not None:
+            values.setdefault(
+                "cross_backend_calibration_cpu_npz",
+                self.root / "mock-calibration-cpu.npz",
+            )
+            values.setdefault(
+                "cross_backend_calibration_cuda_npz",
+                self.root / "mock-calibration-cuda.npz",
+            )
         config = FixedMatchPPOCollectionConfig(**values)
         output = self.root / "variants" / f"{name}-{config.match_shard_index}.npz"
         with mock.patch(
             "v4_collect_fixed_match_ppo._batch_candidate_logits",
             side_effect=self.deterministic_logits,
+        ), mock.patch(
+            "v4_collect_fixed_match_ppo.load_verified_fixed_match_backend_calibration",
+            return_value=_mock_calibration_verification(
+                self.MOCK_CALIBRATION_SHA256
+            ),
         ):
             collect_v4_fixed_match_ppo(self.bundle, output, config)
         return output
@@ -202,6 +249,194 @@ class FixedMatchPPOTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "epsilon_floor=0.0"):
                     FixedMatchPPOCollectionConfig("noncanonical-floor", 1, epsilon_floor=value)
 
+    def test_mixed_backend_map_is_complete_and_rejects_wrong_shard_device(self) -> None:
+        backend_map = ("cpu", "cpu", *("cuda",) * 12)
+        parsed = _parser().parse_args(
+            [
+                "--actor-bundle", "candidate",
+                "--output", "shard.npz",
+                "--run-namespace", "mixed-fourteen-cli",
+                "--seed-base", "1",
+                "--match-shard-count", "14",
+                "--match-shard-index", "1",
+                "--device", "cpu",
+                "--shard-backend-map", ",".join(backend_map),
+                "--cross-backend-calibration-report", "calibration.json",
+                "--cross-backend-calibration-cpu-npz", "calibration-cpu.npz",
+                "--cross-backend-calibration-cuda-npz", "calibration-cuda.npz",
+            ]
+        )
+        self.assertEqual(parsed.shard_backend_map, backend_map)
+        self.assertEqual(
+            parsed.cross_backend_calibration_report, Path("calibration.json")
+        )
+        self.assertEqual(
+            parsed.cross_backend_calibration_cpu_npz, Path("calibration-cpu.npz")
+        )
+        self.assertEqual(
+            parsed.cross_backend_calibration_cuda_npz, Path("calibration-cuda.npz")
+        )
+        accepted_cpu = FixedMatchPPOCollectionConfig(
+            "mixed-fourteen",
+            1,
+            match_shard_count=14,
+            match_shard_index=1,
+            device="cpu:0",
+            shard_backend_map=backend_map,
+            cross_backend_calibration_report=Path("calibration.json"),
+            cross_backend_calibration_cpu_npz=Path("calibration-cpu.npz"),
+            cross_backend_calibration_cuda_npz=Path("calibration-cuda.npz"),
+        )
+        accepted_cuda = FixedMatchPPOCollectionConfig(
+            "mixed-fourteen",
+            1,
+            match_shard_count=14,
+            match_shard_index=13,
+            device="cuda:1",
+            shard_backend_map=backend_map,
+            cross_backend_calibration_report=Path("calibration.json"),
+            cross_backend_calibration_cpu_npz=Path("calibration-cpu.npz"),
+            cross_backend_calibration_cuda_npz=Path("calibration-cuda.npz"),
+        )
+        self.assertEqual(accepted_cpu.shard_backend_map, backend_map)
+        self.assertEqual(accepted_cuda.shard_backend_map, backend_map)
+
+        with self.assertRaisesRegex(ValueError, "precommitted to backend cuda"):
+            FixedMatchPPOCollectionConfig(
+                "mixed-wrong-device",
+                1,
+                match_shard_count=14,
+                match_shard_index=2,
+                device="cpu",
+                shard_backend_map=backend_map,
+                cross_backend_calibration_report=Path("calibration.json"),
+            )
+        invalid_maps = (
+            backend_map[:-1],
+            ("cpu",) * 14,
+            ("cuda",) * 14,
+            ("cpu", "cpu", *("gpu",) * 12),
+            list(backend_map),
+        )
+        for invalid in invalid_maps:
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(ValueError, "complete mixed cpu/cuda"):
+                    FixedMatchPPOCollectionConfig(
+                        "mixed-invalid-map",
+                        1,
+                        match_shard_count=14,
+                        device="cpu",
+                        shard_backend_map=invalid,  # type: ignore[arg-type]
+                        cross_backend_calibration_report=Path("calibration.json"),
+                    )
+
+        incomplete_calibrations = (
+            {},
+            {"cross_backend_calibration_report": Path("calibration.json")},
+            {
+                "cross_backend_calibration_report": Path("calibration.json"),
+                "cross_backend_calibration_cpu_npz": Path("calibration-cpu.npz"),
+            },
+            {
+                "cross_backend_calibration_report": Path("calibration.json"),
+                "cross_backend_calibration_cuda_npz": Path("calibration-cuda.npz"),
+            },
+            {"cross_backend_calibration_cpu_npz": Path("calibration-cpu.npz")},
+            {"cross_backend_calibration_cuda_npz": Path("calibration-cuda.npz")},
+            {
+                "cross_backend_calibration_cpu_npz": Path("calibration-cpu.npz"),
+                "cross_backend_calibration_cuda_npz": Path("calibration-cuda.npz"),
+            },
+        )
+        for calibration in incomplete_calibrations:
+            with self.subTest(calibration=calibration):
+                with self.assertRaisesRegex(ValueError, "required together iff"):
+                    FixedMatchPPOCollectionConfig(
+                        "mixed-incomplete-calibration",
+                        1,
+                        match_shard_count=14,
+                        device="cpu",
+                        shard_backend_map=backend_map,
+                        **calibration,
+                    )
+        with self.assertRaisesRegex(ValueError, "required together iff"):
+            FixedMatchPPOCollectionConfig(
+                "v1-report-forbidden",
+                1,
+                device="cpu",
+                cross_backend_calibration_report=Path("calibration.json"),
+            )
+
+    def test_v2_fourteen_shard_plan_hash_binds_complete_backend_map(self) -> None:
+        hashes = {
+            "completeUnshardedLearnerAssignmentSha256": "a" * 64,
+            "actorCheckpointSha256": "b" * 64,
+            "bundleManifestSha256": "c" * 64,
+            "sourceHashesSha256": "d" * 64,
+            "crossBackendCalibrationReportSha256": "e" * 64,
+        }
+        backend_map = {
+            str(index): "cpu" if index < 2 else "cuda"
+            for index in range(14)
+        }
+        fields = {
+            "version": 2,
+            "runNamespace": "mixed-fourteen-plan",
+            "seedBase": 530_000_001,
+            "matchCounts": {str(player): 1 for player in range(4, 11)},
+            "matchStart": 0,
+            "matchShardCount": 14,
+            **hashes,
+            "rewardContract": "reward-id",
+            "behaviorPolicyContract": "behavior-id",
+            "shardBackendMap": backend_map,
+        }
+        plan_id, canonical = _canonical_fixed_collection_plan_fields(fields)
+        self.assertTrue(
+            plan_id.startswith(
+                f"{V4_FIXED_MIXED_BACKEND_COLLECTION_PLAN_ID}:sha256="
+            )
+        )
+        self.assertEqual(canonical["shardBackendMap"], backend_map)
+        self.assertEqual(
+            canonical["crossBackendCalibrationReportSha256"], "e" * 64
+        )
+
+        reordered = dict(fields)
+        reordered["shardBackendMap"] = {
+            key: backend_map[key] for key in reversed(list(backend_map))
+        }
+        self.assertEqual(
+            _canonical_fixed_collection_plan_fields(reordered)[0], plan_id
+        )
+
+        changed = dict(fields)
+        changed_map = dict(backend_map)
+        changed_map["1"] = "cuda"
+        changed["shardBackendMap"] = changed_map
+        self.assertNotEqual(
+            _canonical_fixed_collection_plan_fields(changed)[0], plan_id
+        )
+
+        changed_calibration = dict(fields)
+        changed_calibration["crossBackendCalibrationReportSha256"] = "f" * 64
+        self.assertNotEqual(
+            _canonical_fixed_collection_plan_fields(changed_calibration)[0],
+            plan_id,
+        )
+
+        for invalid_map in (
+            {key: value for key, value in backend_map.items() if key != "13"},
+            {**backend_map, "14": "cuda"},
+            {**backend_map, "02": "cpu"},
+            {str(index): "cpu" for index in range(14)},
+        ):
+            with self.subTest(invalid_map=invalid_map):
+                invalid = dict(fields)
+                invalid["shardBackendMap"] = invalid_map
+                with self.assertRaisesRegex(ValueError, "backend"):
+                    _canonical_fixed_collection_plan_fields(invalid)
+
     def test_nonzero_actor_dropout_is_rejected_before_collection(self) -> None:
         actor = V4PublicActor(V4ActorConfig(
             max_players=10,
@@ -234,6 +469,134 @@ class FixedMatchPPOTests(unittest.TestCase):
                 ),
             )
         self.assertFalse(output.exists())
+
+    def test_mixed_collection_rejects_wrong_calibration_before_rollout(self) -> None:
+        output = self.root / "wrong-calibration" / "fixed.npz"
+        config = FixedMatchPPOCollectionConfig(
+            run_namespace="wrong-calibration",
+            seed_base=950_000_003,
+            match_counts=((4, 2),),
+            match_shard_count=2,
+            match_shard_index=0,
+            lane_count=1,
+            device="cpu",
+            shard_backend_map=("cpu", "cuda"),
+            cross_backend_calibration_report=self.root / "wrong-report.json",
+            cross_backend_calibration_cpu_npz=self.root / "wrong-cpu.npz",
+            cross_backend_calibration_cuda_npz=self.root / "wrong-cuda.npz",
+        )
+        with mock.patch(
+            "v4_collect_fixed_match_ppo.load_verified_fixed_match_backend_calibration",
+            side_effect=ValueError("calibration report model/source binding does not match"),
+        ) as calibration, mock.patch(
+            "v4_collect_fixed_match_ppo._batch_candidate_logits"
+        ) as logits:
+            with self.assertRaisesRegex(ValueError, "model/source binding"):
+                collect_v4_fixed_match_ppo(self.bundle, output, config)
+        self.assertEqual(calibration.call_count, 1)
+        self.assertEqual(
+            calibration.call_args.args,
+            (
+                self.root / "wrong-report.json",
+                self.root / "wrong-cpu.npz",
+                self.root / "wrong-cuda.npz",
+            ),
+        )
+        logits.assert_not_called()
+        self.assertFalse(output.exists())
+
+    def test_mixed_collection_rejects_identical_byte_replacement_before_publish(
+        self,
+    ) -> None:
+        marker = self.root / "calibration-lifetime" / "report.json"
+        marker.parent.mkdir(parents=True)
+        marker.write_bytes(b"immutable calibration bytes")
+        verification = FixedMatchBackendCalibrationVerification(
+            report_sha256=self.MOCK_CALIBRATION_SHA256,
+            snapshots=(_snapshot_file(marker, "calibration lifetime marker"),),
+        )
+        output = self.root / "calibration-lifetime" / "fixed.npz"
+        config = FixedMatchPPOCollectionConfig(
+            run_namespace="calibration-lifetime",
+            seed_base=950_000_004,
+            match_counts=((4, 2),),
+            match_shard_count=2,
+            match_shard_index=0,
+            lane_count=1,
+            device="cpu",
+            shard_backend_map=("cpu", "cuda"),
+            cross_backend_calibration_report=marker,
+            cross_backend_calibration_cpu_npz=self.root / "unused-cpu.npz",
+            cross_backend_calibration_cuda_npz=self.root / "unused-cuda.npz",
+        )
+        replaced = False
+
+        def replace_with_identical_bytes(*args, **kwargs):
+            nonlocal replaced
+            if not replaced:
+                replaced = True
+                replacement = marker.with_suffix(".replacement")
+                replacement.write_bytes(marker.read_bytes())
+                os.replace(replacement, marker)
+            return self.deterministic_logits(*args, **kwargs)
+
+        with mock.patch(
+            "v4_collect_fixed_match_ppo.load_verified_fixed_match_backend_calibration",
+            return_value=verification,
+        ), mock.patch(
+            "v4_collect_fixed_match_ppo._batch_candidate_logits",
+            side_effect=replace_with_identical_bytes,
+        ):
+            with self.assertRaisesRegex(ValueError, "changed after immutable verification"):
+                collect_v4_fixed_match_ppo(self.bundle, output, config)
+        self.assertTrue(replaced)
+        for path in (
+            output,
+            Path(f"{output}.sha256"),
+            Path(f"{output}.metadata.json"),
+            Path(f"{output}.metadata.json.sha256"),
+        ):
+            self.assertFalse(path.exists())
+
+    def test_mixed_collection_rolls_back_if_post_publish_recheck_fails(self) -> None:
+        output = self.root / "calibration-post-publish" / "fixed.npz"
+        config = FixedMatchPPOCollectionConfig(
+            run_namespace="calibration-post-publish",
+            seed_base=950_000_005,
+            match_counts=((4, 2),),
+            match_shard_count=2,
+            match_shard_index=0,
+            lane_count=1,
+            device="cpu",
+            shard_backend_map=("cpu", "cuda"),
+            cross_backend_calibration_report=self.root / "unused-report.json",
+            cross_backend_calibration_cpu_npz=self.root / "unused-cpu.npz",
+            cross_backend_calibration_cuda_npz=self.root / "unused-cuda.npz",
+        )
+        verification = _mock_calibration_verification(
+            self.MOCK_CALIBRATION_SHA256,
+            recheck_side_effect=[
+                None,
+                ValueError("calibration changed immediately after publication"),
+            ],
+        )
+        with mock.patch(
+            "v4_collect_fixed_match_ppo.load_verified_fixed_match_backend_calibration",
+            return_value=verification,
+        ), mock.patch(
+            "v4_collect_fixed_match_ppo._batch_candidate_logits",
+            side_effect=self.deterministic_logits,
+        ):
+            with self.assertRaisesRegex(ValueError, "immediately after publication"):
+                collect_v4_fixed_match_ppo(self.bundle, output, config)
+        self.assertEqual(verification.recheck_unchanged.call_count, 2)
+        for path in (
+            output,
+            Path(f"{output}.sha256"),
+            Path(f"{output}.metadata.json"),
+            Path(f"{output}.metadata.json.sha256"),
+        ):
+            self.assertFalse(path.exists())
 
     def test_frozen_candidate_teammate_is_exact_greedy_masked_argmax(self) -> None:
         logits = np.full(ACTION_COUNT, -100.0)
@@ -687,6 +1050,185 @@ class FixedMatchPPOTests(unittest.TestCase):
             set(np.load(result.output_path, allow_pickle=False)["trajectory_match_indices"].tolist()),
             {0, 1},
         )
+
+    def test_mixed_backend_plan_survives_merge_and_trainer_binding(self) -> None:
+        backend_map = ("cpu", "cuda")
+        cpu_shard = self._collect_variant(
+            "mixed-coverage",
+            954_500_001,
+            match_counts=((4, 2),),
+            match_shard_count=2,
+            match_shard_index=0,
+            shard_backend_map=backend_map,
+        )
+        cuda_source = self._collect_variant(
+            "mixed-coverage",
+            954_500_001,
+            match_counts=((4, 2),),
+            match_shard_count=2,
+            match_shard_index=1,
+        )
+        cuda_shard = self.root / "mixed-plan" / "synthetic-cuda-shard.npz"
+
+        def bind_synthetic_cuda_execution(
+            metadata: dict[str, object], arrays: dict[str, np.ndarray]
+        ) -> None:
+            del arrays
+            shard = metadata["shard"]
+            collection = metadata["collection"]
+            execution = metadata["execution"]
+            assert isinstance(shard, dict)
+            assert isinstance(collection, dict)
+            assert isinstance(execution, dict)
+            shard["collectionPlanVersion"] = 2
+            shard["shardBackendMap"] = {"0": "cpu", "1": "cuda"}
+            shard["crossBackendCalibrationReportSha256"] = (
+                self.MOCK_CALIBRATION_SHA256
+            )
+            shard["identitySha256"] = fixed_match_shard_identity_sha256(shard)
+            execution["device"] = "cuda"
+            execution["cudaAvailable"] = True
+            execution["tf32Allowed"] = False
+            execution["cublasWorkspaceConfig"] = ":4096:8"
+            execution["fixedCollectionPlanVersion"] = 2
+            execution["plannedShardBackend"] = "cuda"
+            collection["batchedGpuMaskedLogitInference"] = True
+
+        _rewrite_npz(cuda_source, cuda_shard, bind_synthetic_cuda_execution)
+        load_v4_dataset_npz(cuda_shard)
+
+        result = merge_v4_datasets(
+            [cpu_shard, cuda_shard],
+            self.root / "mixed-plan" / "merged.npz",
+        )
+        dataset = load_v4_dataset_npz(result.output_path)
+        metadata = json.loads(result.metadata_path.read_text(encoding="utf-8"))
+        plan = metadata["lossEligibility"]["fixedCollectionPlans"][0]
+        self.assertEqual(plan["canonicalFields"]["version"], 2)
+        self.assertEqual(
+            plan["canonicalFields"]["shardBackendMap"],
+            {"0": "cpu", "1": "cuda"},
+        )
+        self.assertEqual(
+            plan["canonicalFields"]["crossBackendCalibrationReportSha256"],
+            self.MOCK_CALIBRATION_SHA256,
+        )
+        self.assertEqual(plan["coveredShardIndices"], [0, 1])
+        plan_id = dataset.loss_eligibility.fixed_collection_plan_ids[0]
+        self.assertTrue(
+            plan_id.startswith(
+                f"{V4_FIXED_MIXED_BACKEND_COLLECTION_PLAN_ID}:sha256="
+            )
+        )
+        plan_sha = plan_id.rsplit("=", 1)[1]
+        self.assertEqual(
+            _resolve_fixed_collection_plan_sha256(
+                dataset,
+                V4TrainingConfig(
+                    epochs=1,
+                    batch_size=2,
+                    bc_weight=0.0,
+                    ppo_weight=1.0,
+                    critic_weight=0.1,
+                    q_boost_coefficient=0.0,
+                    entropy_coefficient=0.0,
+                    amp=False,
+                    expected_fixed_collection_plan_sha256=plan_sha,
+                ),
+            ),
+            plan_sha,
+        )
+
+        wrong_backend = self.root / "mixed-plan" / "wrong-backend.npz"
+
+        def swap_precommitted_backends(
+            source_metadata: dict[str, object], arrays: dict[str, np.ndarray]
+        ) -> None:
+            del arrays
+            shard = source_metadata["shard"]
+            assert isinstance(shard, dict)
+            shard["shardBackendMap"] = {"0": "cuda", "1": "cpu"}
+            shard["identitySha256"] = fixed_match_shard_identity_sha256(shard)
+
+        _rewrite_npz(cpu_shard, wrong_backend, swap_precommitted_backends)
+        with self.assertRaisesRegex(ValueError, "precommitted backend"):
+            load_v4_dataset_npz(wrong_backend)
+
+        forged_cpu_cuda = self.root / "mixed-plan" / "forged-cpu-cuda.npz"
+
+        def claim_cuda_available_on_cpu(
+            source_metadata: dict[str, object], arrays: dict[str, np.ndarray]
+        ) -> None:
+            del arrays
+            execution = source_metadata["execution"]
+            assert isinstance(execution, dict)
+            execution["cudaAvailable"] = True
+
+        _rewrite_npz(cpu_shard, forged_cpu_cuda, claim_cuda_available_on_cpu)
+        with self.assertRaisesRegex(ValueError, "precommitted backend"):
+            load_v4_dataset_npz(forged_cpu_cuda)
+
+        downgraded = self.root / "mixed-plan" / "downgraded-v2.npz"
+
+        def strip_all_v2_fields(
+            source_metadata: dict[str, object], arrays: dict[str, np.ndarray]
+        ) -> None:
+            del arrays
+            shard = source_metadata["shard"]
+            execution = source_metadata["execution"]
+            assert isinstance(shard, dict)
+            assert isinstance(execution, dict)
+            shard.pop("collectionPlanVersion")
+            shard.pop("shardBackendMap")
+            shard.pop("crossBackendCalibrationReportSha256")
+            execution.pop("fixedCollectionPlanVersion")
+            execution.pop("plannedShardBackend")
+
+        _rewrite_npz(cpu_shard, downgraded, strip_all_v2_fields)
+        with self.assertRaisesRegex(ValueError, "identitySha256"):
+            load_v4_dataset_npz(downgraded)
+
+    def test_mixed_resume_requires_the_same_calibration_report_sha(self) -> None:
+        backend_map = ("cpu", "cuda")
+        output = self._collect_variant(
+            "mixed-resume",
+            954_600_001,
+            match_counts=((4, 2),),
+            match_shard_count=2,
+            match_shard_index=0,
+            shard_backend_map=backend_map,
+        )
+        config = FixedMatchPPOCollectionConfig(
+            run_namespace="mixed-resume",
+            seed_base=954_600_001,
+            match_counts=((4, 2),),
+            match_shard_count=2,
+            match_shard_index=0,
+            standardize_advantages=False,
+            lane_count=1,
+            device="cpu",
+            resume_existing=True,
+            shard_backend_map=backend_map,
+            cross_backend_calibration_report=self.root / "mock-calibration.json",
+            cross_backend_calibration_cpu_npz=self.root / "mock-calibration-cpu.npz",
+            cross_backend_calibration_cuda_npz=self.root / "mock-calibration-cuda.npz",
+        )
+        with mock.patch(
+            "v4_collect_fixed_match_ppo.load_verified_fixed_match_backend_calibration",
+            return_value=_mock_calibration_verification(
+                self.MOCK_CALIBRATION_SHA256
+            ),
+        ) as loader:
+            resumed = collect_v4_fixed_match_ppo(self.bundle, output, config)
+        self.assertEqual(resumed.npz_sha256, hashlib.sha256(output.read_bytes()).hexdigest())
+        loader.return_value.recheck_unchanged.assert_called_once_with()
+
+        with mock.patch(
+            "v4_collect_fixed_match_ppo.load_verified_fixed_match_backend_calibration",
+            return_value=_mock_calibration_verification("f" * 64),
+        ):
+            with self.assertRaisesRegex(ValueError, "exact requested shard"):
+                collect_v4_fixed_match_ppo(self.bundle, output, config)
 
     def test_nested_contracts_preserve_and_fail_closed_on_tampering(self) -> None:
         first = merge_v4_datasets(

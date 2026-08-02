@@ -59,6 +59,11 @@ from v4_dataset import (
     V4_DATASET_VERSION,
     V4TrajectoryDataset,
     V4TrajectoryTensors,
+    fixed_match_shard_identity_sha256,
+)
+from v4_compare_fixed_match_backends import (
+    FixedMatchBackendCalibrationVerification,
+    load_verified_fixed_match_backend_calibration,
 )
 from v4_env import (
     ACTION_COUNT,
@@ -102,6 +107,7 @@ SOURCE_FILES = (
     "gpu-training/v4_export.py",
     "gpu-training/v4_dataset.py",
     "gpu-training/v4_ppo_advantages.py",
+    "gpu-training/v4_compare_fixed_match_backends.py",
     "gpu-training/v3_action_conditioned.py",
     "lib/bot-strategy.ts",
 )
@@ -122,6 +128,10 @@ class FixedMatchPPOCollectionConfig:
     lane_count: int = 16
     device: str = "cuda"
     resume_existing: bool = False
+    shard_backend_map: tuple[str, ...] | None = None
+    cross_backend_calibration_report: str | Path | None = None
+    cross_backend_calibration_cpu_npz: str | Path | None = None
+    cross_backend_calibration_cuda_npz: str | Path | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -194,6 +204,84 @@ class FixedMatchPPOCollectionConfig:
             raise ValueError("resume_existing must be boolean")
         if not isinstance(self.device, str) or not self.device:
             raise ValueError("device must be a non-empty torch device string")
+        _validate_shard_backend_binding(self)
+        calibration_paths = (
+            self.cross_backend_calibration_report,
+            self.cross_backend_calibration_cpu_npz,
+            self.cross_backend_calibration_cuda_npz,
+        )
+        calibration_is_complete = all(
+            path is not None for path in calibration_paths
+        )
+        calibration_is_absent = all(path is None for path in calibration_paths)
+        if (
+            self.shard_backend_map is None
+            and not calibration_is_absent
+        ) or (
+            self.shard_backend_map is not None
+            and not calibration_is_complete
+        ):
+            raise ValueError(
+                "cross_backend_calibration_report, "
+                "cross_backend_calibration_cpu_npz, and "
+                "cross_backend_calibration_cuda_npz are required together "
+                "iff shard_backend_map is supplied"
+            )
+        for name, path in zip(
+            (
+                "cross_backend_calibration_report",
+                "cross_backend_calibration_cpu_npz",
+                "cross_backend_calibration_cuda_npz",
+            ),
+            calibration_paths,
+            strict=True,
+        ):
+            if path is not None and (
+                not isinstance(path, (str, Path)) or not str(path)
+            ):
+                raise ValueError(f"{name} must be a path")
+
+
+def _validate_shard_backend_binding(
+    config: FixedMatchPPOCollectionConfig,
+) -> str | None:
+    """Fail before collection when a mixed-plan shard uses the wrong backend."""
+
+    backend_map = config.shard_backend_map
+    if backend_map is None:
+        return None
+    if (
+        not isinstance(backend_map, tuple)
+        or len(backend_map) != config.match_shard_count
+        or any(backend not in {"cpu", "cuda"} for backend in backend_map)
+        or set(backend_map) != {"cpu", "cuda"}
+    ):
+        raise ValueError(
+            "shard_backend_map must be a complete mixed cpu/cuda tuple with "
+            "one entry per match shard"
+        )
+    try:
+        actual_backend = torch.device(config.device).type
+    except (RuntimeError, TypeError, ValueError) as error:
+        raise ValueError("device must be a valid torch device string") from error
+    expected_backend = backend_map[config.match_shard_index]
+    if actual_backend != expected_backend:
+        raise ValueError(
+            f"match shard {config.match_shard_index} is precommitted to "
+            f"backend {expected_backend}, not {actual_backend}"
+        )
+    return expected_backend
+
+
+def _shard_backend_map_record(
+    config: FixedMatchPPOCollectionConfig,
+) -> dict[str, str] | None:
+    if config.shard_backend_map is None:
+        return None
+    return {
+        str(index): backend
+        for index, backend in enumerate(config.shard_backend_map)
+    }
 
 
 @dataclass(frozen=True)
@@ -393,6 +481,7 @@ def _resume_existing_result(
     metadata_checksum_path: Path,
     config: FixedMatchPPOCollectionConfig,
     actor_checkpoint_sha256: str,
+    cross_backend_calibration_report_sha256: str | None,
     source_hashes: Mapping[str, str],
 ) -> FixedMatchPPOCollectionResult | None:
     targets = (output, metadata_path, checksum_path, metadata_checksum_path)
@@ -429,6 +518,13 @@ def _resume_existing_result(
         for match_index in range(config.match_start, config.match_start + match_count)
     )
     expected_device = str(torch.device(config.device))
+    expected_backend_map = _shard_backend_map_record(config)
+    expected_plan_version = 2 if expected_backend_map is not None else 1
+    expected_backend = (
+        expected_backend_map[str(config.match_shard_index)]
+        if expected_backend_map is not None
+        else None
+    )
     if (
         embedded.get("preparationFormat") != FIXED_MATCH_PPO_PREPARATION_FORMAT
         or embedded.get("preparationVersion") != FIXED_MATCH_PPO_PREPARATION_VERSION
@@ -439,6 +535,23 @@ def _resume_existing_result(
         or shard.get("matchStart") != config.match_start
         or shard.get("matchShardCount") != config.match_shard_count
         or shard.get("matchShardIndex") != config.match_shard_index
+        or (
+            expected_plan_version == 1
+            and (
+                "collectionPlanVersion" in shard
+                or "shardBackendMap" in shard
+                or "crossBackendCalibrationReportSha256" in shard
+            )
+        )
+        or (
+            expected_plan_version == 2
+            and (
+                shard.get("collectionPlanVersion") != 2
+                or shard.get("shardBackendMap") != expected_backend_map
+                or shard.get("crossBackendCalibrationReportSha256")
+                != cross_backend_calibration_report_sha256
+            )
+        )
         or not isinstance(collection, Mapping)
         or collection.get("requestedLaneCount") != config.lane_count
         or collection.get("rollingCpuEnvironmentLanes")
@@ -455,6 +568,13 @@ def _resume_existing_result(
         or model.get("actorCheckpointSha256") != actor_checkpoint_sha256
         or not isinstance(execution, Mapping)
         or execution.get("device") != expected_device
+        or (
+            expected_plan_version == 2
+            and (
+                execution.get("fixedCollectionPlanVersion") != 2
+                or execution.get("plannedShardBackend") != expected_backend
+            )
+        )
         or embedded.get("sourceHashes") != dict(source_hashes)
     ):
         raise ValueError("resume-existing manifest does not match the exact requested shard")
@@ -803,6 +923,7 @@ def collect_v4_fixed_match_ppo(
     *,
     repository_root: str | Path | None = None,
 ) -> FixedMatchPPOCollectionResult:
+    planned_backend = _validate_shard_backend_binding(config)
     output = Path(output_path).resolve()
     if output.suffix.lower() != ".npz":
         raise ValueError("fixed-match PPO output must end in .npz")
@@ -827,6 +948,23 @@ def collect_v4_fixed_match_ppo(
         raise ValueError("candidate actor checkpoint did not exclude the critic")
     source_hashes = _source_hashes(root)
     actor_checkpoint_sha256 = sha256_file(bundle / "actor.pt")
+    bundle_manifest_sha256 = sha256_file(bundle / "manifest.json")
+    cross_backend_calibration_report_sha256: str | None = None
+    calibration_verification: FixedMatchBackendCalibrationVerification | None = None
+    if config.cross_backend_calibration_report is not None:
+        assert config.cross_backend_calibration_cpu_npz is not None
+        assert config.cross_backend_calibration_cuda_npz is not None
+        calibration_verification = load_verified_fixed_match_backend_calibration(
+            config.cross_backend_calibration_report,
+            config.cross_backend_calibration_cpu_npz,
+            config.cross_backend_calibration_cuda_npz,
+            expected_actor_checkpoint_sha256=actor_checkpoint_sha256,
+            expected_bundle_manifest_sha256=bundle_manifest_sha256,
+            expected_source_hashes=source_hashes,
+        )
+        cross_backend_calibration_report_sha256 = (
+            calibration_verification.report_sha256
+        )
     resumed = _resume_existing_result(
         output,
         metadata_path,
@@ -834,15 +972,21 @@ def collect_v4_fixed_match_ppo(
         metadata_checksum_path,
         config,
         actor_checkpoint_sha256,
+        cross_backend_calibration_report_sha256,
         source_hashes,
     )
     if resumed is not None:
+        if calibration_verification is not None:
+            calibration_verification.recheck_unchanged()
         return resumed
     device = torch.device(config.device)
     if device.type == "cuda":
         os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     execution = _configure_determinism(device)
     execution["cublasWorkspaceConfig"] = os.environ.get("CUBLAS_WORKSPACE_CONFIG") if device.type == "cuda" else None
+    if planned_backend is not None:
+        execution["fixedCollectionPlanVersion"] = 2
+        execution["plannedShardBackend"] = planned_backend
     model = model.to(device).eval()
 
     complete_specs, schedule_indexes = _build_complete_match_specs(config)
@@ -1126,6 +1270,43 @@ def collect_v4_fixed_match_ppo(
         if name != "exactNormalOpponent":
             row["differentFromNormalRate"] = counts["differentFromNormal"] / max(1, counts["decisions"])
         action_report[name] = row
+    shard_backend_map = _shard_backend_map_record(config)
+    shard_record: dict[str, object] = {
+        "runNamespace": config.run_namespace,
+        "seedBase": config.seed_base,
+        "matchCounts": {str(player_count): count for player_count, count in config.match_counts},
+        "matchStart": config.match_start,
+        "matchShardCount": config.match_shard_count,
+        "matchShardIndex": config.match_shard_index,
+        "environmentSeeds": [spec.seed for spec in specs],
+        "completeUnshardedLearnerAssignmentSha256": _sha256_bytes(
+            canonical_json_bytes([
+                [
+                    spec.player_count,
+                    spec.match_index,
+                    spec.seed,
+                    spec.learner_initial_seat,
+                    spec.learner_physical_id,
+                ]
+                for spec in complete_specs
+            ])
+        ),
+        "rolloutKeysIndependentOfLaneScheduling": True,
+        "trajectoryIdsIndependentOfShardPartition": True,
+        "completeMatchTrajectoryIdsIncludeNamespacePlayerMatchSeedLearnerAndAct": True,
+    }
+    if shard_backend_map is not None:
+        shard_record["collectionPlanVersion"] = 2
+        shard_record["shardBackendMap"] = shard_backend_map
+        assert cross_backend_calibration_report_sha256 is not None
+        shard_record["crossBackendCalibrationReportSha256"] = (
+            cross_backend_calibration_report_sha256
+        )
+    shard_record["identitySha256"] = fixed_match_shard_identity_sha256(
+        shard_record,
+        FIXED_MATCH_PPO_PREPARATION_FORMAT,
+    )
+
     metadata: dict[str, object] = {
         "format": V4_DATASET_FORMAT,
         "version": V4_DATASET_VERSION,
@@ -1198,41 +1379,9 @@ def collect_v4_fixed_match_ppo(
             "qBoostMustRemainOff": True,
             "requiresPlayerCountBalancedLoss": True,
         },
-        "shard": {
-            "runNamespace": config.run_namespace,
-            "seedBase": config.seed_base,
-            "matchCounts": {str(player_count): count for player_count, count in config.match_counts},
-            "matchStart": config.match_start,
-            "matchShardCount": config.match_shard_count,
-            "matchShardIndex": config.match_shard_index,
-            "environmentSeeds": [spec.seed for spec in specs],
-            "identitySha256": _sha256_bytes(canonical_json_bytes([
-                FIXED_MATCH_PPO_PREPARATION_FORMAT,
-                config.run_namespace,
-                config.seed_base,
-                list(config.match_counts),
-                config.match_start,
-                config.match_shard_count,
-                config.match_shard_index,
-            ])),
-            "completeUnshardedLearnerAssignmentSha256": _sha256_bytes(
-                canonical_json_bytes([
-                    [
-                        spec.player_count,
-                        spec.match_index,
-                        spec.seed,
-                        spec.learner_initial_seat,
-                        spec.learner_physical_id,
-                    ]
-                    for spec in complete_specs
-                ])
-            ),
-            "rolloutKeysIndependentOfLaneScheduling": True,
-            "trajectoryIdsIndependentOfShardPartition": True,
-            "completeMatchTrajectoryIdsIncludeNamespacePlayerMatchSeedLearnerAndAct": True,
-        },
+        "shard": shard_record,
         "modelBinding": {
-            "bundleManifestSha256": sha256_file(bundle / "manifest.json"),
+            "bundleManifestSha256": bundle_manifest_sha256,
             "actorCheckpointSha256": actor_checkpoint_sha256,
             "manifestFormat": manifest.get("format"),
             "manifestVersion": manifest.get("version"),
@@ -1290,12 +1439,26 @@ def collect_v4_fixed_match_ppo(
     external["npzSha256"] = npz_sha
     metadata_bytes = (_canonical_text(external) + "\n").encode("utf-8")
     metadata_sha = _sha256_bytes(metadata_bytes)
+    if calibration_verification is not None:
+        calibration_verification.recheck_unchanged()
     _exclusive_publish({
         output: npz_bytes,
         metadata_path: metadata_bytes,
         checksum_path: f"{npz_sha}  {output.name}\n".encode("ascii"),
         metadata_checksum_path: f"{metadata_sha}  {metadata_path.name}\n".encode("ascii"),
     })
+    try:
+        if calibration_verification is not None:
+            calibration_verification.recheck_unchanged()
+    except BaseException:
+        for published in (
+            output,
+            metadata_path,
+            checksum_path,
+            metadata_checksum_path,
+        ):
+            published.unlink(missing_ok=True)
+        raise
     return FixedMatchPPOCollectionResult(
         output,
         metadata_path,
@@ -1326,6 +1489,20 @@ def _parse_match_counts(value: str) -> tuple[tuple[int, int], ...]:
     return normalized
 
 
+def _parse_shard_backends(value: str) -> tuple[str, ...]:
+    backends = tuple(item.strip() for item in value.split(","))
+    if (
+        not backends
+        or any(backend not in {"cpu", "cuda"} for backend in backends)
+        or set(backends) != {"cpu", "cuda"}
+    ):
+        raise argparse.ArgumentTypeError(
+            "shard backends must be a complete mixed list such as "
+            "cpu,cpu,cuda,cuda"
+        )
+    return backends
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Collect evaluation-aligned fixed-match V4 PPO suffix trajectories.")
     parser.add_argument("--actor-bundle", type=Path, required=True)
@@ -1346,6 +1523,40 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-standardize-advantages", action="store_true")
     parser.add_argument("--lanes", type=int, default=16)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument(
+        "--shard-backend-map",
+        "--shard-backends",
+        dest="shard_backend_map",
+        type=_parse_shard_backends,
+        help=(
+            "precommitted backend for every match shard in index order; "
+            "supplying this enables the mixed-host fixed collection plan v2"
+        ),
+    )
+    parser.add_argument(
+        "--cross-backend-calibration-report",
+        type=Path,
+        help=(
+            "canonical CPU/CUDA calibration JSON (with adjacent .sha256); "
+            "required exactly when --shard-backend-map is supplied"
+        ),
+    )
+    parser.add_argument(
+        "--cross-backend-calibration-cpu-npz",
+        type=Path,
+        help=(
+            "authoritative CPU NPZ used to build the calibration report; "
+            "required with the report and CUDA NPZ for mixed-host plans"
+        ),
+    )
+    parser.add_argument(
+        "--cross-backend-calibration-cuda-npz",
+        type=Path,
+        help=(
+            "authoritative CUDA NPZ used to build the calibration report; "
+            "required with the report and CPU NPZ for mixed-host plans"
+        ),
+    )
     parser.add_argument("--resume-existing", action="store_true")
     parser.add_argument("--repository-root", type=Path)
     return parser
@@ -1366,6 +1577,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         standardize_advantages=not arguments.no_standardize_advantages,
         lane_count=arguments.lanes,
         device=arguments.device,
+        shard_backend_map=arguments.shard_backend_map,
+        cross_backend_calibration_report=(
+            arguments.cross_backend_calibration_report
+        ),
+        cross_backend_calibration_cpu_npz=(
+            arguments.cross_backend_calibration_cpu_npz
+        ),
+        cross_backend_calibration_cuda_npz=(
+            arguments.cross_backend_calibration_cuda_npz
+        ),
         resume_existing=arguments.resume_existing,
     )
     result = collect_v4_fixed_match_ppo(

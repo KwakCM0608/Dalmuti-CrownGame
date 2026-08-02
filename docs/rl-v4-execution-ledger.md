@@ -549,3 +549,86 @@ training, screening, or promotion thresholds.
   from the final committed source before any `run-002` transfer. No candidate
   from this preflight has been evaluated against Normal, integrated into the
   game, or deployed.
+
+## Mixed-host amendment before production collection
+
+The CUDA-only `run-002` controller reached the public address again after its
+local integrity checks, but TCP `220.70.2.226:2222` timed out before SSH
+authentication. It did not create the remote run directory or transfer a
+payload. Two subsequent local full-shard attempts also produced no artifact:
+the first failed before process creation because Windows PowerShell inherited
+duplicate `Path`/`PATH` entries, and the second was terminated with its two
+collectors when the 15-minute controller limit expired. Their fresh local
+directories remain failure evidence and are never resumed or promoted.
+
+No production trajectory for the CUDA-only 12-shard plan exists. Before any
+production data was admitted, that plan was therefore superseded by this
+fresh mixed-host plan so the user's local CPU and the remote CPU/GPU can work
+concurrently without weakening provenance:
+
+- Run namespace: `v4-fixedid-ppo-i001-mixed-s580000001`.
+- Environment seed base: `580000001`; training seed: `590000001`.
+- Match counts and all model, reward, optimization, hard-stop, screening, and
+  promotion thresholds remain exactly those of the preceding fixed-identity
+  plan: p4 `320`, p5 `256`, p6 `192`, p7 `160`, p8 `128`, p9 `112`, and p10
+  `96`, for `1,264` complete matches and `6,320` learner-act trajectories.
+- The corpus uses exactly 14 modulo shards. Shards `0` and `1` are collected
+  on the local CPU; shards `2` through `13` are collected on the remote CUDA
+  host in two waves of six. Every remote collector uses rolling CPU
+  environments and batched CUDA Actor inference, so the remote CPU and GPU are
+  both active while the local CPU produces disjoint match clusters.
+- The exact backend map is
+  `cpu,cpu,cuda,cuda,cuda,cuda,cuda,cuda,cuda,cuda,cuda,cuda,cuda,cuda`.
+  It is part of the canonical
+  `fixed-complete-mixed-backend-shard-plan-v2` fields and SHA-256. A shard run
+  on the wrong backend, a missing/extra index, a reordered map, or a version-1
+  downgrade is rejected before merge and again by the trainer's expected-plan
+  binding. The canonical SHA-256 of the required p4-p10 CPU/CUDA calibration
+  report is a second mandatory v2 plan field; collection cannot start with a
+  missing, stale, differently bound, or merely invented report hash. Every
+  mixed collector must also receive the exact CPU NPZ and CUDA NPZ named by
+  that report. It reloads their canonical metadata and checksum sidecars,
+  copies their arrays from one hashed byte snapshot, recreates the complete
+  comparison report in memory, and requires byte-for-byte equality with the
+  supplied report before collection or resume.
+- The immutable behaviour Actor remains attempt 005 epoch 1, Actor SHA-256
+  `32f7f366c0a65d7b2b67baf5aeb2e33c49c87ddf4bcac513317bf710fc351466`
+  and candidate manifest SHA-256
+  `6485004cfc936f1c711e84bbf6cdfe365eddf7055db6abb6a2780a24ed1c3b5c`.
+- A separate calibration family
+  `v4-fixedid-mixed-calibration-s575000001`, seed base `575000001`, collects
+  the same one complete five-act match at every p4-p10 once on local CPU and
+  once on remote CUDA. Admission requires exact equality of identity,
+  trajectory coverage, actions, legal masks, public and privileged states,
+  Normal labels, finish orders, chips, rewards, and every other unclassified
+  array. Only selected-action old log probability, selected probability, and
+  policy entropy may differ, each by at most `2e-5`. Both runtime versions and
+  all input/checksum hashes are preserved in the canonical calibration report.
+- The calibration and production processes run only from the same extracted
+  Git-blob archive, not from a platform-specific checkout. This keeps every
+  source hash identical across Windows CPU and Linux CUDA despite checkout
+  line-ending settings. The archive includes this ledger and the immutable
+  execution recipe, and its binding verifies every source file directly.
+- Screening deliberately uses two separately sealed baselines: Normal comes
+  from `lib/bot-strategy.ts` at frozen commit `e0c52b0`, while the observation
+  contract comes from the current sealed package source at
+  `training/v4-public-history.ts`. The Git bundle, frozen commit and Normal
+  hash do not imply that the observation file belongs to that old commit;
+  both paths and both hashes are verified independently before evaluation.
+- After all 14 shards are strictly merged, CUDA must independently replay
+  every PPO-eligible row with the initial Actor and reproduce the stored old
+  selected-action log probability within `2e-5`, both through a sealed
+  pre-training audit and through the trainer's own mandatory replay. CPU/CUDA,
+  shard, and p4-p10 strata are reported separately. Any calibration or replay
+  failure invalidates both the CPU and CUDA artifacts and requires a fresh
+  mixed-host namespace with new local and remote run directories; it never
+  relaxes a tolerance.
+- The first fresh local production directory is
+  `v4-fixedid-ppo-i001-mixed-s580000001-local-run-001`; the first fresh remote
+  directory is
+  `/home/pangmin/dalmuti/v4-fixedid-ppo-i001-mixed-s580000001-run-001`.
+  Every later retry increments its own suffix and never deletes or reuses a
+  failed directory.
+
+This amendment still does not authorize product integration, deployment, or
+use of a final-reservation seed.
