@@ -1684,6 +1684,16 @@ def validate_benchmark_report(
         != list(HISTORY_INFERENCE_BUCKETS)
     ):
         raise ValueError("candidate inference execution audit is invalid")
+    policy_numerics = candidate_policy.get("policyNumerics")
+    if policy_numerics is not None:
+        from v4_model import validate_v4_policy_numerics_contract
+
+        try:
+            validate_v4_policy_numerics_contract(policy_numerics)
+        except ValueError as error:
+            raise ValueError(
+                "candidate policy numerics audit is invalid"
+            ) from error
     if candidate_policy.get("actorCount") == 3:
         seeds = candidate_policy.get("seeds")
         if (
@@ -1939,7 +1949,10 @@ class CenteredLogitActorPolicy:
             import torch
         except ImportError as error:
             raise RuntimeError("PyTorch is required for actor inference") from error
+        from v4_model import configure_v4_policy_numerics
+
         self._torch = torch
+        policy_numerics = configure_v4_policy_numerics(torch.device(device))
         eager_actors = tuple(getattr(actor, "to")(device).eval() for actor in actors)
         configs = [getattr(actor, "config", None) for actor in eager_actors]
         if configs[0] is None or any(config != configs[0] for config in configs[1:]):
@@ -1981,6 +1994,7 @@ class CenteredLogitActorPolicy:
             "compileAutomaticFallback": False,
             "historyInferenceBuckets": list(HISTORY_INFERENCE_BUCKETS),
             "playerWidthBucketing": "exact-valid-player-prefix",
+            "policyNumerics": policy_numerics,
         }
 
     def _valid_prefix(self, mask: object, *, label: str) -> int:

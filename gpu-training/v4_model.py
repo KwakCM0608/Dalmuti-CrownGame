@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import hashlib
+import json
 import math
-from typing import Sequence
+import os
+from typing import Mapping, Sequence
 
 import torch
 from torch import nn
@@ -17,6 +20,9 @@ from v3_action_conditioned import (
 V4_ACTION_COUNT = V3_ACTION_COUNT
 V4_ACTION_FEATURE_COUNT = V3_ACTION_FEATURE_COUNT
 V4_MASKED_LOGIT = -1.0e9
+V4_POLICY_NUMERICS_CONTRACT = "fp32-mha-slowpath-math-sdp-v1"
+V4_POLICY_NUMERICS_CONTRACT_VERSION = 1
+V4_POLICY_CUBLAS_WORKSPACE_CONFIG = ":4096:8"
 
 # These sizes describe the first public-history tensor contract. They are
 # configurable so a future encoder revision does not require a model rewrite.
@@ -29,6 +35,130 @@ V4_RANK_TOKENS = 13
 V4_MAX_PLAYERS = 10
 V4_MAX_HISTORY = 192
 V4_MEMORY_TOKENS = 4
+
+
+def canonical_v4_policy_numerics_contract() -> dict[str, object]:
+    """Return the cross-backend FP32 Actor execution contract.
+
+    PyTorch's optimized MHA fast path selects materially different CPU and
+    CUDA implementations for this Transformer.  Those implementations can
+    disagree by more than the immutable fixed-PPO 2e-5 log-probability gate,
+    even with deterministic algorithms and TF32 disabled.  The explicit MHA
+    slow path plus math-only SDP keeps batched CUDA inference while making the
+    policy calculation numerically stable across the supported backends.
+    """
+
+    fields: dict[str, object] = {
+        "contract": V4_POLICY_NUMERICS_CONTRACT,
+        "version": V4_POLICY_NUMERICS_CONTRACT_VERSION,
+        "actorForwardDtype": "torch.float32",
+        "deterministicAlgorithms": True,
+        "mhaFastpathEnabled": False,
+        "flashSdpEnabled": False,
+        "memoryEfficientSdpEnabled": False,
+        "mathSdpEnabled": True,
+        "cudnnSdpEnabled": False,
+        "cudaMatmulTf32Allowed": False,
+        "cudnnTf32Allowed": False,
+        "cudnnDeterministic": True,
+        "cudnnBenchmark": False,
+        "requiredCudaCublasWorkspaceConfig": V4_POLICY_CUBLAS_WORKSPACE_CONFIG,
+    }
+    digest = hashlib.sha256(
+        json.dumps(
+            fields,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        ).encode("ascii")
+    ).hexdigest()
+    return {**fields, "contractSha256": digest}
+
+
+def validate_v4_policy_numerics_contract(
+    value: object,
+) -> dict[str, object]:
+    expected = canonical_v4_policy_numerics_contract()
+    if not isinstance(value, Mapping) or dict(value) != expected:
+        raise ValueError("V4 policy numerics contract is missing or non-canonical")
+    return expected
+
+
+def configure_v4_policy_numerics(
+    device: str | torch.device,
+) -> dict[str, object]:
+    """Apply and verify the canonical policy math backend, failing closed."""
+
+    device_value = torch.device(device)
+    if device_value.type not in {"cpu", "cuda"}:
+        raise ValueError("V4 policy numerics supports only CPU or CUDA")
+    cuda = device_value.type == "cuda"
+    if cuda and not torch.cuda.is_available():
+        raise RuntimeError("CUDA policy numerics requested but CUDA is unavailable")
+
+    mha = getattr(torch.backends, "mha", None)
+    cuda_backends = getattr(torch.backends, "cuda", None)
+    cudnn = getattr(torch.backends, "cudnn", None)
+    required_mha = ("set_fastpath_enabled", "get_fastpath_enabled")
+    required_cuda = (
+        "enable_flash_sdp",
+        "flash_sdp_enabled",
+        "enable_mem_efficient_sdp",
+        "mem_efficient_sdp_enabled",
+        "enable_math_sdp",
+        "math_sdp_enabled",
+        "enable_cudnn_sdp",
+        "cudnn_sdp_enabled",
+    )
+    if mha is None or any(not hasattr(mha, name) for name in required_mha):
+        raise RuntimeError("PyTorch lacks the required MHA fast-path controls")
+    if cuda_backends is None or any(
+        not hasattr(cuda_backends, name) for name in required_cuda
+    ):
+        raise RuntimeError("PyTorch lacks the required SDP backend controls")
+    if cudnn is None:
+        raise RuntimeError("PyTorch lacks the required cuDNN backend controls")
+
+    if cuda:
+        existing = os.environ.get("CUBLAS_WORKSPACE_CONFIG")
+        if existing not in (None, V4_POLICY_CUBLAS_WORKSPACE_CONFIG):
+            raise ValueError(
+                "V4 CUDA policy numerics requires "
+                f"CUBLAS_WORKSPACE_CONFIG={V4_POLICY_CUBLAS_WORKSPACE_CONFIG}"
+            )
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = V4_POLICY_CUBLAS_WORKSPACE_CONFIG
+
+    torch.use_deterministic_algorithms(True)
+    mha.set_fastpath_enabled(False)
+    cuda_backends.enable_flash_sdp(False)
+    cuda_backends.enable_mem_efficient_sdp(False)
+    cuda_backends.enable_math_sdp(True)
+    cuda_backends.enable_cudnn_sdp(False)
+    cuda_backends.matmul.allow_tf32 = False
+    cudnn.allow_tf32 = False
+    cudnn.deterministic = True
+    cudnn.benchmark = False
+
+    if (
+        not torch.are_deterministic_algorithms_enabled()
+        or bool(mha.get_fastpath_enabled())
+        or bool(cuda_backends.flash_sdp_enabled())
+        or bool(cuda_backends.mem_efficient_sdp_enabled())
+        or not bool(cuda_backends.math_sdp_enabled())
+        or bool(cuda_backends.cudnn_sdp_enabled())
+        or bool(cuda_backends.matmul.allow_tf32)
+        or bool(cudnn.allow_tf32)
+        or not bool(cudnn.deterministic)
+        or bool(cudnn.benchmark)
+        or (
+            cuda
+            and os.environ.get("CUBLAS_WORKSPACE_CONFIG")
+            != V4_POLICY_CUBLAS_WORKSPACE_CONFIG
+        )
+    ):
+        raise RuntimeError("V4 policy numerics controls did not settle exactly")
+    return canonical_v4_policy_numerics_contract()
 
 
 def _positive_integer(value: int, label: str) -> int:
@@ -601,13 +731,19 @@ __all__ = [
     "V4_ACTION_COUNT",
     "V4_ACTION_FEATURE_COUNT",
     "V4_MASKED_LOGIT",
+    "V4_POLICY_CUBLAS_WORKSPACE_CONFIG",
+    "V4_POLICY_NUMERICS_CONTRACT",
+    "V4_POLICY_NUMERICS_CONTRACT_VERSION",
     "V4ActorConfig",
     "V4CriticConfig",
     "V4PublicActor",
     "V4PrivilegedQCritic",
     "V4CenteredLogitEnsemble",
     "assert_actor_critic_parameter_isolation",
+    "canonical_v4_policy_numerics_contract",
     "centered_legal_logits",
+    "configure_v4_policy_numerics",
     "mask_illegal_logits",
     "trainable_parameter_ids",
+    "validate_v4_policy_numerics_contract",
 ]

@@ -632,3 +632,68 @@ concurrently without weakening provenance:
 
 This amendment still does not authorize product integration, deployment, or
 use of a final-reservation seed.
+
+## Mixed-host run-001 calibration failure and deterministic-math retry
+
+The first mixed-host execution is preserved as an immutable failed run. The
+local directory is
+`artifacts/rl/v4-fixedid-ppo-i001-mixed-s580000001-local-run-001`, the remote
+directory is
+`/home/pangmin/dalmuti/v4-fixedid-ppo-i001-mixed-s580000001-run-001`, and its
+local terminal failure record has SHA-256
+`8a49b3b766e810ac40465174e08b443e6732e134578e32ef349b3cad811abc41`.
+Neither directory is deleted, reused, resumed, or promoted.
+
+Both sides completed the isolated calibration schedule: one complete
+five-act match at each of p4-p10, seven complete matches, 35 learner-act
+trajectories, and 741 learner decision samples per backend. The CPU artifact
+used Torch `2.13.0+cpu` and has NPZ SHA-256
+`e9f74beadb86d02b0fba0a5eb316ef151186be69803c02069171efe0d42934ff`;
+the CUDA artifact used Torch `2.7.1+cu118` and has NPZ SHA-256
+`aa05bb562a42736ddf39f0a851ecc779e0393e69a67c43bf0eb627505bcee92e`.
+Schedule, identity, actions, legal masks, states, Normal labels, finish orders,
+chips, rewards, and every other exact array matched before the comparator
+reached the three permitted policy-float arrays. The actual CPU/CUDA maximum
+absolute differences were:
+
+| Array | Maximum absolute difference | Required maximum |
+| --- | ---: | ---: |
+| `old_action_log_probs` | `0.0007748603820800781` | `0.00002` |
+| `selected_action_probabilities` | `0.00007956765152261625` | `0.00002` |
+| `policy_entropies` | `0.00015497207641601562` | `0.00002` |
+
+The comparator therefore stopped at calibration admission with the exact
+reported `old_action_log_probs` difference `0.00077486038`, approximately
+`38.743` times the fixed tolerance. This exposed backend-dependent attention
+math rather than a schedule or game-state mismatch. No admitted calibration
+report, production shard, merged dataset, pre-training replay, PPO training
+run, candidate model, screening report, or Normal comparison was produced by
+this execution.
+
+The retry uses deterministic math attention and wholly new identities while
+retaining the behavior Actor, frozen Normal baseline, sealed observation
+contract, collection counts/topology, training settings, screening family,
+hard gates, and promotion gates:
+
+- Package ID and production namespace:
+  `v4-fixedid-ppo-i001-mixedmath-s600000001`.
+- Calibration namespace and seed:
+  `v4-fixedid-mixedmath-calibration-s595000001` and `595000001`.
+- Environment seed base: `600000001`; training seed: `610000001`.
+- The run contract requires the exact FP32 MHA-slowpath/math-SDP policy
+  numerics contract, SHA-256
+  `a08de79f95df089fb5c525bb12a14f0fa28985d294f9fa3b2942e5db46df1ca3`.
+  Collection, pre-training replay, training, and screening evidence each fail
+  closed if this contract is missing or altered.
+- Fresh local run directory:
+  `artifacts/rl/v4-fixedid-ppo-i001-mixedmath-s600000001-local-run-001`.
+- Fresh remote run directory:
+  `/home/pangmin/dalmuti/v4-fixedid-ppo-i001-mixedmath-s600000001-run-001`.
+- Fresh package directory:
+  `artifacts/rl/v4-fixedid-ppo-i001-mixedmath-s600000001-package-run-001`.
+
+The retry package and all package/source hashes remain intentionally
+unassigned until the deterministic-math changes and this identity amendment
+are committed and the package is built from that exact commit. This retry
+still prohibits V3/i2 resumption, final-reservation seeds, product
+integration, and deployment.

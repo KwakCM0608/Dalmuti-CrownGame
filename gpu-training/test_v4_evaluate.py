@@ -332,7 +332,11 @@ class V4EvaluationTests(unittest.TestCase):
     def test_random_real_like_transformer_actions_match_unbucketed_reference(self) -> None:
         import torch
         from types import SimpleNamespace
-        from v4_model import V4ActorConfig, V4PublicActor
+        from v4_model import (
+            V4ActorConfig,
+            V4PublicActor,
+            canonical_v4_policy_numerics_contract,
+        )
 
         torch.manual_seed(20260801)
         config = V4ActorConfig(
@@ -345,6 +349,10 @@ class V4EvaluationTests(unittest.TestCase):
         )
         actor = V4PublicActor(config).eval()
         policy = CenteredLogitActorPolicy([actor], seeds=[20260801])
+        self.assertEqual(
+            policy.audit_metadata["policyNumerics"],
+            canonical_v4_policy_numerics_contract(),
+        )
         observations = []
         for history_length in (0, 1, 15, 16, 17, 31, 32, 33, 63, 64, 65, 95, 127, 159, 191, 192):
             player_mask = torch.zeros(10, dtype=torch.bool)

@@ -23,6 +23,7 @@ from v4_mixed_workflow import (
     BEHAVIOR_MANIFEST_SHA256,
     canonical_json_bytes,
 )
+from v4_model import canonical_v4_policy_numerics_contract
 
 
 def _write_canonical(path: Path, value: object, *, sidecar: bool = False) -> str:
@@ -88,6 +89,10 @@ class MixedPretrainingAuditTests(unittest.TestCase):
             canonical_json_bytes(initial_replay)
         ).hexdigest()
         training_contract = {
+            "fixedPpoExecutionContract": {
+                "policyNumerics": canonical_v4_policy_numerics_contract(),
+                "version": 2,
+            },
             "fixedCollectionPlanIds": [
                 "fixed-complete-mixed-backend-shard-plan-v2:sha256=" + plan_sha
             ],
@@ -95,6 +100,9 @@ class MixedPretrainingAuditTests(unittest.TestCase):
             "initialPolicyReproductionAudit": initial_replay,
             "initialPolicyReproductionAuditFingerprint": initial_fingerprint,
             "ppoBehaviorActorSha256s": [BEHAVIOR_ACTOR_SHA256],
+            "playerCountBalancedLoss": {
+                "fixedPpoPolicyNumerics": canonical_v4_policy_numerics_contract(),
+            },
             "requestedWeights": {
                 "behaviorCloning": 0.05,
                 "critic": 0.2,
@@ -126,7 +134,7 @@ class MixedPretrainingAuditTests(unittest.TestCase):
             "metadata": {
                 "datasetFingerprint": dataset,
                 "initialActor": initial_actor,
-                "seed": 590000001,
+                "seed": 610000001,
             },
             "version": 2,
         }
@@ -167,7 +175,7 @@ class MixedPretrainingAuditTests(unittest.TestCase):
                 "num_workers": 0,
                 "ppo_weight": 1.0,
                 "q_boost_coefficient": 0.0,
-                "seed": 590000001,
+                "seed": 610000001,
                 "weight_decay": 0.0001,
             },
             "trainingContract": training_contract,
@@ -229,6 +237,88 @@ class MixedPretrainingAuditTests(unittest.TestCase):
                     maximum_clip_fraction=0.25,
                     minimum_entropy_retention=0.70,
                 )
+
+    def test_training_gate_rejects_missing_or_tampered_policy_numerics(self) -> None:
+        def missing_execution_policy(contract: dict[str, object]) -> None:
+            execution = contract["fixedPpoExecutionContract"]
+            assert isinstance(execution, dict)
+            execution.pop("policyNumerics")
+
+        def tampered_execution_policy(contract: dict[str, object]) -> None:
+            execution = contract["fixedPpoExecutionContract"]
+            assert isinstance(execution, dict)
+            numerics = execution["policyNumerics"]
+            assert isinstance(numerics, dict)
+            numerics["mhaFastpathEnabled"] = True
+
+        def wrong_execution_version(contract: dict[str, object]) -> None:
+            execution = contract["fixedPpoExecutionContract"]
+            assert isinstance(execution, dict)
+            execution["version"] = 1
+
+        def missing_balance_policy(contract: dict[str, object]) -> None:
+            balance = contract["playerCountBalancedLoss"]
+            assert isinstance(balance, dict)
+            balance.pop("fixedPpoPolicyNumerics")
+
+        def tampered_balance_policy(contract: dict[str, object]) -> None:
+            balance = contract["playerCountBalancedLoss"]
+            assert isinstance(balance, dict)
+            numerics = balance["fixedPpoPolicyNumerics"]
+            assert isinstance(numerics, dict)
+            numerics["flashSdpEnabled"] = True
+
+        cases = (
+            (
+                "missing-execution-policy",
+                missing_execution_policy,
+                "fixed PPO execution policy numerics",
+            ),
+            (
+                "tampered-execution-policy",
+                tampered_execution_policy,
+                "fixed PPO execution policy numerics",
+            ),
+            (
+                "wrong-execution-version",
+                wrong_execution_version,
+                "fixed PPO execution policy numerics",
+            ),
+            (
+                "missing-balance-policy",
+                missing_balance_policy,
+                "player-count balance policy numerics",
+            ),
+            (
+                "tampered-balance-policy",
+                tampered_balance_policy,
+                "player-count balance policy numerics",
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name, mutate, message in cases:
+                with self.subTest(name=name):
+                    case_root = root / name
+                    result, manifest = self._training_values()
+                    contract = result["trainingContract"]
+                    assert isinstance(contract, dict)
+                    mutate(contract)
+                    result_path = case_root / "result.json"
+                    manifest_path = case_root / "run-manifest.json"
+                    _write_canonical(result_path, result)
+                    _write_canonical(manifest_path, manifest)
+                    candidate = self._write_training_candidate(case_root, result)
+                    with self.assertRaisesRegex(ValueError, message):
+                        verify_training_gates(
+                            result_path,
+                            manifest_path,
+                            candidate,
+                            case_root / "gates.json",
+                            maximum_approx_kl=0.020,
+                            maximum_clip_fraction=0.25,
+                            minimum_entropy_retention=0.70,
+                        )
 
     def test_training_gate_rejects_candidate_swap_after_training(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

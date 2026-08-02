@@ -14,6 +14,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import math
 import os
 import re
 import stat
@@ -34,7 +35,78 @@ TERMINAL_STATES = frozenset({"succeeded", "failed", "cancelled"})
 PACKAGE_FORMAT = "dalmuti-v4-mixed-run-package"
 BINDING_FORMAT = "dalmuti-v4-mixed-source-binding"
 RECIPE_FORMAT = "dalmuti-v4-mixed-package-recipe"
-RUN_NAMESPACE = "v4-fixedid-ppo-i001-mixed-s580000001"
+RUN_NAMESPACE = "v4-fixedid-ppo-i001-mixedmath-s600000001"
+V4_POLICY_NUMERICS_FIELDS = frozenset(
+    {
+        "actorForwardDtype",
+        "contract",
+        "contractSha256",
+        "cudaMatmulTf32Allowed",
+        "cudnnBenchmark",
+        "cudnnDeterministic",
+        "cudnnSdpEnabled",
+        "cudnnTf32Allowed",
+        "deterministicAlgorithms",
+        "flashSdpEnabled",
+        "mathSdpEnabled",
+        "memoryEfficientSdpEnabled",
+        "mhaFastpathEnabled",
+        "requiredCudaCublasWorkspaceConfig",
+        "version",
+    }
+)
+V4_REPLAY_AUDIT_FIELDS = frozenset(
+    {
+        "absoluteTolerance",
+        "actorAutocastEnabled",
+        "actorForwardDtype",
+        "actorMode",
+        "auditBatchSize",
+        "effectiveNonforcedPpoRowCount",
+        "forcedMaximumAbsoluteLogProbabilityError",
+        "forcedSingletonPpoRowCount",
+        "forcedSingletonRowsByPlayerCount",
+        "maximumAbsoluteLogProbabilityError",
+        "meanAbsoluteLogProbabilityError",
+        "nonforcedBalancedEntropy",
+        "nonforcedEntropyByPlayerCount",
+        "nonforcedRowsByPlayerCount",
+        "nonforcedTotalWeightMass",
+        "nonforcedWeightMassByPlayerCount",
+        "passed",
+        "ppoEligibleRowCount",
+        "storedOldActionLogProbabilityDtype",
+        "version",
+    }
+)
+V4_REPLAY_REPORT_FIELDS = frozenset(
+    {
+        "actorSha256",
+        "audit",
+        "datasetFingerprint",
+        "datasetSha256",
+        "device",
+        "fixedCollectionPlanSha256",
+        "format",
+        "manifestSha256",
+        "passed",
+        "policyNumerics",
+        "strata",
+        "version",
+    }
+)
+V4_REPLAY_STRATUM_FIELDS = frozenset(
+    {
+        "backend",
+        "count",
+        "maximumAbsoluteLogProbabilityError",
+        "meanAbsoluteLogProbabilityError",
+        "playerCount",
+        "shardIndex",
+    }
+)
+V4_REPLAY_TOLERANCE = 2.0e-5
+V4_MIXED_BACKEND_MAP = ("cpu", "cpu", *("cuda" for _ in range(12)))
 FROZEN_BASELINE_BUNDLE_NAME = "dalmuti-e0c52b0.bundle"
 FROZEN_BASELINE_BUNDLE_SHA256 = (
     "9ea0b9eb4200ac369fbc3ffb1493efe59625b34f5f994359f8a01d4b5610db4d"
@@ -768,6 +840,47 @@ def _decision_audit_is_pure_actor(value: object, *, include_player_counts: bool)
     )
 
 
+def _canonical_policy_numerics_contract() -> dict[str, object]:
+    return {
+        "actorForwardDtype": "torch.float32",
+        "contract": "fp32-mha-slowpath-math-sdp-v1",
+        "contractSha256": (
+            "a08de79f95df089fb5c525bb12a14f0fa28985d294f9fa3b2942e5db46df1ca3"
+        ),
+        "cudaMatmulTf32Allowed": False,
+        "cudnnBenchmark": False,
+        "cudnnDeterministic": True,
+        "cudnnSdpEnabled": False,
+        "cudnnTf32Allowed": False,
+        "deterministicAlgorithms": True,
+        "flashSdpEnabled": False,
+        "mathSdpEnabled": True,
+        "memoryEfficientSdpEnabled": False,
+        "mhaFastpathEnabled": False,
+        "requiredCudaCublasWorkspaceConfig": ":4096:8",
+        "version": 1,
+    }
+
+
+def _validate_policy_numerics(value: object, label: str) -> Mapping[str, Any]:
+    expected = _canonical_policy_numerics_contract()
+    require(
+        isinstance(value, Mapping)
+        and set(value) == V4_POLICY_NUMERICS_FIELDS
+        and canonical_json_bytes(dict(value)) == canonical_json_bytes(expected),
+        f"{label} is missing, incomplete, or non-canonical",
+    )
+    return dict(value)
+
+
+def _recipe_policy_numerics(recipe: Mapping[str, Any]) -> Mapping[str, Any]:
+    run_contract = recipe.get("runContract")
+    require(isinstance(run_contract, Mapping), "sealed run contract is missing")
+    return _validate_policy_numerics(
+        run_contract.get("policyNumerics"), "sealed policy numerics contract"
+    )
+
+
 def verify_screening(
     package_dir: Path,
     expected_manifest_sha256: str,
@@ -844,6 +957,15 @@ def verify_screening(
     require(isinstance(evidence, Mapping) and evidence.get("actualFilesVerified") is True and evidence.get("actorModelSha256") == actor_digest and evidence.get("actorBundleArtifactSha256") == candidate_manifest_digest, "screening did not verify actual candidate files")
     policy = report.get("candidatePolicy")
     require(isinstance(policy, Mapping) and policy.get("actorCount") == 1, "screening must use one Actor")
+    expected_policy_numerics = _recipe_policy_numerics(recipe)
+    report_policy_numerics = _validate_policy_numerics(
+        policy.get("policyNumerics"), "screening policy numerics"
+    )
+    require(
+        canonical_json_bytes(dict(report_policy_numerics))
+        == canonical_json_bytes(dict(expected_policy_numerics)),
+        "screening policy numerics do not match the sealed run contract",
+    )
     require(policy.get("bundleActorSha256s") == [actor_digest] and policy.get("bundleManifestSha256s") == [candidate_manifest_digest] and policy.get("bundleArtifactSha256") == candidate_manifest_digest, "screening bundle inventory mismatch")
     routing = policy.get("routing")
     require(isinstance(routing, Mapping) and routing.get("mode") == "pure-actor" and routing.get("runtimeErrorFallback") is False, "screening is not pure Actor")
@@ -1032,7 +1154,7 @@ def _screening_promotion_snapshots(
     candidate_root = (
         run_root
         / "training"
-        / "train-seed-590000001-run-001"
+        / "train-seed-610000001-run-001"
         / "candidate"
     )
     candidate_actor, candidate_actor_sidecar = snapshot_with_sidecar(
@@ -1203,8 +1325,307 @@ def _verify_remote_frozen_baseline(root: Path) -> dict[str, StableSnapshot]:
     return snapshots
 
 
+def _finite_nonnegative(value: object, label: str) -> float:
+    require(
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(float(value))
+        and float(value) >= 0.0,
+        f"{label} must be a finite nonnegative number",
+    )
+    return float(value)
+
+
+def _replay_player_count_integers(
+    value: object, label: str, *, positive: bool
+) -> dict[str, int]:
+    expected_keys = {str(player_count) for player_count in PLAYER_COUNTS}
+    require(
+        isinstance(value, Mapping) and set(value) == expected_keys,
+        f"{label} must cover p4-p10 exactly",
+    )
+    result: dict[str, int] = {}
+    for key in sorted(expected_keys, key=int):
+        item = value[key]
+        require(
+            isinstance(item, int)
+            and not isinstance(item, bool)
+            and (item > 0 if positive else item >= 0),
+            f"{label} contains an invalid p{key} count",
+        )
+        result[key] = item
+    return result
+
+
+def _replay_player_count_numbers(
+    value: object, label: str, *, positive: bool
+) -> dict[str, float]:
+    expected_keys = {str(player_count) for player_count in PLAYER_COUNTS}
+    require(
+        isinstance(value, Mapping) and set(value) == expected_keys,
+        f"{label} must cover p4-p10 exactly",
+    )
+    result: dict[str, float] = {}
+    for key in sorted(expected_keys, key=int):
+        item = _finite_nonnegative(value[key], f"{label} p{key}")
+        require(not positive or item > 0.0, f"{label} p{key} must be positive")
+        result[key] = item
+    return result
+
+
+def _validate_pretraining_replay(
+    report: Mapping[str, Any],
+    recipe: Mapping[str, Any],
+    merged_payload: StableSnapshot,
+    merged_metadata: Mapping[str, Any],
+) -> None:
+    require(
+        set(report) == V4_REPLAY_REPORT_FIELDS
+        and report.get("format") == "dalmuti-v4-mixed-pretraining-replay"
+        and report.get("version") == 1
+        and report.get("passed") is True
+        and report.get("device") == "cuda",
+        "pretraining replay report header is non-canonical or failed",
+    )
+    expected_policy_numerics = _recipe_policy_numerics(recipe)
+    replay_policy_numerics = _validate_policy_numerics(
+        report.get("policyNumerics"), "pretraining replay policy numerics"
+    )
+    require(
+        canonical_json_bytes(dict(replay_policy_numerics))
+        == canonical_json_bytes(dict(expected_policy_numerics)),
+        "pretraining replay policy numerics do not match the sealed run contract",
+    )
+
+    run_contract = recipe.get("runContract")
+    assert isinstance(run_contract, Mapping)
+    behavior = run_contract.get("behaviorActor")
+    require(isinstance(behavior, Mapping), "sealed behavior Actor contract is missing")
+    expected_actor_sha = require_sha256(
+        behavior.get("actorSha256"), "sealed behavior Actor SHA-256"
+    )
+    expected_manifest_sha = require_sha256(
+        behavior.get("manifestSha256"), "sealed behavior manifest SHA-256"
+    )
+    require(
+        report.get("actorSha256") == expected_actor_sha
+        and report.get("manifestSha256") == expected_manifest_sha,
+        "pretraining replay does not bind the sealed behavior Actor bundle",
+    )
+
+    dataset_fingerprint = require_sha256(
+        merged_metadata.get("fingerprint"), "merged dataset fingerprint"
+    )
+    require(
+        report.get("datasetSha256") == merged_payload.sha256
+        and report.get("datasetFingerprint") == dataset_fingerprint,
+        "pretraining replay does not bind the exact merged dataset",
+    )
+    loss = merged_metadata.get("lossEligibility")
+    require(isinstance(loss, Mapping), "merged dataset lacks loss eligibility")
+    plans = loss.get("fixedCollectionPlans")
+    require(
+        isinstance(plans, list) and len(plans) == 1 and isinstance(plans[0], Mapping),
+        "merged dataset must bind one fixed collection plan",
+    )
+    plan_sha = require_sha256(
+        plans[0].get("canonicalSha256"), "merged fixed collection plan SHA-256"
+    )
+    require(
+        report.get("fixedCollectionPlanSha256") == plan_sha,
+        "pretraining replay fixed collection plan binding drifted",
+    )
+
+    audit = report.get("audit")
+    require(
+        isinstance(audit, Mapping)
+        and set(audit) == V4_REPLAY_AUDIT_FIELDS
+        and audit.get("version") == 2
+        and audit.get("passed") is True
+        and audit.get("auditBatchSize") == 64
+        and audit.get("actorMode") == "eval"
+        and audit.get("actorForwardDtype") == "torch.float32"
+        and audit.get("actorAutocastEnabled") is False
+        and audit.get("storedOldActionLogProbabilityDtype") == "torch.float32",
+        "pretraining replay audit is missing, incomplete, or non-canonical",
+    )
+    absolute_tolerance = _finite_nonnegative(
+        audit.get("absoluteTolerance"), "pretraining replay absolute tolerance"
+    )
+    maximum_error = _finite_nonnegative(
+        audit.get("maximumAbsoluteLogProbabilityError"),
+        "pretraining replay maximum error",
+    )
+    mean_error = _finite_nonnegative(
+        audit.get("meanAbsoluteLogProbabilityError"),
+        "pretraining replay mean error",
+    )
+    forced_maximum = _finite_nonnegative(
+        audit.get("forcedMaximumAbsoluteLogProbabilityError"),
+        "pretraining replay forced maximum error",
+    )
+    require(
+        absolute_tolerance == V4_REPLAY_TOLERANCE
+        and maximum_error <= V4_REPLAY_TOLERANCE
+        and mean_error <= maximum_error + 1.0e-15
+        and forced_maximum <= maximum_error + 1.0e-15,
+        "pretraining replay exceeded the immutable 2e-5 error contract",
+    )
+    forced_counts = _replay_player_count_integers(
+        audit.get("forcedSingletonRowsByPlayerCount"),
+        "pretraining replay forced rows",
+        positive=False,
+    )
+    nonforced_counts = _replay_player_count_integers(
+        audit.get("nonforcedRowsByPlayerCount"),
+        "pretraining replay nonforced rows",
+        positive=True,
+    )
+    weight_masses = _replay_player_count_numbers(
+        audit.get("nonforcedWeightMassByPlayerCount"),
+        "pretraining replay nonforced weight mass",
+        positive=True,
+    )
+    entropies = _replay_player_count_numbers(
+        audit.get("nonforcedEntropyByPlayerCount"),
+        "pretraining replay nonforced entropy",
+        positive=False,
+    )
+    ppo_rows = audit.get("ppoEligibleRowCount")
+    nonforced_rows = audit.get("effectiveNonforcedPpoRowCount")
+    forced_rows = audit.get("forcedSingletonPpoRowCount")
+    require(
+        isinstance(ppo_rows, int)
+        and not isinstance(ppo_rows, bool)
+        and ppo_rows > 0
+        and isinstance(nonforced_rows, int)
+        and not isinstance(nonforced_rows, bool)
+        and nonforced_rows == sum(nonforced_counts.values())
+        and isinstance(forced_rows, int)
+        and not isinstance(forced_rows, bool)
+        and forced_rows == sum(forced_counts.values())
+        and ppo_rows == nonforced_rows + forced_rows,
+        "pretraining replay audit row counts are inconsistent",
+    )
+    total_mass = _finite_nonnegative(
+        audit.get("nonforcedTotalWeightMass"),
+        "pretraining replay total nonforced weight mass",
+    )
+    balanced_entropy = _finite_nonnegative(
+        audit.get("nonforcedBalancedEntropy"),
+        "pretraining replay balanced entropy",
+    )
+    require(
+        total_mass > 0.0
+        and math.isclose(
+            total_mass,
+            sum(weight_masses.values()),
+            rel_tol=2.0e-12,
+            abs_tol=2.0e-10,
+        ),
+        "pretraining replay weight-mass totals drifted",
+    )
+    reconstructed_entropy = sum(
+        entropies[key] * weight_masses[key] for key in weight_masses
+    ) / total_mass
+    require(
+        math.isclose(
+            balanced_entropy,
+            reconstructed_entropy,
+            rel_tol=2.0e-10,
+            abs_tol=2.0e-12,
+        ),
+        "pretraining replay balanced entropy drifted",
+    )
+
+    strata = report.get("strata")
+    require(
+        isinstance(strata, Mapping)
+        and set(strata) == {"byPlayerCountShardAndBackend"},
+        "pretraining replay strata are missing or non-canonical",
+    )
+    rows = strata.get("byPlayerCountShardAndBackend")
+    expected_keys = {
+        (player_count, shard_index, V4_MIXED_BACKEND_MAP[shard_index])
+        for player_count in PLAYER_COUNTS
+        for shard_index in range(len(V4_MIXED_BACKEND_MAP))
+    }
+    require(
+        isinstance(rows, list) and len(rows) == len(expected_keys),
+        "pretraining replay lacks complete p4-p10 CPU/CUDA strata",
+    )
+    observed_keys: set[tuple[int, int, str]] = set()
+    counts_by_player = {str(player_count): 0 for player_count in PLAYER_COUNTS}
+    stratum_count = 0
+    stratum_maximum = 0.0
+    for row in rows:
+        require(
+            isinstance(row, Mapping) and set(row) == V4_REPLAY_STRATUM_FIELDS,
+            "pretraining replay contains a non-canonical stratum",
+        )
+        player_count = row.get("playerCount")
+        shard_index = row.get("shardIndex")
+        backend = row.get("backend")
+        count = row.get("count")
+        require(
+            isinstance(player_count, int)
+            and not isinstance(player_count, bool)
+            and isinstance(shard_index, int)
+            and not isinstance(shard_index, bool)
+            and isinstance(backend, str)
+            and isinstance(count, int)
+            and not isinstance(count, bool)
+            and count > 0,
+            "pretraining replay contains an invalid stratum identity or count",
+        )
+        key = (player_count, shard_index, backend)
+        require(
+            key in expected_keys and key not in observed_keys,
+            "pretraining replay stratum identity/backend coverage drifted",
+        )
+        observed_keys.add(key)
+        row_maximum = _finite_nonnegative(
+            row.get("maximumAbsoluteLogProbabilityError"),
+            "pretraining replay stratum maximum error",
+        )
+        row_mean = _finite_nonnegative(
+            row.get("meanAbsoluteLogProbabilityError"),
+            "pretraining replay stratum mean error",
+        )
+        require(
+            row_maximum <= V4_REPLAY_TOLERANCE
+            and row_mean <= row_maximum + 1.0e-15,
+            "a pretraining replay stratum exceeded the immutable 2e-5 contract",
+        )
+        counts_by_player[str(player_count)] += count
+        stratum_count += count
+        stratum_maximum = max(stratum_maximum, row_maximum)
+    require(
+        observed_keys == expected_keys
+        and stratum_count == ppo_rows
+        and counts_by_player
+        == {
+            key: forced_counts[key] + nonforced_counts[key]
+            for key in counts_by_player
+        }
+        and math.isclose(
+            stratum_maximum, maximum_error, rel_tol=0.0, abs_tol=1.0e-15
+        ),
+        "pretraining replay strata disagree with the full replay audit",
+    )
+
+
 def _verify_remote_semantic_inventory(root: Path) -> dict[str, StableSnapshot]:
     snapshots: dict[str, StableSnapshot] = {}
+    recipe_snapshot = stable_snapshot(
+        root / "source" / "gpu-training" / "v4_mixed_execution_recipe.json",
+        "remote semantic recipe",
+    )
+    recipe = load_canonical_json_snapshot(
+        recipe_snapshot, "remote semantic recipe"
+    )
+    _recipe_policy_numerics(recipe)
+    snapshots["remote semantic recipe"] = recipe_snapshot
     snapshots.update(_verify_remote_frozen_baseline(root))
     calibration = root / "calibration"
     expected_calibration_names = {
@@ -1269,13 +1690,24 @@ def _verify_remote_semantic_inventory(root: Path) -> dict[str, StableSnapshot]:
         },
         "merged production inventory is not the exact four-file family",
     )
-    snapshots.update(_required_npz_family(merged / "production.npz", "merged production"))
+    merged_path = merged / "production.npz"
+    merged_family = _required_npz_family(merged_path, "merged production")
+    snapshots.update(merged_family)
+    merged_payload = merged_family[str(merged_path)]
+    merged_metadata_snapshot = merged_family[f"{merged_path}.metadata.json"]
+    merged_metadata = load_canonical_json_snapshot(
+        merged_metadata_snapshot, "merged production metadata"
+    )
     replay, replay_sidecar = snapshot_with_sidecar(
         root / "replay" / "pretraining.json"
     )
+    replay_report = load_canonical_json_snapshot(replay, "pretraining replay")
+    _validate_pretraining_replay(
+        replay_report, recipe, merged_payload, merged_metadata
+    )
     snapshots["pretraining replay"] = replay
     snapshots["pretraining replay sidecar"] = replay_sidecar
-    training_root = root / "training" / "train-seed-590000001-run-001"
+    training_root = root / "training" / "train-seed-610000001-run-001"
     for relative, label in (
         ("result.json", "training result"),
         ("run-manifest.json", "training run manifest"),

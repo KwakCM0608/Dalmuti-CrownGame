@@ -438,6 +438,20 @@ class FixedMatchBackendCalibrationTests(unittest.TestCase):
                 self.root / "non-cuda-torch-build.json",
             )
 
+        def policy_numerics_drift(metadata, arrays) -> None:
+            del arrays
+            metadata["execution"]["policyNumerics"]["mhaFastpathEnabled"] = True
+
+        wrong_policy_numerics = self._cuda_clone(
+            "policy-numerics-drift", policy_numerics_drift
+        )
+        with self.assertRaisesRegex(ValueError, "policy numerics"):
+            compare_fixed_match_backends(
+                self.cpu,
+                wrong_policy_numerics,
+                self.root / "policy-numerics-drift.json",
+            )
+
     def test_input_replacement_during_validation_fails_without_report(self) -> None:
         cpu = self._cpu_clone("snapshot-race-cpu")
         cuda = self._cuda_clone("snapshot-race-cuda")

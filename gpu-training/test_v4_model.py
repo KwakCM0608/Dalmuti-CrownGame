@@ -11,7 +11,10 @@ from v4_model import (
     V4PrivilegedQCritic,
     V4PublicActor,
     assert_actor_critic_parameter_isolation,
+    canonical_v4_policy_numerics_contract,
     centered_legal_logits,
+    configure_v4_policy_numerics,
+    validate_v4_policy_numerics_contract,
 )
 
 
@@ -64,6 +67,28 @@ def public_inputs(config: V4ActorConfig, batch_size: int = 2) -> tuple[torch.Ten
 
 
 class V4ModelTests(unittest.TestCase):
+    def test_policy_numerics_contract_disables_every_optimized_attention_path(self) -> None:
+        contract = configure_v4_policy_numerics("cpu")
+
+        self.assertEqual(contract, canonical_v4_policy_numerics_contract())
+        self.assertEqual(validate_v4_policy_numerics_contract(contract), contract)
+        self.assertEqual(len(contract["contractSha256"]), 64)
+        self.assertTrue(torch.are_deterministic_algorithms_enabled())
+        self.assertFalse(torch.backends.mha.get_fastpath_enabled())
+        self.assertFalse(torch.backends.cuda.flash_sdp_enabled())
+        self.assertFalse(torch.backends.cuda.mem_efficient_sdp_enabled())
+        self.assertTrue(torch.backends.cuda.math_sdp_enabled())
+        self.assertFalse(torch.backends.cuda.cudnn_sdp_enabled())
+        self.assertFalse(torch.backends.cuda.matmul.allow_tf32)
+        self.assertFalse(torch.backends.cudnn.allow_tf32)
+        self.assertTrue(torch.backends.cudnn.deterministic)
+        self.assertFalse(torch.backends.cudnn.benchmark)
+
+        tampered = dict(contract)
+        tampered["mhaFastpathEnabled"] = True
+        with self.assertRaisesRegex(ValueError, "non-canonical"):
+            validate_v4_policy_numerics_contract(tampered)
+
     def test_production_defaults_match_v4_contract(self) -> None:
         config = V4ActorConfig()
         self.assertEqual(config.d_model, 384)

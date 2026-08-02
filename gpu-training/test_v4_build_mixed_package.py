@@ -25,6 +25,7 @@ from v4_mixed_package_runtime import (
     verify_screening,
     write_status,
 )
+from v4_model import canonical_v4_policy_numerics_contract
 
 
 def _git(root: Path, *arguments: str) -> str:
@@ -103,12 +104,13 @@ class MixedPackageBuilderTests(unittest.TestCase):
             },
             "format": "dalmuti-v4-mixed-package-recipe",
             "ledgerPath": "docs/ledger.md",
-            "packageId": "v4-fixedid-ppo-i001-mixed-s580000001-test",
+            "packageId": "v4-fixedid-ppo-i001-mixedmath-s600000001-test",
             "packagingBuilderPath": "gpu-training/v4_build_mixed_package.py",
             "runContract": {
                 "backendMap": ["cpu", "cpu", *(["cuda"] * 12)],
-                "environmentSeed": 580000001,
-                "trainingSeed": 590000001,
+                "environmentSeed": 600000001,
+                "policyNumerics": canonical_v4_policy_numerics_contract(),
+                "trainingSeed": 610000001,
             },
             "runtimeVerifierPath": "gpu-training/v4_mixed_package_runtime.py",
             "screening": {
@@ -383,6 +385,7 @@ class MixedPackageBuilderTests(unittest.TestCase):
                 "bundleArtifactSha256": candidate_manifest_sha,
                 "bundleManifestSha256s": [candidate_manifest_sha],
                 "compileAutomaticFallback": False,
+                "policyNumerics": canonical_v4_policy_numerics_contract(),
                 "routing": {"mode": "pure-actor", "runtimeErrorFallback": False},
             },
             "deploymentTriggered": False,
@@ -419,7 +422,7 @@ class MixedPackageBuilderTests(unittest.TestCase):
         candidate = (
             run
             / "training"
-            / "train-seed-590000001-run-001"
+            / "train-seed-610000001-run-001"
             / "candidate"
         )
         candidate.parent.mkdir(parents=True)
@@ -522,6 +525,38 @@ class MixedPackageBuilderTests(unittest.TestCase):
             candidate,
         )
         self.assertTrue(verified["passed"])
+        for case, mutate in (
+            (
+                "missing",
+                lambda policy: policy.pop("policyNumerics"),
+            ),
+            (
+                "modified",
+                lambda policy: policy["policyNumerics"].__setitem__(
+                    "mathSdpEnabled", False
+                ),
+            ),
+        ):
+            drift_root = self.root / f"{case}-policy-numerics"
+            drift_report, drift_candidate = self._screening_fixture(
+                drift_root, 10000
+            )
+            drift_value = json.loads(drift_report.read_text(encoding="utf-8"))
+            policy = drift_value["candidatePolicy"]
+            self.assertIsInstance(policy, dict)
+            mutate(policy)
+            drift_report.write_bytes(canonical_json_bytes(drift_value))
+            _write_sidecar(drift_report)
+            with self.subTest(case=case), self.assertRaisesRegex(
+                ValueError, "screening policy numerics"
+            ):
+                verify_screening(
+                    output,
+                    str(result["packageManifestSha256"]),
+                    source_root,
+                    drift_report,
+                    drift_candidate,
+                )
         invalid_root = self.root / "invalid-screen"
         invalid_report, invalid_candidate = self._screening_fixture(invalid_root, 9999)
         with self.assertRaisesRegex(ValueError, "bootstrap contract mismatch"):

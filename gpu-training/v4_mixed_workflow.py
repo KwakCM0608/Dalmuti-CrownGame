@@ -12,11 +12,11 @@ PLAYER_COUNTS = tuple(range(4, 11))
 MATCH_COUNTS = {4: 320, 5: 256, 6: 192, 7: 160, 8: 128, 9: 112, 10: 96}
 CALIBRATION_COUNTS = {player_count: 1 for player_count in PLAYER_COUNTS}
 BACKEND_MAP = ("cpu", "cpu", *("cuda" for _ in range(12)))
-RUN_NAMESPACE = "v4-fixedid-ppo-i001-mixed-s580000001"
-CALIBRATION_NAMESPACE = "v4-fixedid-mixed-calibration-s575000001"
-ENVIRONMENT_SEED = 580000001
-CALIBRATION_SEED = 575000001
-TRAINING_SEED = 590000001
+RUN_NAMESPACE = "v4-fixedid-ppo-i001-mixedmath-s600000001"
+CALIBRATION_NAMESPACE = "v4-fixedid-mixedmath-calibration-s595000001"
+ENVIRONMENT_SEED = 600000001
+CALIBRATION_SEED = 595000001
+TRAINING_SEED = 610000001
 BEHAVIOR_ACTOR_SHA256 = "32f7f366c0a65d7b2b67baf5aeb2e33c49c87ddf4bcac513317bf710fc351466"
 BEHAVIOR_MANIFEST_SHA256 = "6485004cfc936f1c711e84bbf6cdfe365eddf7055db6abb6a2780a24ed1c3b5c"
 SCREEN_FAMILY = "attempt004-screening-seed450000001"
@@ -24,6 +24,23 @@ SCREEN_SEED = 450000001
 FROZEN_BASELINE_COMMIT = "e0c52b0462d86756cf40b90f19d35a3e26b0f674"
 FROZEN_BASELINE_SHA256 = "aa44743c64a23ac002d7faf09867bdb3e06232320f8efeb1df0e42724037bb61"
 OBSERVATION_SCHEMA_SHA256 = "13dc7e4846669a4130dd69dd8b450c4ca3a443c2d1f64cfa08583c6a1108e99f"
+POLICY_NUMERICS_CONTRACT: Mapping[str, object] = {
+    "actorForwardDtype": "torch.float32",
+    "contract": "fp32-mha-slowpath-math-sdp-v1",
+    "contractSha256": "a08de79f95df089fb5c525bb12a14f0fa28985d294f9fa3b2942e5db46df1ca3",
+    "cudaMatmulTf32Allowed": False,
+    "cudnnBenchmark": False,
+    "cudnnDeterministic": True,
+    "cudnnSdpEnabled": False,
+    "cudnnTf32Allowed": False,
+    "deterministicAlgorithms": True,
+    "flashSdpEnabled": False,
+    "mathSdpEnabled": True,
+    "memoryEfficientSdpEnabled": False,
+    "mhaFastpathEnabled": False,
+    "requiredCudaCublasWorkspaceConfig": ":4096:8",
+    "version": 1,
+}
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -155,6 +172,10 @@ def validate_recipe(recipe: Mapping[str, Any]) -> None:
         "identity",
     )
     del identity
+    _require(
+        contract.get("policyNumerics") == POLICY_NUMERICS_CONTRACT,
+        "policy numerics contract drifted",
+    )
     behavior = _exact_mapping(
         contract.get("behaviorActor"),
         {"actorSha256": BEHAVIOR_ACTOR_SHA256, "manifestSha256": BEHAVIOR_MANIFEST_SHA256},

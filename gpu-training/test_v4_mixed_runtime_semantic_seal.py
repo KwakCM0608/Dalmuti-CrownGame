@@ -22,6 +22,7 @@ from v4_mixed_package_runtime import (
     seal_run,
     verify_run_seal,
 )
+from v4_model import canonical_v4_policy_numerics_contract
 
 
 def _pair(path: Path, payload: bytes) -> str:
@@ -44,6 +45,66 @@ def _npz(path: Path, metadata: object | None = None) -> None:
         Path(f"{path}.metadata.json"),
         {"fixture": path.name} if metadata is None else metadata,
     )
+
+
+def _valid_pretraining_replay(
+    merged_path: Path, plan_sha: str, dataset_fingerprint: str
+) -> dict[str, object]:
+    maximum_error = 1.0e-6
+    mean_error = 5.0e-7
+    rows = [
+        {
+            "backend": workflow.BACKEND_MAP[shard_index],
+            "count": 1,
+            "maximumAbsoluteLogProbabilityError": maximum_error,
+            "meanAbsoluteLogProbabilityError": mean_error,
+            "playerCount": player_count,
+            "shardIndex": shard_index,
+        }
+        for player_count in range(4, 11)
+        for shard_index in range(14)
+    ]
+    zero_counts = {str(player_count): 0 for player_count in range(4, 11)}
+    nonforced_counts = {
+        str(player_count): 14 for player_count in range(4, 11)
+    }
+    unit_masses = {str(player_count): 1.0 for player_count in range(4, 11)}
+    entropies = {str(player_count): 0.5 for player_count in range(4, 11)}
+    return {
+        "actorSha256": workflow.BEHAVIOR_ACTOR_SHA256,
+        "audit": {
+            "absoluteTolerance": 2.0e-5,
+            "actorAutocastEnabled": False,
+            "actorForwardDtype": "torch.float32",
+            "actorMode": "eval",
+            "auditBatchSize": 64,
+            "effectiveNonforcedPpoRowCount": 98,
+            "forcedMaximumAbsoluteLogProbabilityError": 0.0,
+            "forcedSingletonPpoRowCount": 0,
+            "forcedSingletonRowsByPlayerCount": zero_counts,
+            "maximumAbsoluteLogProbabilityError": maximum_error,
+            "meanAbsoluteLogProbabilityError": mean_error,
+            "nonforcedBalancedEntropy": 0.5,
+            "nonforcedEntropyByPlayerCount": entropies,
+            "nonforcedRowsByPlayerCount": nonforced_counts,
+            "nonforcedTotalWeightMass": 7.0,
+            "nonforcedWeightMassByPlayerCount": unit_masses,
+            "passed": True,
+            "ppoEligibleRowCount": 98,
+            "storedOldActionLogProbabilityDtype": "torch.float32",
+            "version": 2,
+        },
+        "datasetFingerprint": dataset_fingerprint,
+        "datasetSha256": hashlib.sha256(merged_path.read_bytes()).hexdigest(),
+        "device": "cuda",
+        "fixedCollectionPlanSha256": plan_sha,
+        "format": "dalmuti-v4-mixed-pretraining-replay",
+        "manifestSha256": workflow.BEHAVIOR_MANIFEST_SHA256,
+        "passed": True,
+        "policyNumerics": canonical_v4_policy_numerics_contract(),
+        "strata": {"byPlayerCountShardAndBackend": rows},
+        "version": 1,
+    }
 
 
 def _decision_audit(include_players: bool) -> dict[str, object]:
@@ -511,6 +572,79 @@ class MixedRuntimeSemanticSealTests(unittest.TestCase):
                 ):
                     runtime._verify_local_aggregate_remote_copy(root)
 
+    def test_pretraining_replay_semantics_reject_missing_or_drifted_evidence(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            merged = root / "production.npz"
+            merged.write_bytes(b"sealed merged dataset")
+            merged_snapshot = runtime.stable_snapshot(merged, "merged fixture")
+            plan_sha = "c" * 64
+            dataset_fingerprint = "f" * 64
+            metadata = {
+                "fingerprint": dataset_fingerprint,
+                "lossEligibility": {
+                    "fixedCollectionPlans": [
+                        {"canonicalSha256": plan_sha}
+                    ]
+                },
+            }
+            recipe = {
+                "runContract": {
+                    "behaviorActor": {
+                        "actorSha256": workflow.BEHAVIOR_ACTOR_SHA256,
+                        "manifestSha256": workflow.BEHAVIOR_MANIFEST_SHA256,
+                    },
+                    "policyNumerics": canonical_v4_policy_numerics_contract(),
+                }
+            }
+            valid = _valid_pretraining_replay(
+                merged, plan_sha, dataset_fingerprint
+            )
+            runtime._validate_pretraining_replay(
+                valid, recipe, merged_snapshot, metadata
+            )
+
+            missing_policy = json.loads(json.dumps(valid))
+            del missing_policy["policyNumerics"]
+            with self.assertRaisesRegex(ValueError, "report header"):
+                runtime._validate_pretraining_replay(
+                    missing_policy, recipe, merged_snapshot, metadata
+                )
+
+            drifted_policy = json.loads(json.dumps(valid))
+            drifted_policy["policyNumerics"]["mathSdpEnabled"] = False
+            with self.assertRaisesRegex(ValueError, "replay policy numerics"):
+                runtime._validate_pretraining_replay(
+                    drifted_policy, recipe, merged_snapshot, metadata
+                )
+
+            wrong_actor = json.loads(json.dumps(valid))
+            wrong_actor["actorSha256"] = "0" * 64
+            with self.assertRaisesRegex(ValueError, "behavior Actor bundle"):
+                runtime._validate_pretraining_replay(
+                    wrong_actor, recipe, merged_snapshot, metadata
+                )
+
+            missing_cuda_stratum = json.loads(json.dumps(valid))
+            missing_cuda_stratum["strata"][
+                "byPlayerCountShardAndBackend"
+            ].pop()
+            with self.assertRaisesRegex(ValueError, "complete p4-p10 CPU/CUDA"):
+                runtime._validate_pretraining_replay(
+                    missing_cuda_stratum, recipe, merged_snapshot, metadata
+                )
+
+            excessive_error = json.loads(json.dumps(valid))
+            excessive_error["audit"][
+                "maximumAbsoluteLogProbabilityError"
+            ] = 2.1e-5
+            with self.assertRaisesRegex(ValueError, "exceeded.*2e-5"):
+                runtime._validate_pretraining_replay(
+                    excessive_error, recipe, merged_snapshot, metadata
+                )
+
     def test_full_remote_semantic_profile_is_durable_and_receipt_bound(self) -> None:
         temporary = tempfile.TemporaryDirectory()
         root = Path(temporary.name) / "run"
@@ -519,7 +653,16 @@ class MixedRuntimeSemanticSealTests(unittest.TestCase):
             package_sha = _json_pair(
                 root / "package" / "package-manifest.json", {"fixture": "package"}
             )
-            recipe = {"runContract": {"fixture": "exact"}}
+            recipe = {
+                "runContract": {
+                    "behaviorActor": {
+                        "actorSha256": workflow.BEHAVIOR_ACTOR_SHA256,
+                        "manifestSha256": workflow.BEHAVIOR_MANIFEST_SHA256,
+                    },
+                    "fixture": "exact",
+                    "policyNumerics": canonical_v4_policy_numerics_contract(),
+                }
+            }
             recipe_path = (
                 root / "source" / "gpu-training" / "v4_mixed_execution_recipe.json"
             )
@@ -547,9 +690,12 @@ class MixedRuntimeSemanticSealTests(unittest.TestCase):
             for index in range(14):
                 _npz(root / "rollouts" / f"shard-{index:02d}.npz")
             plan_sha = "c" * 64
+            dataset_fingerprint = "f" * 64
+            merged_path = root / "merged" / "production.npz"
             _npz(
-                root / "merged" / "production.npz",
+                merged_path,
                 {
+                    "fingerprint": dataset_fingerprint,
                     "lossEligibility": {
                         "fixedCollectionPlans": [
                             {"canonicalSha256": plan_sha}
@@ -557,14 +703,19 @@ class MixedRuntimeSemanticSealTests(unittest.TestCase):
                     }
                 },
             )
-            _json_pair(root / "replay" / "pretraining.json", {"passed": True})
-            training = root / "training" / "train-seed-590000001-run-001"
+            _json_pair(
+                root / "replay" / "pretraining.json",
+                _valid_pretraining_replay(
+                    merged_path, plan_sha, dataset_fingerprint
+                ),
+            )
+            training = root / "training" / "train-seed-610000001-run-001"
             (training / "result.json").parent.mkdir(parents=True, exist_ok=True)
             (training / "result.json").write_bytes(
                 canonical_json_bytes({"passed": True})
             )
             (training / "run-manifest.json").write_bytes(
-                canonical_json_bytes({"seed": 590000001})
+                canonical_json_bytes({"seed": 610000001})
             )
             candidate = training / "candidate"
             actor_sha = _pair(candidate / "actor.pt", b"candidate")

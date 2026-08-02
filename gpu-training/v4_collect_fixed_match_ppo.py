@@ -75,7 +75,11 @@ from v4_env import (
     round_chip_award,
 )
 from v4_export import canonical_json_bytes, load_v4_actor_checkpoint, sha256_file, verify_v4_actor_bundle
-from v4_model import V4ActorConfig, V4CriticConfig
+from v4_model import (
+    V4ActorConfig,
+    V4CriticConfig,
+    configure_v4_policy_numerics,
+)
 from v4_ppo_advantages import BASELINE_FALLBACK_HIERARCHY, BaselineRecord, BaselineResult, leave_one_match_out_baselines
 
 
@@ -980,10 +984,10 @@ def collect_v4_fixed_match_ppo(
             calibration_verification.recheck_unchanged()
         return resumed
     device = torch.device(config.device)
-    if device.type == "cuda":
-        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    policy_numerics = configure_v4_policy_numerics(device)
     execution = _configure_determinism(device)
     execution["cublasWorkspaceConfig"] = os.environ.get("CUBLAS_WORKSPACE_CONFIG") if device.type == "cuda" else None
+    execution["policyNumerics"] = policy_numerics
     if planned_backend is not None:
         execution["fixedCollectionPlanVersion"] = 2
         execution["plannedShardBackend"] = planned_backend

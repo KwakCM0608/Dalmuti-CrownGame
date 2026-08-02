@@ -33,7 +33,12 @@ from v4_export import (
     load_v4_actor_checkpoint,
     sha256_file,
 )
-from v4_model import V4ActorConfig, V4CriticConfig, V4PublicActor
+from v4_model import (
+    V4ActorConfig,
+    V4CriticConfig,
+    V4PublicActor,
+    canonical_v4_policy_numerics_contract,
+)
 from v4_objectives import masked_behavior_cloning_loss as real_bc_loss
 from v4_train import (
     V4TrainingConfig,
@@ -1147,6 +1152,14 @@ class V4BalancedTrainingTests(unittest.TestCase):
             training_contract["fixedPpoExecutionContract"][
                 "actorAutocastEnabled"
             ]
+        )
+        self.assertEqual(
+            training_contract["fixedPpoExecutionContract"]["policyNumerics"],
+            canonical_v4_policy_numerics_contract(),
+        )
+        self.assertEqual(
+            balance["fixedPpoPolicyNumerics"],
+            canonical_v4_policy_numerics_contract(),
         )
         post_contract = training_contract["postEpochPolicyDriftAuditContract"]
         self.assertEqual(post_contract["auditBatchSize"], 4)

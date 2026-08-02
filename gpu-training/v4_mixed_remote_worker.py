@@ -1513,7 +1513,7 @@ def finalize_run(
         package_manifest_sha256,
         source,
         run / "screening" / "epoch-0001.json",
-        run / "training" / "train-seed-590000001-run-001" / "candidate",
+        run / "training" / "train-seed-610000001-run-001" / "candidate",
     )
     _recheck_protections((*receipt_protections, *semantic_snapshots))
     seal_path = run / "provenance" / "final-files.json"

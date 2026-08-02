@@ -49,7 +49,11 @@ from v4_dataset import (
 from v4_env import ACTION_COUNT, V4ActorObservation, round_chip_award
 from v4_evaluate import rotating_candidate_seats
 from v4_export import export_v4_actor_bundle
-from v4_model import V4ActorConfig, V4PublicActor
+from v4_model import (
+    V4ActorConfig,
+    V4PublicActor,
+    canonical_v4_policy_numerics_contract,
+)
 from v4_merge_datasets import merge_v4_datasets
 from v4_train import (
     V4TrainingConfig,
@@ -740,6 +744,10 @@ class FixedMatchPPOTests(unittest.TestCase):
         self.assertEqual(collection["requestedLaneCount"], self.config.lane_count)
         self.assertEqual(collection["rollingCpuEnvironmentLanes"], 1)
         self.assertEqual(metadata["execution"]["device"], "cpu")
+        self.assertEqual(
+            metadata["execution"]["policyNumerics"],
+            canonical_v4_policy_numerics_contract(),
+        )
         self.assertEqual(metadata["trainingRequirements"]["qBoostCoefficient"], 0.0)
         self.assertTrue(metadata["environmentBinding"]["candidateSeatParityAudit"]["allEntriesMatched"])
         self.assertGreater(metadata["actionRates"]["greedyCandidateTeammate"]["decisions"], 0)

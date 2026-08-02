@@ -15,6 +15,7 @@ from v4_model import (
     V4_ACTION_COUNT,
     V4ActorConfig,
     V4CriticConfig,
+    validate_v4_policy_numerics_contract,
 )
 from v4_env import (
     PRIVILEGED_STATE_LAYOUT_ID,
@@ -1610,6 +1611,12 @@ def _validate_fixed_shard_backend_execution(
     planned_backend = backend_map[str(shard_index)]
     if not isinstance(execution, Mapping):
         raise ValueError("fixed collection plan execution binding is missing")
+    try:
+        validate_v4_policy_numerics_contract(execution.get("policyNumerics"))
+    except ValueError as error:
+        raise ValueError(
+            "fixed collection plan policy numerics binding is invalid"
+        ) from error
     device = execution.get("device")
     if not isinstance(device, str) or not device:
         raise ValueError("fixed collection plan execution device is invalid")

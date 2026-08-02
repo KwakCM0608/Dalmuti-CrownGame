@@ -33,6 +33,7 @@ from v4_dataset import (
     load_v4_dataset_npz,
 )
 from v4_export import canonical_json_bytes, sha256_file
+from v4_model import validate_v4_policy_numerics_contract
 
 
 CALIBRATION_FORMAT = "dalmuti-v4-fixed-match-cpu-cuda-calibration"
@@ -140,6 +141,7 @@ _EXECUTION_BACKEND_FIELDS = {
 }
 _REQUIRED_EXECUTION_FIELDS = _EXECUTION_BACKEND_FIELDS | {
     "deterministicAlgorithms",
+    "policyNumerics",
 }
 _HEX_CHARACTERS = frozenset("0123456789abcdef")
 _CANONICAL_MATCH_COUNTS = {str(player_count): 1 for player_count in range(4, 11)}
@@ -441,6 +443,10 @@ def _validate_execution_role(metadata: Mapping[str, object], role: str) -> None:
         raise ValueError(f"{role} input execution metadata declares {device_type}")
     if execution.get("deterministicAlgorithms") is not True:
         raise ValueError(f"{role} collection did not enable deterministic algorithms")
+    try:
+        validate_v4_policy_numerics_contract(execution.get("policyNumerics"))
+    except ValueError as error:
+        raise ValueError(f"{role} policy numerics contract is invalid") from error
     if not isinstance(execution.get("cudaAvailable"), bool):
         raise ValueError(f"{role} cudaAvailable execution flag is invalid")
     expected_batched = role == "cuda"

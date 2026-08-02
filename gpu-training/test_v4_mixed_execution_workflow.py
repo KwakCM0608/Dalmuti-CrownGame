@@ -14,6 +14,7 @@ from v4_mixed_workflow import (
     CALIBRATION_SEED,
     ENVIRONMENT_SEED,
     MATCH_COUNTS,
+    POLICY_NUMERICS_CONTRACT,
     RUN_NAMESPACE,
     SCREEN_FAMILY,
     SCREEN_SEED,
@@ -26,6 +27,7 @@ from v4_mixed_workflow import (
     materialize_argv,
     plan_document,
 )
+from v4_model import canonical_v4_policy_numerics_contract
 
 
 RECIPE_PATH = Path(__file__).with_name("v4_mixed_execution_recipe.json")
@@ -52,10 +54,35 @@ class MixedExecutionWorkflowTests(unittest.TestCase):
     def test_recipe_is_canonical_and_binds_every_fixed_identity(self) -> None:
         self.assertEqual(self.recipe_bytes, canonical_json_bytes(self.recipe))
         contract = self.recipe["runContract"]
+        identity = contract["identity"]
+        layout = contract["artifactLayout"]
         self.assertEqual(self.recipe["packageId"], RUN_NAMESPACE)
-        self.assertEqual(contract["identity"]["environmentSeed"], ENVIRONMENT_SEED)
-        self.assertEqual(contract["identity"]["trainingSeed"], TRAINING_SEED)
-        self.assertEqual(contract["identity"]["calibrationSeed"], CALIBRATION_SEED)
+        self.assertEqual(identity["runNamespace"], RUN_NAMESPACE)
+        self.assertEqual(identity["calibrationNamespace"], CALIBRATION_NAMESPACE)
+        self.assertEqual(identity["environmentSeed"], ENVIRONMENT_SEED)
+        self.assertEqual(identity["trainingSeed"], TRAINING_SEED)
+        self.assertEqual(identity["calibrationSeed"], CALIBRATION_SEED)
+        self.assertEqual(
+            contract["policyNumerics"],
+            canonical_v4_policy_numerics_contract(),
+        )
+        self.assertEqual(contract["policyNumerics"], POLICY_NUMERICS_CONTRACT)
+        self.assertEqual(
+            layout["localRunDirectory"],
+            "v4-fixedid-ppo-i001-mixedmath-s600000001-local-run-001",
+        )
+        self.assertEqual(
+            layout["remoteRunDirectory"],
+            "/home/pangmin/dalmuti/v4-fixedid-ppo-i001-mixedmath-s600000001-run-001",
+        )
+        self.assertEqual(
+            layout["trainingCandidate"],
+            "training/train-seed-610000001-run-001/candidate",
+        )
+        self.assertEqual(
+            self.recipe["screening"]["candidateDirectory"],
+            layout["trainingCandidate"],
+        )
         self.assertEqual(contract["behaviorActor"]["actorSha256"], BEHAVIOR_ACTOR_SHA256)
         self.assertEqual(contract["behaviorActor"]["manifestSha256"], BEHAVIOR_MANIFEST_SHA256)
         self.assertEqual(contract["baseline"]["normalSource"], "frozen-git-bundle")

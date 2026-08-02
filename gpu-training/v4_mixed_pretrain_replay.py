@@ -26,6 +26,10 @@ from v4_mixed_workflow import (
     BEHAVIOR_MANIFEST_SHA256,
     canonical_json_bytes,
 )
+from v4_model import (
+    canonical_v4_policy_numerics_contract,
+    configure_v4_policy_numerics,
+)
 from v4_objectives import masked_log_probabilities
 from v4_train import (
     _audit_initial_policy_reproduction,
@@ -361,6 +365,7 @@ def replay(
         plan = _fixed_plan(dataset.metadata)
         actor, _ = load_v4_actor_checkpoint(frozen_actor_bundle / "actor.pt")
         device = torch.device("cuda")
+        policy_numerics = configure_v4_policy_numerics(device)
         actor = actor.to(device)
         audit = _audit_initial_policy_reproduction(
             actor,
@@ -400,6 +405,7 @@ def replay(
             "format": "dalmuti-v4-mixed-pretraining-replay",
             "manifestSha256": manifest_sha,
             "passed": True,
+            "policyNumerics": policy_numerics,
             "strata": strata,
             "version": 1,
         }
@@ -498,7 +504,7 @@ def _verify_training_gates_frozen(
             "num_workers": 0,
             "ppo_weight": 1.0,
             "q_boost_coefficient": 0.0,
-            "seed": 590000001,
+            "seed": 610000001,
             "weight_decay": 0.0001,
         },
         "training hyperparameters drifted",
@@ -508,6 +514,23 @@ def _verify_training_gates_frozen(
         isinstance(contract, Mapping)
         and manifest.get("trainingContract") == contract,
         "result and run-manifest training contracts differ",
+    )
+    fixed_ppo_execution = contract.get("fixedPpoExecutionContract")
+    player_count_balance = contract.get("playerCountBalancedLoss")
+    canonical_policy_numerics = canonical_v4_policy_numerics_contract()
+    _require(
+        isinstance(fixed_ppo_execution, Mapping)
+        and type(fixed_ppo_execution.get("version")) is int
+        and fixed_ppo_execution.get("version") == 2
+        and fixed_ppo_execution.get("policyNumerics")
+        == canonical_policy_numerics,
+        "trainer fixed PPO execution policy numerics contract is missing or non-canonical",
+    )
+    _require(
+        isinstance(player_count_balance, Mapping)
+        and player_count_balance.get("fixedPpoPolicyNumerics")
+        == canonical_policy_numerics,
+        "trainer player-count balance policy numerics contract is missing or non-canonical",
     )
     _require(
         contract.get("requestedWeights")
@@ -579,7 +602,7 @@ def _verify_training_gates_frozen(
         and isinstance(candidate_metadata, Mapping)
         and candidate_metadata.get("datasetFingerprint") == dataset_fingerprint
         and candidate_metadata.get("initialActor") == initial_actor
-        and candidate_metadata.get("seed") == 590000001,
+        and candidate_metadata.get("seed") == 610000001,
         "dataset, plan, initial Actor, or training seed binding drifted",
     )
     per_player = audit.get("perPlayerCount")

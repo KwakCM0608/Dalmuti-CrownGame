@@ -41,6 +41,8 @@ from v4_model import (
     V4PrivilegedQCritic,
     V4PublicActor,
     assert_actor_critic_parameter_isolation,
+    canonical_v4_policy_numerics_contract,
+    configure_v4_policy_numerics,
 )
 from v4_objectives import (
     action_q_regression_loss,
@@ -56,7 +58,7 @@ V4_TRAINING_CHECKPOINT_FORMAT = "dalmuti-v4-training-checkpoint"
 V4_TRAINING_CHECKPOINT_VERSION = 2
 V4_BALANCED_PLAYER_COUNTS = tuple(range(4, 11))
 V4_PLAYER_COUNT_BALANCE_VERSION = 1
-V4_FIXED_PPO_EXECUTION_CONTRACT_VERSION = 1
+V4_FIXED_PPO_EXECUTION_CONTRACT_VERSION = 2
 V4_INITIAL_POLICY_REPRODUCTION_AUDIT_VERSION = 2
 V4_POST_EPOCH_POLICY_DRIFT_AUDIT_VERSION = 1
 V4_POST_EPOCH_POLICY_DRIFT_AUDIT_CONTRACT_VERSION = 1
@@ -399,10 +401,12 @@ def _player_count_balance_contract(
         "fixedCollectionPlanSha256": fixed_collection_plan_sha256,
         "actorDropout": float(dataset.actor_config.dropout),
         "rolloutTrainerModeDistributionParity": (
-            "actorConfig.dropout=0.0; raw masked softmax is identical in eval/train"
+            "actorConfig.dropout=0.0; raw masked softmax uses the sealed "
+            "FP32 MHA-slowpath math-SDP contract in rollout and train"
         ),
         "fixedPpoActorForwardDtype": "torch.float32",
         "fixedPpoActorAutocastDisabled": True,
+        "fixedPpoPolicyNumerics": canonical_v4_policy_numerics_contract(),
         "criticAutocastMayRemainEnabled": True,
         "initialOldCurrentRatioMathematicallyOneForFrozenActor": True,
         "initialOldCurrentLogProbabilityAbsoluteTolerance": (
@@ -482,26 +486,10 @@ def _configure_fixed_ppo_execution(device: torch.device) -> dict[str, object]:
     """Apply and report the collector-compatible deterministic execution mode."""
 
     cuda = device.type == "cuda"
-    if cuda and not torch.cuda.is_available():
-        raise RuntimeError("CUDA training was requested but CUDA is unavailable")
-    cublas_workspace: str | None = None
-    if cuda:
-        required_workspace = ":4096:8"
-        existing_workspace = os.environ.get("CUBLAS_WORKSPACE_CONFIG")
-        if existing_workspace not in (None, required_workspace):
-            raise ValueError(
-                "fixed-only PPO training requires "
-                "CUBLAS_WORKSPACE_CONFIG=:4096:8"
-            )
-        os.environ["CUBLAS_WORKSPACE_CONFIG"] = required_workspace
-        cublas_workspace = required_workspace
-    torch.use_deterministic_algorithms(True)
-    if cuda:
-        torch.backends.cuda.matmul.allow_tf32 = False
-        if hasattr(torch.backends, "cudnn"):
-            torch.backends.cudnn.allow_tf32 = False
-            torch.backends.cudnn.deterministic = True
-            torch.backends.cudnn.benchmark = False
+    policy_numerics = configure_v4_policy_numerics(device)
+    cublas_workspace = (
+        os.environ.get("CUBLAS_WORKSPACE_CONFIG") if cuda else None
+    )
     contract: dict[str, object] = {
         "version": V4_FIXED_PPO_EXECUTION_CONTRACT_VERSION,
         "torchVersion": torch.__version__,
@@ -516,6 +504,7 @@ def _configure_fixed_ppo_execution(device: torch.device) -> dict[str, object]:
         "cudnnDeterministic": True if cuda else None,
         "cudnnBenchmark": False if cuda else None,
         "cublasWorkspaceConfig": cublas_workspace,
+        "policyNumerics": policy_numerics,
     }
     contract["executionContractFingerprint"] = hashlib.sha256(
         canonical_json_bytes(contract)
