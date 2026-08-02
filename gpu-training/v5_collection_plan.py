@@ -1287,7 +1287,6 @@ def expected_planned_shard_metadata(
         "plannedMatchStart": shard.match_start,
         "plannedPlayerCount": shard.player_count,
         "plannedShardIndex": shard.index,
-        "matchProvenanceContract": V5_MATCH_PROVENANCE_CONTRACT,
         "policyNumericsSha256": V5_POLICY_NUMERICS_SHA256,
         "sourceInventory": dict(plan.source_inventory),
         "sourceInventorySha256": plan.document["sourceInventorySha256"],

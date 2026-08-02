@@ -369,6 +369,14 @@ class V5CollectionPlanTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "does not recompute"):
             __import__("v5_collection_plan").validate_collection_plan_document(tampered)
 
+    def test_planned_shard_metadata_excludes_publisher_owned_contract_fields(self) -> None:
+        plan = _plan()
+        metadata = expected_planned_shard_metadata(plan, plan.shards[0])
+
+        self.assertNotIn("matchProvenanceContract", metadata)
+        self.assertEqual(metadata["collectionPlanManifestSha256"], plan.manifest_sha256)
+        self.assertEqual(metadata["plannedShardIndex"], plan.shards[0].index)
+
     def test_production_rejects_undersampled_stratified_rate_estimate(self) -> None:
         rates = {player: (20, 2_000) for player in range(4, 11)}
         rates[10] = (19, 1_900)

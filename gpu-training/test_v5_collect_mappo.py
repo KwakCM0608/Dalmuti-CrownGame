@@ -23,6 +23,7 @@ from v5_collect_mappo import (
     v5_collection_match_ordinal,
     v5_collection_seed_permutation_parameters,
 )
+from v5_collection_plan import build_collection_plan, expected_planned_shard_metadata
 from v5_dataset import load_v5_actor_shard, load_v5_training_shard
 from v5_public import V5PublicObservation
 from v5_public import v5_public_from_v4_actor_observation
@@ -250,6 +251,19 @@ class V5MAPPOCollectorTests(unittest.TestCase):
             self._critic,
             self._config("v5-publish-test"),
         )
+        plan = build_collection_plan(
+            run_namespace="v5-planned-publish-boundary-s810000001",
+            seed_base=810_000_001,
+            behavior_actor_sha256="a" * 64,
+            behavior_actor_manifest_sha256="b" * 64,
+            behavior_critic_sha256="c" * 64,
+            behavior_pair_id="1" * 64,
+            behavior_pair_manifest_sha256="2" * 64,
+            calibration_report_sha256="f" * 64,
+            source_inventory={"gpu-training/mock.py": "d" * 64},
+            total_matches=140,
+            diagnostic_unbalanced=True,
+        )
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary) / "shard-000"
             published = publish_v5_mappo_collection(
@@ -258,6 +272,7 @@ class V5MAPPOCollectorTests(unittest.TestCase):
                 behavior_actor_sha256="a" * 64,
                 behavior_actor_manifest_sha256="b" * 64,
                 behavior_critic_sha256="c" * 64,
+                metadata=expected_planned_shard_metadata(plan, plan.shards[0]),
             )
             self.assertEqual(published.decisions, collection.decision_count)
             self.assertEqual(len(published.manifest_sha256), 64)
