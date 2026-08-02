@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from v4_export import canonical_json_bytes as artifact_canonical_json_bytes
 from v4_mixed_pretrain_replay import (
     V4_MIXED_REPLAY_AUDIT_BATCH_SIZE,
     _fixed_plan,
@@ -30,6 +31,20 @@ from v4_train import V4_CUDA_POLICY_AUDIT_BATCH_SIZE
 
 def _write_canonical(path: Path, value: object, *, sidecar: bool = False) -> str:
     payload = canonical_json_bytes(value)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(payload)
+    digest = hashlib.sha256(payload).hexdigest()
+    if sidecar:
+        Path(f"{path}.sha256").write_bytes(
+            f"{digest}  {path.name}\n".encode("ascii")
+        )
+    return digest
+
+
+def _write_artifact_canonical(
+    path: Path, value: object, *, sidecar: bool = False
+) -> str:
+    payload = artifact_canonical_json_bytes(value)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(payload)
     digest = hashlib.sha256(payload).hexdigest()
@@ -95,7 +110,7 @@ class MixedPretrainingAuditTests(unittest.TestCase):
             "passed": True,
         }
         initial_fingerprint = hashlib.sha256(
-            canonical_json_bytes(initial_replay)
+            artifact_canonical_json_bytes(initial_replay)
         ).hexdigest()
         training_contract = {
             "fixedPpoExecutionContract": {
@@ -153,7 +168,7 @@ class MixedPretrainingAuditTests(unittest.TestCase):
             "datasetFingerprint": dataset,
             "finalPostEpochPolicyDriftAudit": audit,
             "finalPostEpochPolicyDriftAuditFingerprint": hashlib.sha256(
-                canonical_json_bytes(audit)
+                artifact_canonical_json_bytes(audit)
             ).hexdigest(),
             "format": "dalmuti-v4-training-result",
             "trainingContract": training_contract,
@@ -201,7 +216,9 @@ class MixedPretrainingAuditTests(unittest.TestCase):
         manifest = result["candidate"]
         assert isinstance(manifest, dict)
         manifest_path = candidate / "manifest.json"
-        manifest_sha = _write_canonical(manifest_path, manifest, sidecar=True)
+        manifest_sha = _write_artifact_canonical(
+            manifest_path, manifest, sidecar=True
+        )
         (candidate / "actor.pt.sha256").write_bytes(
             f"{actor_sha}  actor.pt\n".encode("ascii")
         )
@@ -215,8 +232,8 @@ class MixedPretrainingAuditTests(unittest.TestCase):
             result, manifest = self._training_values()
             result_path = root / "result.json"
             manifest_path = root / "run-manifest.json"
-            _write_canonical(result_path, result)
-            _write_canonical(manifest_path, manifest)
+            _write_artifact_canonical(result_path, result)
+            _write_artifact_canonical(manifest_path, manifest)
             candidate = self._write_training_candidate(root, result)
             verified = verify_training_gates(
                 result_path,
@@ -233,8 +250,8 @@ class MixedPretrainingAuditTests(unittest.TestCase):
             manifest["trainingContract"] = result["trainingContract"]
             drift_result = root / "drift-result.json"
             drift_manifest = root / "drift-manifest.json"
-            _write_canonical(drift_result, result)
-            _write_canonical(drift_manifest, manifest)
+            _write_artifact_canonical(drift_result, result)
+            _write_artifact_canonical(drift_manifest, manifest)
             drift_candidate = self._write_training_candidate(root / "drift", result)
             with self.assertRaisesRegex(ValueError, "weights.*drifted"):
                 verify_training_gates(
@@ -315,8 +332,8 @@ class MixedPretrainingAuditTests(unittest.TestCase):
                     mutate(contract)
                     result_path = case_root / "result.json"
                     manifest_path = case_root / "run-manifest.json"
-                    _write_canonical(result_path, result)
-                    _write_canonical(manifest_path, manifest)
+                    _write_artifact_canonical(result_path, result)
+                    _write_artifact_canonical(manifest_path, manifest)
                     candidate = self._write_training_candidate(case_root, result)
                     with self.assertRaisesRegex(ValueError, message):
                         verify_training_gates(
@@ -335,8 +352,8 @@ class MixedPretrainingAuditTests(unittest.TestCase):
             result, manifest = self._training_values()
             result_path = root / "result.json"
             manifest_path = root / "run-manifest.json"
-            _write_canonical(result_path, result)
-            _write_canonical(manifest_path, manifest)
+            _write_artifact_canonical(result_path, result)
+            _write_artifact_canonical(manifest_path, manifest)
             candidate = self._write_training_candidate(root, result)
 
             replacement_payload = b"different valid Actor bytes"
@@ -350,7 +367,7 @@ class MixedPretrainingAuditTests(unittest.TestCase):
                     "sha256": actor_sha,
                 }
             }
-            _write_canonical(
+            _write_artifact_canonical(
                 candidate / "manifest.json",
                 replacement_manifest,
                 sidecar=True,

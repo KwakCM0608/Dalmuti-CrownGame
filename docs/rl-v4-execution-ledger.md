@@ -876,3 +876,89 @@ All behavior-Actor, frozen-Normal, observation, reward, collection topology,
 optimization, hard-gate, screening, promotion, and prohibition contracts
 remain unchanged. Package and source hashes remain unassigned until this fix
 and identity amendment are committed and built from that exact commit.
+
+## Memory-safe replay preflight completion
+
+The batch-4 replay and single-materialization loader were committed as
+`03d2530c0d248e9875c35aacf318d0392db0007c`. The fresh s660 package was then
+built from that exact commit with package manifest SHA-256
+`bd56bfeba3977d184a4334977e95e56b2d8a2b399553b7879785414bf7052bbd`,
+source archive SHA-256
+`03f32ffb119cd4cf00de4ad2d79edf344867b2946f427d27bcbd2d849ca8e3a2`,
+source binding SHA-256
+`ca9a088ba47c6aaa10587339c71d46f8deb54f5fb7880a9742ed1fd8d906ae74`,
+and source inventory SHA-256
+`48d039a1b116a323d60aa02d8e9e14133492eec47e19a13ff7b6ca511c1cd2f1`.
+Windows verification and extraction passed. A fresh Linux copy independently
+passed package verification, extraction, and the canonical dry run; its
+workflow-plan file SHA-256 was
+`d6c84205a8d9e4062f0467ec8d1f1c78e4d54f41cb2a870eb5b8bb653513ba0f`,
+identical to the Windows plan.
+
+The required disposable full CUDA replay then completed against the preserved
+s640 merged dataset and immutable behavior Actor in 290.6 seconds. It covered
+all `136,940` PPO rows and all 98 player-count/shard/backend strata. Exactly
+`54,558` rows were non-forced and `82,382` were forced singletons. The audit
+used batch size `4`, Actor eval mode, FP32 forward, disabled autocast, and the
+sealed deterministic policy-math contract. Its maximum absolute selected-
+action log-probability error was `1.2755393981933594e-5`, below the immutable
+`2e-5` threshold, so both the audit and report passed. The report is preserved
+locally and remotely with SHA-256
+`947c99b87a9b302330d96f53e0575479ba9a35e0cd6d4daf621ed5c235de1798`.
+This closes the prior memory-shape blocker without weakening dataset coverage
+or numerical tolerance.
+
+## s640-data diagnostic training and screening
+
+Because the corrected s640 corpus was valid and on-policy for the unchanged
+behavior Actor, it was reused once in a separately named diagnostic run before
+spending another full collection cycle. This run is not an official s660
+production retry and can never be promoted directly. One CUDA epoch completed
+in 733.5 seconds with 3,160 optimizer steps. Candidate Actor SHA-256 is
+`008754a1e574653287bb1da200908a4040c34b0ab558ae74c79ec3e393e4573a`;
+candidate manifest SHA-256 is
+`64604a17e3c6272c4ea51001dad02acb87fa9f125220d84aa186c8668847e35d`.
+
+The first hard-gate attempt exposed a verifier integration defect: V4 trainer
+artifacts and candidate manifests use the no-trailing-newline canonical JSON
+serializer from `v4_export`, while the mixed workflow's own reports use a
+trailing newline. The verifier incorrectly applied the workflow serializer to
+both families, so it rejected the trainer's own byte-canonical output before
+reading any metrics. The verifier and fixtures now bind each artifact family
+to its actual producer serializer. The focused 10-test suite and complete V4
+suite (`295` passed, `6` skipped) pass, including the real trainer-byte path.
+
+The immutable diagnostic candidate then passed all training safety gates:
+absolute approximate KL `0.0072449373844949835` (maximum `0.02`), clip
+fraction `0.14845770885581003` (maximum `0.25`), and entropy retention
+`0.975558034632098` (minimum `0.70`). The hard-gate report is preserved
+locally and remotely with SHA-256
+`49ad0d9811fee0f450494043a869df689909c977c2a76bdd5ddb6169f7cef857`.
+
+A fresh diagnostic seed family, `v4-s640data-diagnostic-s680000001`, then ran
+60 complete five-act matches at every player count. All four whole-player-
+count shards and the merged 420-match report validate with exact sidecars. The
+merged report SHA-256 is
+`1f5de3cb114f5d303e5634c447819805bb3445dc4ff814ef72ab7a52aeeec849`.
+
+| Players | Mean chip diff/act | Clustered 95% LCB | Pairwise before Normal |
+| ---: | ---: | ---: | ---: |
+| 4 | -0.5067 | -0.7767 | 0.4075 |
+| 5 | -0.5139 | -0.7222 | 0.3972 |
+| 6 | -0.4311 | -0.5867 | 0.4081 |
+| 7 | -0.1361 | -0.2936 | 0.4608 |
+| 8 | -0.0417 | -0.1733 | 0.4779 |
+| 9 | -0.0480 | -0.1725 | 0.4865 |
+| 10 | -0.0493 | -0.1560 | 0.4788 |
+
+The equal-player-count averages are `-0.246683` chip difference and
+`0.445274` pairwise rate. Every player count fails all three final goal gates,
+so neither another official V4 recollection nor repeated PPO epochs on the
+same behavior data are justified. Relative to attempt 005's different seed
+family, the point estimates improve by about `+0.0764` chip and `+0.0217`
+pairwise, but the candidate remains well below Normal and the legacy MLP. The
+next eligible attempt must change the data and credit-assignment design: all
+candidate seats must share and record one policy, state-conditioned value/GAE
+must replace act-wide suffix credit, and the Actor must start from an exact-
+Normal residual prior with a nonlinear structured action head. Product
+integration and deployment remain prohibited.

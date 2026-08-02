@@ -19,7 +19,12 @@ import torch
 from torch.utils.data import DataLoader
 
 from v4_dataset import load_v4_dataset_npz
-from v4_export import load_v4_actor_checkpoint, sha256_file, verify_v4_actor_bundle
+from v4_export import (
+    canonical_json_bytes as artifact_canonical_json_bytes,
+    load_v4_actor_checkpoint,
+    sha256_file,
+    verify_v4_actor_bundle,
+)
 from v4_mixed_workflow import (
     BACKEND_MAP,
     BEHAVIOR_ACTOR_SHA256,
@@ -180,14 +185,19 @@ def _freeze_dataset_and_actor(
     return frozen_dataset, frozen_actor, snapshots
 
 
-def _canonical_json(path: Path, label: str) -> Mapping[str, object]:
+def _canonical_json(
+    path: Path,
+    label: str,
+    *,
+    serializer=canonical_json_bytes,
+) -> Mapping[str, object]:
     payload = path.read_bytes()
     try:
         value = json.loads(payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError(f"invalid {label}") from error
     _require(isinstance(value, Mapping), f"{label} is not an object")
-    _require(payload == canonical_json_bytes(value), f"{label} is not canonical JSON")
+    _require(payload == serializer(value), f"{label} is not canonical JSON")
     return value
 
 
@@ -435,12 +445,22 @@ def _verify_training_gates_frozen(
     _require(maximum_approx_kl == 0.020, "maximum KL gate drifted")
     _require(maximum_clip_fraction == 0.25, "maximum clip-fraction gate drifted")
     _require(minimum_entropy_retention == 0.70, "minimum entropy-retention gate drifted")
-    result = _canonical_json(training_result, "training result")
-    manifest = _canonical_json(run_manifest, "training run manifest")
+    result = _canonical_json(
+        training_result,
+        "training result",
+        serializer=artifact_canonical_json_bytes,
+    )
+    manifest = _canonical_json(
+        run_manifest,
+        "training run manifest",
+        serializer=artifact_canonical_json_bytes,
+    )
     candidate_manifest_path = candidate / "manifest.json"
     candidate_actor_path = candidate / "actor.pt"
     candidate_manifest = _canonical_json(
-        candidate_manifest_path, "candidate manifest"
+        candidate_manifest_path,
+        "candidate manifest",
+        serializer=artifact_canonical_json_bytes,
     )
     candidate_actor_sha = sha256_file(candidate_actor_path)
     candidate_manifest_sha = sha256_file(candidate_manifest_path)
@@ -562,12 +582,14 @@ def _verify_training_gates_frozen(
         and float(initial_replay.get("maximumAbsoluteLogProbabilityError", math.inf))
         <= 2.0e-5
         and contract.get("initialPolicyReproductionAuditFingerprint")
-        == hashlib.sha256(canonical_json_bytes(initial_replay)).hexdigest(),
+        == hashlib.sha256(artifact_canonical_json_bytes(initial_replay)).hexdigest(),
         "trainer mandatory initial replay is missing or failed",
     )
     audit = result.get("finalPostEpochPolicyDriftAudit")
     _require(isinstance(audit, Mapping), "training result lacks final policy audit")
-    expected_fingerprint = hashlib.sha256(canonical_json_bytes(audit)).hexdigest()
+    expected_fingerprint = hashlib.sha256(
+        artifact_canonical_json_bytes(audit)
+    ).hexdigest()
     _require(
         result.get("finalPostEpochPolicyDriftAuditFingerprint") == expected_fingerprint,
         "final policy audit fingerprint drifted",
@@ -625,10 +647,10 @@ def _verify_training_gates_frozen(
         "candidateManifestSha256": candidate_manifest_sha,
         "fixedCollectionPlanSha256": expected_plan_sha,
         "runManifestSha256": hashlib.sha256(
-            canonical_json_bytes(manifest)
+            artifact_canonical_json_bytes(manifest)
         ).hexdigest(),
         "trainingResultSha256": hashlib.sha256(
-            canonical_json_bytes(result)
+            artifact_canonical_json_bytes(result)
         ).hexdigest(),
         "version": 1,
     }
