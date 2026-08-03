@@ -277,6 +277,13 @@ class V5MAPPOCollectorTests(unittest.TestCase):
             self.assertEqual(published.decisions, collection.decision_count)
             self.assertEqual(len(published.manifest_sha256), 64)
             actor = load_v5_actor_shard(target)
+            self.assertEqual(
+                actor.manifest["metadata"]["behaviorModelPairId"], "1" * 64
+            )
+            self.assertEqual(
+                actor.manifest["metadata"]["behaviorModelPairManifestSha256"],
+                "2" * 64,
+            )
             self.assertNotIn("privileged_states", actor.arrays)
             self.assertNotIn("match_indices", actor.arrays)
             self.assertNotIn("match_seeds", actor.arrays)

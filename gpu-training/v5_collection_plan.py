@@ -1273,7 +1273,10 @@ def expected_planned_shard_metadata(
     policy = plan.document["backendPolicy"]
     assert isinstance(policy, Mapping)
     prefix = "cpu" if backend == "cpu" else "cuda"
+    behavior = plan.behavior
     return {
+        "behaviorModelPairId": behavior["pairId"],
+        "behaviorModelPairManifestSha256": behavior["pairManifestSha256"],
         "calibrationReportSha256": calibration["reportSha256"],
         "collectionPlanFormat": V5_COLLECTION_PLAN_FORMAT,
         "collectionPlanManifestSha256": plan.manifest_sha256,

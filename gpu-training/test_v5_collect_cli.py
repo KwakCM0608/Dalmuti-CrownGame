@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from pathlib import Path
 import tempfile
 import unittest
@@ -10,7 +11,11 @@ import torch
 import v5_collect_cli
 from v5_collect_cli import V5LoadedBehavior, create_collection_plan
 from v5_collect_mappo import V5PublishedCollection
-from v5_collection_plan import V5CollectionPlan
+from v5_collection_plan import (
+    V5CollectionPlan,
+    build_collection_plan,
+    expected_planned_shard_metadata,
+)
 from v5_model import V5_POLICY_NUMERICS_SHA256
 
 
@@ -43,6 +48,71 @@ def _calibration() -> tuple[dict[str, object], str]:
 
 
 class V5CollectionCLITests(unittest.TestCase):
+    def test_collect_planned_shard_passes_exact_behavior_pair_metadata(self) -> None:
+        sources = {"gpu-training/mock.py": "d" * 64}
+        plan = build_collection_plan(
+            run_namespace="v5-planned-publisher-boundary-s810000001",
+            seed_base=810_000_001,
+            behavior_actor_sha256="a" * 64,
+            behavior_actor_manifest_sha256="b" * 64,
+            behavior_critic_sha256="c" * 64,
+            behavior_pair_id="1" * 64,
+            behavior_pair_manifest_sha256="2" * 64,
+            calibration_report_sha256="f" * 64,
+            source_inventory=sources,
+            total_matches=140,
+            diagnostic_unbalanced=True,
+        )
+        shard = next(item for item in plan.shards if item.backend == "cpu")
+        collection = object()
+
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
+            v5_collect_cli, "load_collection_plan", return_value=plan
+        ), mock.patch.object(
+            v5_collect_cli, "_planned_worker_slot", return_value=nullcontext()
+        ), mock.patch.object(
+            v5_collect_cli, "load_verified_behavior", return_value=_behavior()
+        ), mock.patch.object(
+            v5_collect_cli, "build_source_inventory", return_value=sources
+        ), mock.patch.object(
+            v5_collect_cli, "_plan_calibration_digest", return_value="f" * 64
+        ), mock.patch.object(
+            v5_collect_cli, "V5TorchInferenceRuntime"
+        ) as runtime, mock.patch.object(
+            v5_collect_cli, "collect_v5_mappo", return_value=collection
+        ), mock.patch.object(
+            v5_collect_cli,
+            "publish_v5_mappo_collection",
+            return_value=V5PublishedCollection(
+                Path(temporary) / shard.name, "e" * 64, shard.match_count, 1, 1
+            ),
+        ) as publisher, mock.patch.object(
+            v5_collect_cli, "verify_planned_shard", return_value="e" * 64
+        ):
+            runtime.return_value.actor_batch = object()
+            runtime.return_value.critic_batch = object()
+            v5_collect_cli.collect_planned_shard(
+                plan_path="plan",
+                shard_index=shard.index,
+                shards_root=temporary,
+                actor_bundle="actor",
+                critic_checkpoint="critic",
+                behavior_pair="pair",
+                source_root=".",
+                calibration_report="calibration",
+                calibration_cpu_snapshot="cpu-calibration",
+                calibration_cuda_snapshot="cuda-calibration",
+                device="cpu",
+            )
+
+        metadata = publisher.call_args.kwargs["metadata"]
+        self.assertEqual(metadata, expected_planned_shard_metadata(plan, shard))
+        self.assertEqual(metadata["behaviorModelPairId"], "1" * 64)
+        self.assertEqual(
+            metadata["behaviorModelPairManifestSha256"], "2" * 64
+        )
+        self.assertNotIn("matchProvenanceContract", metadata)
+
     def test_worker_slot_enforces_planned_concurrency_and_torch_threads(self) -> None:
         plan = V5CollectionPlan(
             {

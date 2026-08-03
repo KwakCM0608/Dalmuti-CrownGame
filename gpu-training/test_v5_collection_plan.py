@@ -374,6 +374,11 @@ class V5CollectionPlanTests(unittest.TestCase):
         metadata = expected_planned_shard_metadata(plan, plan.shards[0])
 
         self.assertNotIn("matchProvenanceContract", metadata)
+        self.assertEqual(metadata["behaviorModelPairId"], plan.behavior["pairId"])
+        self.assertEqual(
+            metadata["behaviorModelPairManifestSha256"],
+            plan.behavior["pairManifestSha256"],
+        )
         self.assertEqual(metadata["collectionPlanManifestSha256"], plan.manifest_sha256)
         self.assertEqual(metadata["plannedShardIndex"], plan.shards[0].index)
 
