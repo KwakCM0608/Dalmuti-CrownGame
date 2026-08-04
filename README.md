@@ -1,126 +1,128 @@
-# DALMUTI Crown Game
+# DALMUTI Crown Game — Reinforcement Learning Research
 
-> **현재 브랜치: `main` — 프로덕션 배포 기준**
+> **현재 브랜치: `research/rl` — 봇 학습·평가·GPU 연구용**
 
-달무티를 빠른대전과 온라인 모드로 플레이할 수 있도록 만든 비공식·비상업 팬 프로젝트입니다. `main`은 실제 서비스에 배포할 수 있는 검증된 소스만 유지합니다.
+이 브랜치는 배포용 브랜치가 아닙니다. 행동 공간, 관측 인코더, 시뮬레이터, 모방학습·PPO·MAPPO 파이프라인과 통계 평가를 개발합니다. 제품에 사용할 수 있다고 검증된 모델 파일과 런타임 변경만 `develop`으로 옮깁니다.
 
-## 현재 배포 기준
+## 브랜치 역할
 
-- 웹: OpenAI Sites 버전 35
-- Android TWA: 1.0.8 (`versionCode 9`)
-- Node.js: 22.13 이상
-- 패키지 관리자: pnpm
-- 런타임: Next.js App Router + vinext + Cloudflare Workers
-- 데이터베이스: Cloudflare D1 (`DB` 바인딩)
-- 어려움 봇: `lib/bot-models/hard-ppo5-epoch11.json`
+| 브랜치 | 역할 |
+| --- | --- |
+| `main` | 현재 프로덕션 배포 기준 |
+| `develop` | 다음 제품 버전 통합 |
+| `research/rl` | 학습·대규모 평가·모델 후보 선별 |
 
-## 브랜치 정책
+`research/rl`에서 Sites나 앱을 직접 배포하지 않습니다. 모델 승격은 `research/rl` → `develop` → 전체 회귀 검증 → `main` 순서로 진행합니다.
 
-| 브랜치 | 용도 | 직접 배포 |
-| --- | --- | --- |
-| `main` | 검증을 통과한 프로덕션 소스 | 가능 |
-| `develop` | 다음 업데이트 통합과 회귀 검증 | 금지 |
-| `research/rl` | 봇 학습·평가·GPU 연구 | 금지 |
+## 연구 원칙
 
-일반 기능은 `feature/<name>`, 버그 수정은 `fix/<name>`, 긴급 수정은 `hotfix/<name>` 임시 브랜치에서 작업합니다. 검증된 변경만 `develop`을 거쳐 `main`으로 병합합니다.
+- 목표는 현재 Normal 봇보다 실제 플레이에서 체감될 정도로 강한 모델입니다.
+- 봇은 자기 패, 공개된 행동, 상대 남은 장수와 완주 정보만 사용합니다.
+- 상대의 숨은 패나 서버 전용 상태를 actor 입력에 포함하지 않습니다.
+- 학습 승률만으로 승격하지 않고 여러 인원수·좌석·계급·막에서 평가합니다.
+- 최종 평가는 개발 중 사용하지 않은 고정 seed 묶음으로 봉인합니다.
+- 통계적으로 불확실하거나 특정 계급에서 크게 퇴보한 후보는 승격하지 않습니다.
+- 학습과 평가마다 새 디렉터리를 만들며 기존 실행 결과를 덮어쓰지 않습니다.
 
-## 새 컴퓨터에서 복원
+## 환경 준비
+
+공통 소스 준비:
 
 ```bash
 git clone git@github.com:KwakCM0608/Dalmuti-CrownGame.git
 cd Dalmuti-CrownGame
-git checkout main
+git checkout research/rl
 pnpm install --frozen-lockfile
 ```
 
-로컬 실행:
+Node.js 22.13 이상과 pnpm이 필요합니다. GPU 학습 컴퓨터에는 해당 학습 스크립트가 요구하는 Python·PyTorch·CUDA 환경을 별도로 구성합니다. Python 가상환경과 설치된 패키지는 저장소에 커밋하지 않습니다.
 
-```bash
-pnpm dev
-```
-
-같은 네트워크의 모바일 기기에서 확인할 때:
-
-```bash
-pnpm dev:lan
-```
-
-## 필수 검증
-
-```bash
-pnpm test
-pnpm run typecheck
-pnpm run lint
-git diff --check
-```
-
-`pnpm test`는 프로덕션 빌드 후 빠른대전·온라인 엔진, UI 표시 계약, PWA, 테마, 봇과 학습 기반 회귀 테스트를 실행합니다.
-
-## OpenAI Sites에 동일 프로젝트로 재배포
-
-이 저장소에는 다음 Sites 연결 정보가 포함되어 있습니다.
-
-```json
-{
-  "project_id": "appgprj_6a61b5d3d50c8191ac800c16dc1421d5",
-  "d1": "DB",
-  "r2": null
-}
-```
-
-다른 컴퓨터에서 동일 프로젝트에 배포하려면:
-
-1. 동일한 OpenAI Sites 프로젝트에 접근할 수 있는 계정으로 Codex에 로그인합니다.
-2. 이 저장소의 `main`을 받고 의존성을 설치합니다.
-3. 위의 전체 검증을 통과시킵니다.
-4. `.openai/hosting.json`의 기존 `project_id`를 유지한 채 Sites 배포를 요청합니다.
-5. 새 Sites 프로젝트를 만들지 말고 기존 프로젝트에 새 버전을 저장·배포합니다.
-6. 배포 후 상태가 `succeeded`인지 확인하고 빠른대전과 온라인 입장을 확인합니다.
-
-주의사항:
-
-- Git에는 운영 D1 데이터, Sites 로그인 정보와 배포 자격 증명이 저장되지 않습니다.
-- 다른 계정으로 같은 `project_id`에 배포하려면 해당 Sites 프로젝트 권한이 별도로 필요합니다.
-- D1 스키마를 변경했다면 `drizzle/`의 마이그레이션도 반드시 함께 검토·배포합니다.
-- 온라인 API는 서비스워커에서 캐시하면 안 됩니다.
-
-## 주요 디렉터리
+## 주요 연구 경로
 
 | 경로 | 내용 |
 | --- | --- |
-| `app/` | 빠른대전·온라인 화면과 API 라우트 |
-| `lib/` | 게임 엔진, 봇, D1 저장소, 공통 규칙 |
-| `public/` | 카드·테마·PWA·브랜드 자산 |
-| `drizzle/`, `db/` | D1 스키마와 마이그레이션 |
-| `tests/` | 전체 회귀 테스트 |
-| `scripts/` | 검증·봇 학습·평가 도구 |
-| `android-twa/` | Android Bubblewrap/TWA 프로젝트 |
-| `docs/` | UI 계약, 규칙과 연구 문서 |
-| `.openai/hosting.json` | 기존 Sites 프로젝트와 D1 논리 바인딩 |
+| `training/` | 모델·데이터 구조와 학습 기반 코드 |
+| `gpu-training/` | GPU 학습 진입점, 설정과 보조 코드 |
+| `scripts/` | rollout, bundle, benchmark, calibration, screening 도구 |
+| `tests/*rl*`, `tests/v4-*` | 행동·관측·학습·평가 회귀 테스트 |
+| `docs/reinforcement-learning.md` | 전체 RL 구조와 CPU/GPU 작업 분리 |
+| `docs/ppo-self-play-pipeline.md` | PPO/self-play 반복 절차 |
+| `lib/bot-models/` | 제품 런타임에서 사용할 수 있는 승격 모델 |
 
-## 저장소에 포함하지 않는 파일
+현재 프로덕션 어려움 난이도 모델은 `lib/bot-models/hard-ppo5-epoch11.json`입니다. 이 파일을 바꾸는 것만으로 승격이 완료되는 것은 아니며 모델 해시, 로더 호환성, 난이도 매핑과 비교 평가가 함께 검증되어야 합니다.
 
-다음 파일은 새 컴퓨터에서 다시 생성하거나 별도로 안전하게 전달해야 합니다.
+## 기본 명령
 
-- `node_modules/`, `.next/`, `.vinext/`, `dist/`, `.wrangler/`
-- `artifacts/`, `results/`, 학습 중간 체크포인트와 원본 데이터
-- `.env*`, 토큰, 로그인 정보와 기타 비밀값
-- Android 서명키(`*.jks`, `*.keystore`)와 로컬 빌드 결과
-- 로컬 캐시와 임시 출력물
+전체 연구 회귀 테스트:
 
-Android 스토어 업데이트에 사용하는 기존 서명키는 GitHub에 올리지 말고 별도 암호화 백업으로 전달해야 합니다. 해당 키가 없으면 같은 패키지의 기존 앱을 업데이트할 수 없습니다.
+```bash
+pnpm run test:rl
+```
 
-## 제품 불변 조건
+기준 봇 평가와 rollout 생성 예시:
 
-- 빠른대전의 UI와 애니메이션을 공통 기준으로 사용합니다.
-- 온라인은 서버 권위형이며 상대방의 숨은 패를 클라이언트나 봇에 공개하지 않습니다.
-- 세금 교환 카드 정체는 교환 당사자에게만 공개합니다.
-- PC·모바일 웹·설치형 앱의 CSS 범위를 구분합니다.
-- 임시 대혁명 강제 테스트 모드는 배포 전에 반드시 꺼져 있어야 합니다.
-- 커스텀 스플래시는 제거 상태를 유지합니다.
+```bash
+pnpm run rl:evaluate -- --matches 100 --acts 3 --lineup easy,normal,hard,hard
+pnpm run rl:rollouts -- --episodes 1000 --players 4 --acts 3 --difficulty normal
+pnpm run rl:gpu-bundle
+```
 
-## 라이선스와 공개 범위
+모델 검증과 비교:
 
-이 저장소에는 원작 게임명, 카드 이미지와 상표 관련 자산이 포함되어 있습니다. 권리자의 공식 승인을 받은 오픈소스 배포물이 아니므로 저장소를 **비공개로 유지**하고, 공개 배포·재배포·상업 이용 전에는 별도의 권리 확인이 필요합니다.
+```bash
+pnpm run rl:verify-result -- --directory <extracted-result-directory>
+pnpm run rl:benchmark-model -- --model <policy-weights.json>
+pnpm run rl:compare-models -- --candidate <candidate.json> --reference <reference.json>
+pnpm run rl:calibrate-temperature -- --model <policy-weights.json> --data <rollout.ndjson> --seed <seed>
+pnpm run rl:screen-checkpoints -- --directory <checkpoint-directory> --output <report-directory>
+```
 
-게임 원작과 카드 일러스트의 권리는 각 권리자에게 있으며, 이 프로젝트의 크레딧과 팬 구현 면책 문구가 사용 허가를 대신하지 않습니다.
+세부 인수와 출력 계약은 각 스크립트의 `--help`, 관련 테스트와 `docs/` 문서를 우선합니다. 명령 이름만 맞추기 위해 결과 디렉터리나 모델 메타데이터 검증을 우회하지 않습니다.
+
+## 권장 반복 절차
+
+1. `main` 또는 최신 `develop` 변경을 연구 브랜치에 병합합니다.
+2. CPU에서 결정론적 기준전과 학습 입력 bundle을 생성합니다.
+3. bundle의 SHA-256, 소스 커밋, 관측·행동 스키마를 기록합니다.
+4. GPU 컴퓨터의 새 실행 디렉터리에서 학습합니다.
+5. 결과 ZIP과 SHA-256을 원본 그대로 회수합니다.
+6. 결과 구조·모델 해시·카탈로그 호환성을 사전 검증합니다.
+7. 여러 인원수와 독립 seed를 병렬 평가합니다.
+8. Normal, 현재 프로덕션 Hard와 직접 비교합니다.
+9. 계급별·좌석별·인원별 퇴보와 신뢰구간을 확인합니다.
+10. 승격 기준을 통과한 경우에만 런타임 모델과 검증 테스트를 `develop`에 반영합니다.
+
+## Git에 올리는 것
+
+- 학습·평가 소스코드
+- 작고 재현 가능한 설정과 manifest 예시
+- 관측·행동 스키마 및 모델 로더
+- 최종 승격 모델과 해시 메타데이터
+- 재현 가능한 테스트와 문서
+
+## Git에 올리지 않는 것
+
+- `artifacts/`, `results/`, `outputs/`, `work/`
+- 원본 rollout과 대규모 NDJSON 데이터
+- 중간 checkpoint와 optimizer state
+- Python 가상환경, PyTorch/CUDA 설치 파일과 캐시
+- SSH 키, 비밀번호, 토큰과 `.env`
+- 다른 컴퓨터에서 생성한 임시 제어·heartbeat 파일
+
+대용량 결과를 전달할 때는 ZIP과 별도 `.sha256` 파일을 함께 사용하고, 검증이 끝날 때까지 원본을 수정하지 않습니다. Git LFS를 임의의 학습 결과 창고로 사용하지 않습니다.
+
+## 제품 승격 체크리스트
+
+- 모델 형식과 observation/action catalogue가 현재 런타임과 정확히 일치
+- 모든 선택이 실제 게임에서 합법
+- 상대 숨은 패가 입력·로그·critic 외부 출력에 노출되지 않음
+- Normal 대비 목표 효과 크기와 신뢰구간 통과
+- 지원 인원수 4~10명과 주요 사회 계급별 중대한 퇴보 없음
+- 빠른대전과 온라인이 같은 모델·난이도 매핑 사용
+- 런타임 추론 시간과 번들 크기가 실제 기기에서 허용 범위
+- `pnpm test`, typecheck와 lint 통과
+- 모델 SHA-256과 출처 메타데이터를 테스트로 고정
+
+## 저장소 보안과 권리
+
+이 저장소에는 원작 카드 이미지와 상표 관련 자산이 포함되어 있으므로 비공개로 유지합니다. Android 서명키, 서버 자격 증명과 운영 데이터도 이 브랜치에 올리지 않습니다.
