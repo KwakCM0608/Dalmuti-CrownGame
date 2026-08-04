@@ -3,6 +3,7 @@ import test from "node:test";
 
 const {
   ACTION_SPACE_SIZE,
+  DOUBLE_JOKER_ACTION_INDEX,
   decodeSemanticAction,
   encodeSemanticAction,
   legalSemanticActionIndices,
@@ -72,7 +73,7 @@ test("V1 semantic action indices round-trip across all 506 choices", () => {
   }
 });
 
-test("semantic mask merges physical copies and excludes a two-joker-only pair", () => {
+test("semantic mask merges copies and exposes the compatible double-joker slot", () => {
   const observation = playObservation([
     card("seven-a", 7),
     card("seven-b", 7),
@@ -82,6 +83,17 @@ test("semantic mask merges physical copies and excludes a two-joker-only pair", 
   const legal = legalSemanticActionIndices(observation);
 
   assert.ok(legal.includes(1));
+  assert.ok(legal.includes(DOUBLE_JOKER_ACTION_INDEX));
+  assert.deepEqual(
+    resolveSemanticAction(observation, DOUBLE_JOKER_ACTION_INDEX),
+    {
+      type: "play",
+      cardIds: ["joker-a", "joker-b"],
+      rank: 13,
+      count: 2,
+      jokerCount: 2,
+    },
+  );
   assert.ok(
     legal.includes(
       encodeSemanticAction({

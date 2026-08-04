@@ -31,7 +31,7 @@ test("server-renders the playable Dalmuti prototype", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<html lang="ko">/i);
+  assert.match(html, /<html lang="ko"[^>]*>/i);
   assert.match(html, /<title>DALMUTI<\/title>/i);
   assert.match(html, /DALMUTI/);
   assert.doesNotMatch(html, /왕관은/);
@@ -40,7 +40,8 @@ test("server-renders the playable Dalmuti prototype", async () => {
   assert.match(html, />온라인 모드</);
   assert.match(html, />게임 규칙</);
   assert.match(html, />크레딧</);
-  assert.doesNotMatch(html, />환경설정</);
+  assert.match(html, /href="\/settings"/);
+  assert.match(html, /aria-label="환경설정"/);
   assert.doesNotMatch(html, /빠른 대전 플레이 인원/);
   assert.match(html, /<link rel="icon" href="\/brand-dalmuti-crown\.png"\/>/);
   assert.match(html, /누적 칩/);
@@ -65,6 +66,19 @@ test("server-renders the online room entry surface", async () => {
   assert.match(html, />규칙</);
 });
 
+test("server-renders the persistent settings surface", async () => {
+  const response = await render("/settings");
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
+
+  const html = await response.text();
+  assert.match(html, />환경설정</);
+  assert.match(html, />BGM</);
+  assert.match(html, /type="checkbox"/);
+  assert.match(html, /type="range"/);
+  assert.match(html, /role="radiogroup"/);
+});
+
 test("ships without the disposable starter preview", async () => {
   const [
     page,
@@ -73,6 +87,7 @@ test("ships without the disposable starter preview", async () => {
     packageJson,
     cardAssetBuilder,
     rulebookContent,
+    appPreferences,
   ] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
@@ -80,6 +95,7 @@ test("ships without the disposable starter preview", async () => {
     readFile(new URL("../package.json", import.meta.url), "utf8"),
     readFile(new URL("../scripts/build_card_assets.py", import.meta.url), "utf8"),
     readFile(new URL("../lib/rulebook-content.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/app-preferences.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /"use client"/);
@@ -89,7 +105,9 @@ test("ships without the disposable starter preview", async () => {
   assert.match(page, />게임 규칙</);
   assert.match(page, />크레딧</);
   assert.match(page, /CreditsDialog/);
-  assert.doesNotMatch(page, /SettingsDialog|환경설정/);
+  assert.match(page, /href="\/settings"/);
+  assert.match(page, /aria-label="환경설정"/);
+  assert.doesNotMatch(page, /SettingsDialog/);
   assert.match(styles, /brand-dalmuti-crown\.png/);
   assert.match(page, /function createDeck/);
   assert.match(page, /function applyTax/);
@@ -113,6 +131,7 @@ test("ships without the disposable starter preview", async () => {
     page,
     /toggleWholePlayableRankSelection\(current, sameRankIds, humanHand\)/,
   );
+  assert.match(page, /now - lastTouchAtRef\.current <= 360/);
   assert.match(page, /type PublicTurnAction/);
   assert.match(page, /publicAction: PublicTurnAction \| null/);
   assert.match(page, /function TaxTransferLayer/);
@@ -196,7 +215,10 @@ test("ships without the disposable starter preview", async () => {
     styles,
     /\.tax-transfer-card\.is-face-up \.playing-card\s*\{[^}]*width: 134px;[^}]*height: 206px;/s,
   );
-  assert.match(page, /RANK_NAMES\[visibleTable\.rank\]/);
+  assert.match(
+    page,
+    /cardProfessionName\(preferences\.theme, visibleTable\.rank\)/,
+  );
   assert.match(page, /보다 낮은 숫자의 카드 \$\{game\.table\.count\}장을 내세요/);
   assert.match(
     styles,
@@ -278,7 +300,7 @@ test("ships without the disposable starter preview", async () => {
   );
   assert.match(
     styles,
-    /\.game-shell \.welcome-crown\s*\{[^}]*brand-dalmuti-crown\.png/s,
+    /\.game-shell \.welcome-crown\s*\{[^}]*var\(--dalmuti-brand-crown-image\)/s,
   );
   assert.match(
     styles,
@@ -316,7 +338,7 @@ test("ships without the disposable starter preview", async () => {
     [12, "농노"],
     [13, "어릿광대"],
   ]) {
-    assert.match(page, new RegExp(`${rank}: "${name}"`));
+    assert.match(appPreferences, new RegExp(`${rank}: "${name}"`));
   }
   await assert.rejects(access(new URL("../app/_sites-preview", projectRoot)));
 });
@@ -472,11 +494,14 @@ test("quick and online hands preserve every assigned face-down slot through reve
     onlinePage,
     /Math\.min\(\s*MAX_EVENT_CATCHUP_MS,[\s\S]{0,140}HAND_REVEAL_PRESENTATION_MS/,
   );
-  assert.match(onlineStyles, /\.cardBack\s*\{[^}]*back\.webp/s);
+  assert.match(
+    onlineStyles,
+    /\.cardBack\s*\{[^}]*var\(--dalmuti-card-back-image\)/s,
+  );
   assert.match(onlineStyles, /\.cardBack img\s*\{[^}]*opacity: 0;/s);
   assert.match(
     onlineStyles,
-    /\.card:not\(\.cardBack\):has\(> img\[src\*="\/cards\/01\.webp"\]\),\s*\.card:not\(\.cardBack\):has\(> img\[src\*="\/cards\/joker\.webp"\]\)/s,
+    /\.card:not\(\.cardBack\)\[data-rank="1"\],\s*\.card:not\(\.cardBack\)\[data-rank="13"\]/s,
   );
   assert.doesNotMatch(
     onlineStyles,
@@ -555,9 +580,21 @@ test("online mode exposes synchronized reveal, tax, Dalmuti, and exit states", a
   assert.match(page, /element\.animate/);
   assert.match(page, /Boolean\(activeEvent\)/);
   assert.match(page, /<span>나의 서열<\/span>/);
-  assert.match(page, /RANK_NAMES\[viewerRank\][\s\S]{0,100}카드를[\s\S]{0,100}선택했습니다/);
+  assert.match(
+    page,
+    /cardProfessionName\(preferences\.theme, viewerRank\)[\s\S]{0,100}카드를[\s\S]{0,100}선택했습니다/,
+  );
   assert.match(page, /styles\.resultFirst/);
   assert.match(page, /styles\.resultSecond/);
+  assert.match(page, /<span>다음 막을 위한 준비<\/span>/);
+  assert.match(page, /styles\.resultReadyBadge}>Ready<\/i>/);
+  assert.match(page, /disabled=\{busy \|\| !allReady\}/);
+  assert.match(
+    page,
+    /sendCommand\("SET_READY", \{ ready: !me\?\.ready \}\)/,
+  );
+  assert.match(styles, /\.resultReadyBadge/);
+  assert.match(styles, /\.resultReadyButtonOn/);
   assert.match(page, /--table-card-step-wide/);
   assert.doesNotMatch(page, /sendCommand\("PASS", \{ automatic: true \}\)/);
   assert.match(styles, /@keyframes onlineHandCardReveal/);
@@ -722,6 +759,7 @@ test("double-click rank switching preserves jokers and clears the prior normal r
     { id: "8-1", rank: 8 },
     { id: "8-2", rank: 8 },
     { id: "joker-1", rank: 13 },
+    { id: "joker-2", rank: 13 },
   ];
 
   assert.deepEqual(
@@ -739,6 +777,14 @@ test("double-click rank switching preserves jokers and clears the prior normal r
       hand,
     ),
     ["joker-1"],
+  );
+  assert.deepEqual(
+    toggleWholePlayableRankSelection(
+      [],
+      ["joker-1", "joker-2"],
+      hand,
+    ),
+    ["joker-1", "joker-2"],
   );
 });
 
@@ -866,20 +912,85 @@ test("online mode renders the dedicated great-revolution rank-swap announcement"
 });
 
 test("quick and online modes wire configurable bot difficulty into the shared policy", async () => {
-  const [quickPage, quickStyles, onlinePage, engine, strategy] = await Promise.all([
-    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
-    readFile(new URL("../app/online/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../lib/online-game/engine.ts", import.meta.url), "utf8"),
-    readFile(new URL("../lib/bot-strategy.ts", import.meta.url), "utf8"),
-  ]);
+  const [
+    quickPage,
+    quickStyles,
+    onlinePage,
+    engine,
+    strategy,
+    hardLoader,
+    deployedDifficulty,
+  ] =
+    await Promise.all([
+      readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+      readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+      readFile(new URL("../app/online/page.tsx", import.meta.url), "utf8"),
+      readFile(new URL("../lib/online-game/engine.ts", import.meta.url), "utf8"),
+      readFile(new URL("../lib/bot-strategy.ts", import.meta.url), "utf8"),
+      readFile(
+        new URL("../lib/deployed-hard-bot-loader.ts", import.meta.url),
+        "utf8",
+      ),
+      readFile(
+        new URL("../lib/deployed-bot-difficulty.ts", import.meta.url),
+        "utf8",
+      ),
+    ]);
 
   assert.match(
     quickPage,
     /Array\.from\(\{ length: 7 \}, \(_, index\) => index \+ 4\)/,
   );
   assert.match(quickPage, /BASE_PLAYERS\.slice\(0, quickPlayerCount\)/);
-  assert.match(quickPage, /chooseBotCardIds\(/);
+  assert.match(
+    quickPage,
+    /if \(state\.botDifficulty !== "hard"\) \{\s*return chooseBotCardIds\(\s*observation,\s*deploymentHeuristicDifficulty\(state\.botDifficulty\),\s*\);\s*\}/,
+    "Easy and Normal quick bots must use the deployed heuristic mapping",
+  );
+  assert.match(
+    deployedDifficulty,
+    /return difficulty === "easy" \? "hard" : "normal"/,
+    "Easy must use the previous Hard heuristic while Normal and learned Hard use Normal",
+  );
+  assert.equal(
+    (quickPage.match(/deploymentHeuristicDifficulty\(/g) ?? []).length,
+    4,
+    "quick card, tax, and revolution decisions must share the deployed mapping",
+  );
+  assert.equal(
+    (engine.match(/deploymentHeuristicDifficulty\(/g) ?? []).length,
+    5,
+    "online card, tax, and revolution decisions must share the deployed mapping",
+  );
+  assert.match(quickPage, /easy: "상대의 완주 위협까지 대응"/);
+  assert.match(quickPage, /hard: "AI가 직접 판단"/);
+  assert.match(onlinePage, /easy: "상대의 완주 위협까지 대응"/);
+  assert.match(onlinePage, /hard: "AI가 직접 판단"/);
+  assert.match(
+    quickPage,
+    /return chooseLoadedHardBotCardIds\(observation, \{[\s\S]{0,400}round: state\.round,[\s\S]{0,400}revolution: state\.revolutionAnnouncement\?\.kind \?\? null/,
+    "Hard quick bots must receive the full public PPO5 context",
+  );
+  assert.match(
+    quickPage,
+    /if \(difficulty !== "hard"\) return;[\s\S]{0,120}void loadDeployedHardBot\(\)/,
+    "selecting Hard should start loading its split model chunk",
+  );
+  assert.match(
+    quickPage,
+    /if \(quickBotDifficulty === "hard"\) \{[\s\S]{0,160}await loadDeployedHardBot\(\)[\s\S]{0,320}runScreenTransition\(startGame\)/,
+    "Hard must finish loading before a quick match starts",
+  );
+  assert.match(
+    hardLoader,
+    /loadingModule \?\?= import\("@\/lib\/deployed-hard-bot-policy"\)/,
+    "the heavyweight model must remain a dynamic client import",
+  );
+  assert.match(
+    hardLoader,
+    /loadedModule\s*\?\s*loadedModule\.chooseDeployedHardBotCardIds\(observation, context\)\s*:\s*chooseBotCardIds\(observation, "normal"\)/,
+    "the client loader must fail safe to Normal until the learned module is ready",
+  );
   assert.match(
     quickPage,
     /publicPlayedCards: \[\.\.\.state\.publicPlayedCards, \.\.\.selected\]/,
@@ -1152,7 +1263,7 @@ test("quick and online modes use the official player rank labels", async () => {
   assert.match(onlineStyles, /@keyframes revolutionJokerArrivalLeft/);
   assert.match(
     onlineStyles,
-    /\.revolutionJokers > span\s*\{[^}]*width: clamp\(88px, 9vw, 124px\);[^}]*aspect-ratio: 466 \/ 717;[^}]*url\("\/cards\/joker\.webp"\) center \/ cover no-repeat;/s,
+    /\.revolutionJokers > span\s*\{[^}]*width: clamp\(88px, 9vw, 124px\);[^}]*aspect-ratio: 466 \/ 717;[^}]*var\(--dalmuti-joker-card-image\) center \/ cover no-repeat;/s,
   );
 });
 

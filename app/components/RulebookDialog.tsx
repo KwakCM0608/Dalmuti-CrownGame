@@ -2,21 +2,39 @@
 
 /* eslint-disable @next/next/no-img-element -- preprocessed card art is rendered at several animated CSS sizes */
 
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   RULEBOOK_DECK,
   RULEBOOK_ROLES,
   RULEBOOK_SECTIONS,
   type RulebookSectionId,
 } from "@/lib/rulebook-content";
+import {
+  cardArtPath,
+  cardProfessionName,
+  type AppTheme,
+} from "@/lib/app-preferences";
+import { useAppPreferences } from "./AppPreferencesProvider";
 import styles from "./RulebookDialog.module.css";
 
 export const RULEBOOK_DIALOG_ID = "dalmuti-rulebook-dialog";
 
-function cardImage(rank: number): string {
-  return rank === 13
-    ? "/cards/joker.webp"
-    : `/cards/${String(rank).padStart(2, "0")}.webp`;
+function themedRulebookCopy(copy: string, theme: AppTheme): string {
+  if (theme === "original") return copy;
+  return copy
+    .replaceAll("달무티(1)", `${cardProfessionName(theme, 1)}(1)`)
+    .replaceAll("달무티를 낸", `${cardProfessionName(theme, 1)}를 낸`)
+    .replaceAll("농노(12)", `${cardProfessionName(theme, 12)}(12)`)
+    .replaceAll("어릿광대", cardProfessionName(theme, 13))
+    .replaceAll("조커", cardProfessionName(theme, 13));
+}
+
+function useCardImage(): (rank: number) => string {
+  const { preferences } = useAppPreferences();
+  return useCallback(
+    (rank: number) => cardArtPath(preferences.theme, rank),
+    [preferences.theme],
+  );
 }
 
 function RuleCard({
@@ -28,6 +46,7 @@ function RuleCard({
   label: string;
   tone?: "strong" | "weak" | "joker";
 }) {
+  const cardImage = useCardImage();
   return (
     <figure className={`${styles.ruleCard} ${tone ? styles[tone] : ""}`}>
       <img src={cardImage(rank)} alt="" loading="lazy" draggable={false} />
@@ -37,6 +56,9 @@ function RuleCard({
 }
 
 function SectionVisual({ id }: { id: RulebookSectionId }) {
+  const { preferences } = useAppPreferences();
+  const theme = preferences.theme;
+  const cardImage = useCardImage();
   if (id === "goal") {
     return (
       <div className={styles.finishVisual} aria-hidden="true">
@@ -51,12 +73,24 @@ function SectionVisual({ id }: { id: RulebookSectionId }) {
   if (id === "cards") {
     return (
       <div className={styles.strengthVisual} aria-hidden="true">
-        <RuleCard rank={1} label="가장 강함" tone="strong" />
+        <RuleCard
+          rank={1}
+          label={`${cardProfessionName(theme, 1)} · 가장 강함`}
+          tone="strong"
+        />
         <span className={styles.strengthLine}>
           <b>강함</b><i>1 → 12</i><b>약함</b>
         </span>
-        <RuleCard rank={12} label="가장 약한 일반 카드" tone="weak" />
-        <RuleCard rank={13} label="어릿광대" tone="joker" />
+        <RuleCard
+          rank={12}
+          label={`${cardProfessionName(theme, 12)} · 가장 약한 일반 카드`}
+          tone="weak"
+        />
+        <RuleCard
+          rank={13}
+          label={cardProfessionName(theme, 13)}
+          tone="joker"
+        />
       </div>
     );
   }
@@ -70,7 +104,7 @@ function SectionVisual({ id }: { id: RulebookSectionId }) {
             <img src={cardImage(7)} alt="" />
             <img src={cardImage(7)} alt="" />
           </span>
-          <b>재봉사(7) × 2장</b>
+          <b>{cardProfessionName(theme, 7)}(7) × 2장</b>
         </div>
         <i>→</i>
         <div className={styles.validPlay}>
@@ -79,7 +113,7 @@ function SectionVisual({ id }: { id: RulebookSectionId }) {
             <img src={cardImage(5)} alt="" />
             <img src={cardImage(5)} alt="" />
           </span>
-          <b>수녀원장(5) × 2장</b>
+          <b>{cardProfessionName(theme, 5)}(5) × 2장</b>
         </div>
       </div>
     );
@@ -119,7 +153,10 @@ function SectionVisual({ id }: { id: RulebookSectionId }) {
         <span className={styles.taxCards}>
           <img src={cardImage(2)} alt="" />
           <img src={cardImage(4)} alt="" />
-          <i>조커는 보호</i>
+          <i>
+            {theme === "halloween" ? cardProfessionName(theme, 13) : "조커"}는
+            보호
+          </i>
         </span>
         <span className={styles.taxArrow}>2장 전달 →</span>
         <span className={styles.taxPerson}><b>♛</b><small>달무티</small></span>
@@ -168,6 +205,7 @@ export function RulebookDialog({
   onClose: () => void;
   gameInProgress?: boolean;
 }) {
+  const { preferences } = useAppPreferences();
   const dialogRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
@@ -318,7 +356,9 @@ export function RulebookDialog({
             <div className={styles.deckNote}>
               <b>{RULEBOOK_DECK.totalCards}장</b>
               <span>정식 덱</span>
-              <small>{RULEBOOK_DECK.composition}</small>
+              <small>
+                {themedRulebookCopy(RULEBOOK_DECK.composition, preferences.theme)}
+              </small>
             </div>
           </nav>
 
@@ -342,18 +382,23 @@ export function RulebookDialog({
                   <i aria-hidden="true">＋</i>
                 </summary>
                 <div className={styles.sectionBody}>
-                  <p>{section.summary}</p>
+                  <p>{themedRulebookCopy(section.summary, preferences.theme)}</p>
                   <SectionVisual id={section.id} />
                   <ul>
                     {section.points.map((point) => (
-                      <li key={point}>{point}</li>
+                      <li key={point}>
+                        {themedRulebookCopy(point, preferences.theme)}
+                      </li>
                     ))}
                   </ul>
                   {section.id === "tax" && (
                     <div className={styles.taxPrivacy}>
                       <strong>세금 교환 핵심</strong>
                       <span>
-                        조커는 빼앗기지 않습니다. 교환되는 카드의 정체는 두
+                        {preferences.theme === "halloween"
+                          ? cardProfessionName(preferences.theme, 13)
+                          : "조커"}
+                        는 빼앗기지 않습니다. 교환되는 카드의 정체는 두
                         당사자만 확인할 수 있습니다.
                       </span>
                     </div>

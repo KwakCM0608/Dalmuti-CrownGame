@@ -7,8 +7,53 @@
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
     <meta name="theme-color" content="#18070c" />
+    <script>
+      (() => {
+        try {
+          const stored = JSON.parse(
+            localStorage.getItem("dalmuti.preferences.v1") || "null",
+          );
+          if (stored?.theme === "halloween") {
+            document.documentElement.dataset.theme = "halloween";
+            document.querySelector('meta[name="theme-color"]').content =
+              "#09080c";
+          }
+        } catch {
+          // Invalid or unavailable local preferences keep the original theme.
+        }
+      })();
+    </script>
     <title>DALMUTI — 오프라인</title>
     <style>
+      :root {
+        --offline-text: #fff4d2;
+        --offline-muted: rgba(255, 244, 210, 0.72);
+        --offline-page:
+          radial-gradient(circle at 50% 32%, #512331 0, transparent 42%),
+          linear-gradient(145deg, #20090f, #100307);
+        --offline-panel: rgba(27, 7, 12, 0.86);
+        --offline-border: rgba(225, 185, 81, 0.42);
+        --offline-crown-border: #d4ab4b;
+        --offline-crown: url("/brand-dalmuti-crown.png");
+        --offline-button-text: #281208;
+        --offline-button-border: #f2d47c;
+        --offline-button: linear-gradient(#f4d77f, #c48a30);
+      }
+      html[data-theme="halloween"] {
+        --offline-text: #f7efe8;
+        --offline-muted: rgba(226, 215, 224, 0.76);
+        --offline-page:
+          radial-gradient(circle at 18% 14%, rgba(104, 69, 127, 0.34), transparent 36%),
+          radial-gradient(circle at 82% 82%, rgba(182, 91, 43, 0.19), transparent 32%),
+          linear-gradient(145deg, #1c1922, #09080c 62%, #050507);
+        --offline-panel: rgba(20, 18, 25, 0.9);
+        --offline-border: rgba(203, 119, 71, 0.5);
+        --offline-crown-border: #c87945;
+        --offline-crown: url("/themes/halloween/crown.webp");
+        --offline-button-text: #1b0d09;
+        --offline-button-border: #f0aa6a;
+        --offline-button: linear-gradient(#e6a15f, #9c4e2e);
+      }
       * {
         box-sizing: border-box;
       }
@@ -21,10 +66,8 @@
           max(24px, env(safe-area-inset-right))
           max(24px, env(safe-area-inset-bottom))
           max(24px, env(safe-area-inset-left));
-        color: #fff4d2;
-        background:
-          radial-gradient(circle at 50% 32%, #512331 0, transparent 42%),
-          linear-gradient(145deg, #20090f, #100307);
+        color: var(--offline-text);
+        background: var(--offline-page);
         font-family:
           Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
@@ -32,16 +75,19 @@
         width: min(420px, 100%);
         padding: 34px 26px;
         text-align: center;
-        border: 1px solid rgba(225, 185, 81, 0.42);
+        border: 1px solid var(--offline-border);
         border-radius: 28px;
-        background: rgba(27, 7, 12, 0.86);
+        background: var(--offline-panel);
         box-shadow: 0 24px 70px rgba(0, 0, 0, 0.36);
       }
-      img {
+      .offline-crown {
+        display: block;
         width: 76px;
         height: 76px;
-        border: 2px solid #d4ab4b;
+        margin: 0 auto;
+        border: 2px solid var(--offline-crown-border);
         border-radius: 50%;
+        background: #17131b var(--offline-crown) center / cover no-repeat;
       }
       h1 {
         margin: 18px 0 8px;
@@ -51,17 +97,17 @@
       }
       p {
         margin: 0 0 24px;
-        color: rgba(255, 244, 210, 0.72);
+        color: var(--offline-muted);
         font-size: 14px;
         line-height: 1.65;
       }
       button {
         min-width: 148px;
         min-height: 48px;
-        color: #281208;
-        border: 1px solid #f2d47c;
+        color: var(--offline-button-text);
+        border: 1px solid var(--offline-button-border);
         border-radius: 14px;
-        background: linear-gradient(#f4d77f, #c48a30);
+        background: var(--offline-button);
         font: inherit;
         font-weight: 900;
       }
@@ -69,7 +115,7 @@
   </head>
   <body>
     <main>
-      <img src="/brand-dalmuti-crown.png" alt="" />
+      <span class="offline-crown" aria-hidden="true"></span>
       <h1>DALMUTI</h1>
       <p>
         지금은 네트워크에 연결할 수 없습니다.<br />

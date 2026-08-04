@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -10,6 +11,34 @@ const {
   joinOnlineRoom,
   projectOnlineRoom,
 } = await import(new URL("../lib/online-game/index.ts", import.meta.url));
+const {
+  chooseBotCardIds,
+  chooseBotRevolution,
+  chooseBotTaxReturn,
+} = await import(new URL("../lib/bot-strategy.ts", import.meta.url));
+const { deploymentHeuristicDifficulty } = await import(
+  new URL("../lib/deployed-bot-difficulty.ts", import.meta.url)
+);
+
+test("deployed difficulty labels map to their intended heuristic policies", () => {
+  assert.equal(deploymentHeuristicDifficulty("easy"), "hard");
+  assert.equal(deploymentHeuristicDifficulty("normal"), "normal");
+  assert.equal(deploymentHeuristicDifficulty("hard"), "normal");
+  assert.equal(deploymentHeuristicDifficulty(null), "normal");
+});
+
+test("the deployed hard-bot model file matches the promoted SHA-256", async () => {
+  const bytes = await readFile(
+    new URL(
+      "../lib/bot-models/hard-ppo5-epoch11.json",
+      import.meta.url,
+    ),
+  );
+  assert.equal(
+    createHash("sha256").update(bytes).digest("hex"),
+    "3599a32b6a1a96eb2e353fabf6c1b47db93db92a980e26ab247af996d2b00395",
+  );
+});
 
 function command(state, actorId, type, payload = {}, now = state.updatedAt + 1) {
   return applyOnlineCommand(
@@ -519,6 +548,349 @@ test("server bots act automatically during rank choice, revolution, tax, and pla
   );
 });
 
+test("a hard online bot routes card play through the deployed PPO5 policy", () => {
+  let state = createThreeHumanOneBotLobby();
+  const bot = state.players.find((player) => player.isBot);
+  assert.ok(bot);
+  bot.botDifficulty = "hard";
+
+  state.phase = "playing";
+  state.round = 2;
+  state.phaseEndsAt = null;
+  state.currentIndex = state.players.findIndex(
+    (player) => player.id === bot.id,
+  );
+  state.actionLockUntil = null;
+  state.turnDeadline = 30_000;
+  state.botActionAt = 400;
+  state.table = {
+    rank: 13,
+    count: 1,
+    playerId: "p3",
+    cards: [{ id: "table-joker", rank: 13 }],
+  };
+  state.lastPlayedId = "p3";
+  state.hands = {
+    p1: Array.from({ length: 3 }, (_, index) => ({
+      id: `p1-${index}`,
+      rank: 12,
+    })),
+    p2: Array.from({ length: 8 }, (_, index) => ({
+      id: `p2-${index}`,
+      rank: 12,
+    })),
+    p3: Array.from({ length: 3 }, (_, index) => ({
+      id: `p3-${index}`,
+      rank: 12,
+    })),
+    [bot.id]: [
+      { id: "bot-10", rank: 10 },
+      { id: "bot-11", rank: 11 },
+      { id: "bot-6", rank: 6 },
+    ],
+  };
+
+  const publicObservation = {
+    actorId: bot.id,
+    hand: state.hands[bot.id],
+    table: {
+      rank: state.table.rank,
+      count: state.table.count,
+      playerId: state.table.playerId,
+    },
+    players: state.players.map((player) => ({
+      id: player.id,
+      handCount: state.hands[player.id].length,
+      finished: false,
+    })),
+    passedPlayerIds: [],
+    publicPlayedCards: [],
+  };
+  assert.deepEqual(
+    chooseBotCardIds(publicObservation, "normal"),
+    ["bot-11"],
+    "the Normal control plays, so a PASS distinguishes the learned route",
+  );
+
+  state = advanceOnlineRoom(state, 400, { randomInt: () => 0 });
+
+  assert.equal(state.table?.playerId, "p3");
+  assert.equal(state.hands[bot.id].length, 3);
+  assert.equal(
+    state.events.findLast((event) => event.type === "PLAYER_PASSED")?.payload
+      .playerId,
+    bot.id,
+  );
+});
+
+test("an easy online bot uses the previous Hard card-play policy", () => {
+  let state = createThreeHumanOneBotLobby();
+  const bot = state.players.find((player) => player.isBot);
+  assert.ok(bot);
+  bot.botDifficulty = "easy";
+
+  state.phase = "playing";
+  state.phaseEndsAt = null;
+  state.currentIndex = state.players.findIndex(
+    (player) => player.id === bot.id,
+  );
+  state.actionLockUntil = null;
+  state.turnDeadline = 30_000;
+  state.botActionAt = 400;
+  state.table = null;
+  state.lastPlayedId = bot.id;
+  state.hands = {
+    p1: [{ id: "p1-12", rank: 12 }],
+    p2: [{ id: "p2-11", rank: 11 }],
+    p3: [{ id: "p3-10", rank: 10 }],
+    [bot.id]: [
+      { id: "bot-12-a", rank: 12 },
+      { id: "bot-12-b", rank: 12 },
+      { id: "bot-joker", rank: 13 },
+    ],
+  };
+
+  const publicObservation = {
+    actorId: bot.id,
+    hand: state.hands[bot.id],
+    table: null,
+    players: state.players.map((player) => ({
+      id: player.id,
+      handCount: state.hands[player.id].length,
+      finished: false,
+    })),
+    passedPlayerIds: [],
+    publicPlayedCards: [],
+  };
+  assert.deepEqual(chooseBotCardIds(publicObservation, "easy"), [
+    "bot-joker",
+  ]);
+  assert.deepEqual(
+    chooseBotCardIds(publicObservation, "hard").sort(),
+    ["bot-12-a", "bot-12-b", "bot-joker"],
+  );
+
+  state = advanceOnlineRoom(state, 400, { randomInt: () => 0 });
+
+  assert.equal(state.hands[bot.id].length, 0);
+  assert.deepEqual(state.table?.cards.map((card) => card.id).sort(), [
+    "bot-12-a",
+    "bot-12-b",
+    "bot-joker",
+  ]);
+});
+
+test("hard online bots keep the validated Normal taxation policy", () => {
+  let state = createOnlineRoom(
+    "HARDTAX",
+    { id: "p1", name: "p1" },
+    1,
+  );
+  state = command(state, "p1", "ADD_BOT", { difficulty: "hard" }, 2);
+  state = joinOnlineRoom(state, { id: "p2", name: "p2" }, 3);
+  state = joinOnlineRoom(state, { id: "p3", name: "p3" }, 4);
+  const bot = state.players.find((player) => player.isBot);
+  assert.ok(bot);
+  assert.equal(bot.role, "lesser-dalmuti");
+
+  const botHand = [
+    { id: "bot-7-1", rank: 7 },
+    { id: "bot-7-2", rank: 7 },
+    { id: "bot-10-1", rank: 10 },
+    { id: "bot-10-2", rank: 10 },
+    { id: "bot-7-3", rank: 7 },
+  ];
+  assert.deepEqual(chooseBotTaxReturn(botHand, 1, "normal").cardIds, [
+    "bot-10-1",
+  ]);
+  assert.deepEqual(chooseBotTaxReturn(botHand, 1, "hard").cardIds, [
+    "bot-7-1",
+  ]);
+
+  state.phase = "tax-intro";
+  state.phaseEndsAt = 300;
+  state.round = 2;
+  state.botActionAt = null;
+  state.hands = {
+    p1: [{ id: "p1-card", rank: 12 }],
+    p2: [{ id: "p2-tax", rank: 2 }],
+    p3: [{ id: "p3-card", rank: 11 }],
+    [bot.id]: botHand,
+  };
+  state.taxExchanges = [
+    {
+      nobleId: bot.id,
+      peonId: "p2",
+      count: 1,
+      peonCardIds: ["p2-tax"],
+      nobleCardIds: null,
+    },
+  ];
+
+  state = advanceOnlineRoom(state, 300, { randomInt: () => 0 });
+
+  assert.deepEqual(state.taxExchanges[0].nobleCardIds, ["bot-10-1"]);
+});
+
+test("easy online bots use the previous Hard taxation policy", () => {
+  let state = createOnlineRoom(
+    "EASYTAX",
+    { id: "p1", name: "p1" },
+    1,
+  );
+  state = command(state, "p1", "ADD_BOT", { difficulty: "easy" }, 2);
+  state = joinOnlineRoom(state, { id: "p2", name: "p2" }, 3);
+  state = joinOnlineRoom(state, { id: "p3", name: "p3" }, 4);
+  const bot = state.players.find((player) => player.isBot);
+  assert.ok(bot);
+
+  const botHand = [
+    { id: "bot-7-1", rank: 7 },
+    { id: "bot-7-2", rank: 7 },
+    { id: "bot-10-1", rank: 10 },
+    { id: "bot-10-2", rank: 10 },
+    { id: "bot-7-3", rank: 7 },
+  ];
+  assert.deepEqual(chooseBotTaxReturn(botHand, 1, "hard").cardIds, [
+    "bot-7-1",
+  ]);
+
+  state.phase = "tax-intro";
+  state.phaseEndsAt = 300;
+  state.round = 2;
+  state.botActionAt = null;
+  state.hands = {
+    p1: [{ id: "p1-card", rank: 12 }],
+    p2: [{ id: "p2-tax", rank: 2 }],
+    p3: [{ id: "p3-card", rank: 11 }],
+    [bot.id]: botHand,
+  };
+  state.taxExchanges = [
+    {
+      nobleId: bot.id,
+      peonId: "p2",
+      count: 1,
+      peonCardIds: ["p2-tax"],
+      nobleCardIds: null,
+    },
+  ];
+
+  state = advanceOnlineRoom(state, 300, { randomInt: () => 0 });
+
+  assert.deepEqual(state.taxExchanges[0].nobleCardIds, ["bot-7-1"]);
+});
+
+test("hard online bots keep the validated Normal revolution policy", () => {
+  let state = createOnlineRoom(
+    "HARDREV",
+    { id: "p1", name: "p1" },
+    1,
+  );
+  state = joinOnlineRoom(state, { id: "p2", name: "p2" }, 2);
+  state = command(state, "p1", "ADD_BOT", { difficulty: "hard" }, 3);
+  state = joinOnlineRoom(state, { id: "p3", name: "p3" }, 4);
+  state = joinOnlineRoom(state, { id: "p4", name: "p4" }, 5);
+  const bot = state.players.find((player) => player.isBot);
+  assert.ok(bot);
+  assert.equal(bot.role, "merchant");
+
+  const botHand = [
+    { id: "bot-joker-1", rank: 13 },
+    { id: "bot-joker-2", rank: 13 },
+    { id: "bot-10", rank: 10 },
+    { id: "bot-11", rank: 11 },
+  ];
+  const revolutionObservation = {
+    hand: botHand,
+    role: bot.role,
+    playerCount: state.players.length,
+  };
+  assert.equal(
+    chooseBotRevolution(revolutionObservation, "normal").declare,
+    false,
+  );
+  assert.equal(
+    chooseBotRevolution(revolutionObservation, "hard").declare,
+    true,
+  );
+
+  state.phase = "hand-reveal";
+  state.phaseEndsAt = 200;
+  state.round = 2;
+  state.hands = Object.fromEntries(
+    state.players.map((player, index) => [
+      player.id,
+      player.id === bot.id
+        ? botHand
+        : Array.from({ length: 3 }, (_, cardIndex) => ({
+            id: `${player.id}-${index}-${cardIndex}`,
+            rank: Math.min(12, index + cardIndex + 2),
+          })),
+    ]),
+  );
+
+  state = advanceOnlineRoom(state, 200, { randomInt: () => 0 });
+
+  assert.equal(state.phase, "tax-intro");
+  assert.equal(state.declaredRevolution, null);
+  assert.equal(
+    state.events.findLast((event) => event.type === "REVOLUTION_DECLINED")?.at,
+    200,
+  );
+});
+
+test("easy online bots use the previous Hard revolution policy", () => {
+  let state = createOnlineRoom(
+    "EASYREV",
+    { id: "p1", name: "p1" },
+    1,
+  );
+  state = joinOnlineRoom(state, { id: "p2", name: "p2" }, 2);
+  state = command(state, "p1", "ADD_BOT", { difficulty: "easy" }, 3);
+  state = joinOnlineRoom(state, { id: "p3", name: "p3" }, 4);
+  state = joinOnlineRoom(state, { id: "p4", name: "p4" }, 5);
+  const bot = state.players.find((player) => player.isBot);
+  assert.ok(bot);
+  assert.equal(bot.role, "merchant");
+
+  const botHand = [
+    { id: "bot-joker-1", rank: 13 },
+    { id: "bot-joker-2", rank: 13 },
+    { id: "bot-10", rank: 10 },
+    { id: "bot-11", rank: 11 },
+  ];
+  const revolutionObservation = {
+    hand: botHand,
+    role: bot.role,
+    playerCount: state.players.length,
+  };
+  assert.equal(
+    chooseBotRevolution(revolutionObservation, "hard").declare,
+    true,
+  );
+
+  state.phase = "hand-reveal";
+  state.phaseEndsAt = 200;
+  state.round = 2;
+  state.hands = Object.fromEntries(
+    state.players.map((player, index) => [
+      player.id,
+      player.id === bot.id
+        ? botHand
+        : Array.from({ length: 3 }, (_, cardIndex) => ({
+            id: `${player.id}-${index}-${cardIndex}`,
+            rank: Math.min(12, index + cardIndex + 2),
+          })),
+    ]),
+  );
+
+  state = advanceOnlineRoom(state, 200, { randomInt: () => 0 });
+
+  assert.equal(state.phase, "revolution-intro");
+  assert.equal(state.declaredRevolution?.playerId, bot.id);
+  assert.equal(state.declaredRevolution?.kind, "revolution");
+});
+
 function readyEveryone(state) {
   let next = state;
   for (const [index, player] of next.players.entries()) {
@@ -1014,6 +1386,53 @@ test("rank order controls remainder dealing and later rounds skip rank choice", 
   );
 });
 
+test("the next round waits for every connected non-host player to ready up", () => {
+  let state = readyEveryone(createFourPlayerLobby());
+  state = startAndAssignJoinOrder(state, 200);
+  state.phase = "round-end";
+  state.phaseEndsAt = null;
+  state.finishOrder = ["p4", "p3", "p2", "p1"];
+  state.players = state.players.map((player) => ({
+    ...player,
+    ready: player.isBot,
+  }));
+
+  assert.throws(
+    () => command(state, "p1", "START_NEXT_ROUND", {}, 500),
+    (error) =>
+      error instanceof OnlineGameError && error.code === "PLAYERS_NOT_READY",
+  );
+  assert.throws(
+    () => command(state, "p1", "SET_READY", { ready: true }, 501),
+    (error) =>
+      error instanceof OnlineGameError &&
+      error.code === "HOST_READY_NOT_REQUIRED",
+  );
+
+  const sealedHands = structuredClone(state.hands);
+  state = command(state, "p2", "SET_READY", { ready: true }, 502);
+  assert.equal(
+    projectOnlineRoom(state, "p1").players.find((player) => player.id === "p2")
+      ?.ready,
+    true,
+  );
+  assert.deepEqual(
+    state.hands,
+    sealedHands,
+    "round-end readiness must not clear the completed round's sealed deal",
+  );
+  state = command(state, "p3", "SET_READY", { ready: true }, 503);
+  state = command(state, "p4", "SET_READY", { ready: true }, 504);
+  state = command(state, "p1", "START_NEXT_ROUND", {}, 505);
+
+  assert.equal(state.round, 2);
+  assert.equal(state.phase, "reveal-intro");
+  assert.deepEqual(
+    state.players.map((player) => player.id),
+    ["p4", "p3", "p2", "p1"],
+  );
+});
+
 test("the concealed reveal intro already projects only the viewer's stable hand", () => {
   let state = readyEveryone(createFourPlayerLobby());
   state = startAndAssignJoinOrder(state);
@@ -1137,6 +1556,42 @@ test("the server validates actions, locks animation time, and deduplicates comma
       cards: [{ id: "p1-12", rank: 12 }],
     },
   );
+});
+
+test("the server accepts both jokers together as a rank-13 pair lead", () => {
+  let state = readyEveryone(createFourPlayerLobby());
+  state.phase = "playing";
+  state.phaseEndsAt = null;
+  state.turnDeadline = 30_000;
+  state.currentIndex = 0;
+  state.actionLockUntil = null;
+  state.table = null;
+  state.hands = {
+    p1: [
+      { id: "joker-a", rank: 13 },
+      { id: "joker-b", rank: 13 },
+      { id: "p1-12", rank: 12 },
+    ],
+    p2: [{ id: "p2-11-a", rank: 11 }, { id: "p2-11-b", rank: 11 }],
+    p3: [{ id: "p3-10", rank: 10 }],
+    p4: [{ id: "p4-9", rank: 9 }],
+  };
+
+  state = command(
+    state,
+    "p1",
+    "PLAY_CARDS",
+    { cardIds: ["joker-a", "joker-b"] },
+    100,
+  );
+
+  assert.equal(state.table.rank, 13);
+  assert.equal(state.table.count, 2);
+  assert.deepEqual(state.table.cards.map((card) => card.id), [
+    "joker-a",
+    "joker-b",
+  ]);
+  assert.deepEqual(state.hands.p1.map((card) => card.id), ["p1-12"]);
 });
 
 test("playing turns use a server-authoritative 30 second deadline and timeout PASS even on an empty table", () => {
@@ -1339,6 +1794,11 @@ test("round end and room reset clear the playing turn deadline", () => {
   );
   assert.equal(state.phase, "round-end");
   assert.equal(state.turnDeadline, null);
+  assert.equal(
+    state.players.every((player) => player.isBot === player.ready),
+    true,
+    "a completed round resets every human while keeping bots automatically ready",
+  );
 
   state = command(state, "p1", "RESET_ROOM", {}, 101);
   assert.equal(state.phase, "lobby");

@@ -296,3 +296,72 @@
     animation: none;
   }
 }
+
+:global(html[data-theme="halloween"]) .prompt {
+  color: #eee7e1;
+  border-color: rgba(190, 132, 199, 0.52);
+  background:
+    linear-gradient(145deg, rgba(107, 61, 118, 0.28), transparent 44%),
+    rgba(14, 14, 19, 0.98);
+  box-shadow:
+    0 20px 56px rgba(0, 0, 0, 0.58),
+    inset 0 1px rgba(230, 189, 234, 0.07);
+}
+
+:global(html[data-theme="halloween"]) :is(.crown, .guideCrown) {
+  border-color: rgba(189, 128, 198, 0.68);
+  background: #101116 var(--dalmuti-brand-crown-image) center / cover no-repeat;
+  box-shadow:
+    0 0 0 4px rgba(151, 91, 158, 0.08),
+    0 10px 28px rgba(0, 0, 0, 0.48);
+}
+
+:global(html[data-theme="halloween"]) .copy strong,
+:global(html[data-theme="halloween"]) .guide h2,
+:global(html[data-theme="halloween"]) .guideSteps strong {
+  color: #eee7e1;
+}
+
+:global(html[data-theme="halloween"]) .copy small,
+:global(html[data-theme="halloween"]) .guide > p,
+:global(html[data-theme="halloween"]) .guideSteps small {
+  color: rgba(225, 216, 222, 0.68);
+}
+
+:global(html[data-theme="halloween"]) :is(.action, .guideConfirm, .guideSteps li > span) {
+  border-color: #d18b5b;
+  background: linear-gradient(140deg, #c87849, #78442f);
+  color: #170f0d;
+}
+
+:global(html[data-theme="halloween"]) .guideBackdrop {
+  background:
+    radial-gradient(circle at 50% 18%, rgba(112, 63, 124, 0.25), transparent 43%),
+    rgba(5, 5, 8, 0.83);
+}
+
+:global(html[data-theme="halloween"]) .guide {
+  color: #eee7e1;
+  border-color: rgba(190, 132, 199, 0.58);
+  background:
+    radial-gradient(circle at 50% 0, rgba(113, 65, 125, 0.25), transparent 44%),
+    linear-gradient(160deg, #28212d 0%, #111117 72%);
+  box-shadow:
+    0 30px 84px rgba(0, 0, 0, 0.68),
+    inset 0 1px rgba(228, 184, 233, 0.08);
+}
+
+:global(html[data-theme="halloween"]) .guideClose {
+  color: rgba(225, 215, 223, 0.76);
+  border-color: rgba(185, 134, 193, 0.28);
+  background: rgba(8, 8, 12, 0.44);
+}
+
+:global(html[data-theme="halloween"]) .guideEyebrow {
+  color: #c886d2;
+}
+
+:global(html[data-theme="halloween"]) .guideSteps li {
+  border-color: rgba(184, 136, 192, 0.2);
+  background: rgba(106, 66, 114, 0.08);
+}

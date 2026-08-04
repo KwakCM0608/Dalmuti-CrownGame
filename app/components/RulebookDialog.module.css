@@ -64,7 +64,7 @@
   height: 56px;
   border: 2px solid #a47b31;
   border-radius: 50%;
-  background: #75539a url("/brand-dalmuti-crown.png") center / cover no-repeat;
+  background: #75539a var(--dalmuti-brand-crown-image) center / cover no-repeat;
   box-shadow:
     0 0 0 4px rgba(216, 170, 73, 0.08),
     inset 0 0 0 2px rgba(255, 239, 178, 0.35);
@@ -659,7 +659,7 @@
 }
 
 .rankDrawVisual .rankBack {
-  background: #75539a url("/cards/back.webp") center / cover no-repeat;
+  background: #75539a var(--dalmuti-card-back-image) center / cover no-repeat;
 }
 
 .rankDrawVisual img {
@@ -1133,4 +1133,176 @@
   .section summary > i {
     transition: none;
   }
+}
+
+/* The rulebook follows the selected visual theme without changing its
+ * document structure, keyboard flow or game-in-progress behaviour. */
+:global(html[data-theme="halloween"]) .layer {
+  background:
+    radial-gradient(circle at 50% 22%, rgba(112, 63, 124, 0.23), transparent 43%),
+    rgba(5, 5, 8, 0.87);
+}
+
+:global(html[data-theme="halloween"]) .dialog {
+  --rule-gold: #c886d2;
+  --rule-ivory: #eee8e2;
+  --rule-muted: #a69ca6;
+  border-color: rgba(188, 135, 196, 0.4);
+  background:
+    radial-gradient(circle at 8% 0, rgba(116, 66, 128, 0.24), transparent 32%),
+    linear-gradient(145deg, #24202b, #111117 64%, #0a0a0e);
+  color: #eee8e2;
+  box-shadow:
+    0 36px 98px rgba(0, 0, 0, 0.68),
+    inset 0 0 0 5px rgba(224, 177, 230, 0.025);
+}
+
+:global(html[data-theme="halloween"]) .dialog::before {
+  border-color: rgba(200, 151, 207, 0.13);
+}
+
+:global(html[data-theme="halloween"]) .header {
+  border-bottom-color: rgba(185, 132, 194, 0.18);
+  background: rgba(13, 13, 18, 0.94);
+}
+
+:global(html[data-theme="halloween"]) .crown {
+  border-color: #8d5d91;
+  background-color: #101116;
+  box-shadow:
+    0 0 0 4px rgba(151, 91, 158, 0.1),
+    inset 0 0 0 2px rgba(230, 192, 157, 0.18);
+}
+
+:global(html[data-theme="halloween"]) :is(.header p, .sectionBody > p, .sectionBody > ul, .footer > span) {
+  color: #a69da4;
+}
+
+:global(html[data-theme="halloween"]) .close {
+  border-color: rgba(184, 135, 191, 0.28);
+  background: rgba(105, 65, 113, 0.1);
+  color: #d7cbd4;
+}
+
+:global(html[data-theme="halloween"]) .close:hover,
+:global(html[data-theme="halloween"]) .close:focus-visible {
+  border-color: rgba(215, 140, 89, 0.74);
+  background: rgba(186, 86, 42, 0.16);
+  color: #f1b78a;
+}
+
+:global(html[data-theme="halloween"]) .liveNotice {
+  border-color: rgba(204, 118, 91, 0.28);
+  background: rgba(94, 38, 36, 0.24);
+}
+
+:global(html[data-theme="halloween"]) .quickStart {
+  border-bottom-color: rgba(183, 132, 191, 0.16);
+  background: rgba(113, 65, 124, 0.1);
+}
+
+:global(html[data-theme="halloween"]) .quickStart > span {
+  border-color: rgba(183, 139, 190, 0.18);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+:global(html[data-theme="halloween"]) .quickStart > span > b,
+:global(html[data-theme="halloween"]) .section summary > span {
+  border-color: rgba(207, 139, 215, 0.38);
+  background: rgba(111, 64, 122, 0.22);
+  color: #dfafe6;
+}
+
+:global(html[data-theme="halloween"]) .toc {
+  border-right-color: rgba(181, 132, 189, 0.16);
+  background: rgba(8, 8, 12, 0.34);
+}
+
+:global(html[data-theme="halloween"]) .toc > a {
+  color: #aaa1a8;
+}
+
+:global(html[data-theme="halloween"]) .toc > a:hover,
+:global(html[data-theme="halloween"]) .toc > a:focus-visible {
+  background: rgba(111, 64, 122, 0.15);
+  color: #e3b8e8;
+}
+
+:global(html[data-theme="halloween"]) .deckNote {
+  border-color: rgba(184, 137, 191, 0.2);
+  background: rgba(106, 66, 114, 0.08);
+}
+
+:global(html[data-theme="halloween"]) .section {
+  border-bottom-color: rgba(181, 133, 188, 0.14);
+  background: rgba(255, 255, 255, 0.014);
+}
+
+:global(html[data-theme="halloween"]) .section summary:hover strong,
+:global(html[data-theme="halloween"]) .section summary:focus-visible strong {
+  color: #e3b5e9;
+}
+
+:global(html[data-theme="halloween"]) :is(
+    .finishVisual,
+    .strengthVisual,
+    .turnExample,
+    .dalmutiVisual,
+    .rankDrawVisual,
+    .taxVisual,
+    .revolutionVisual,
+    .roleVisual,
+    .controlVisual
+  ) {
+  border-color: rgba(183, 137, 190, 0.18);
+  background:
+    radial-gradient(circle at 50% 50%, rgba(100, 84, 105, 0.16), transparent 70%),
+    rgba(8, 8, 12, 0.34);
+}
+
+:global(html[data-theme="halloween"]) :is(.finishVisual span, .turnExample > div, .roleVisual span, .controlVisual span) {
+  border-color: rgba(181, 136, 188, 0.18);
+  background: rgba(105, 66, 113, 0.08);
+}
+
+:global(html[data-theme="halloween"]) .rankDrawVisual .rankBack {
+  border-color: #08080a;
+  background-color: #050507;
+  background-position: center;
+  background-size: cover;
+}
+
+:global(html[data-theme="halloween"]) :is(
+    .rankDrawVisual img,
+    .ruleCard img,
+    .turnExample img,
+    .taxCards img,
+    .dalmutiVisual > img,
+    .revolutionVisual img
+  ) {
+  border-color: #070709;
+  background-color: #070709;
+  object-fit: cover;
+}
+
+:global(html[data-theme="halloween"]) .taxPrivacy {
+  border-color: rgba(188, 133, 196, 0.24);
+  background: rgba(111, 64, 122, 0.11);
+}
+
+:global(html[data-theme="halloween"]) .footer {
+  border-top-color: rgba(181, 132, 189, 0.17);
+  background: rgba(10, 10, 14, 0.91);
+}
+
+:global(html[data-theme="halloween"]) .footer button {
+  border-color: #9b70a5;
+  background: linear-gradient(140deg, #63406d, #29232f);
+  color: #f1eaf0;
+}
+
+:global(html[data-theme="halloween"]) .footer button:hover,
+:global(html[data-theme="halloween"]) .footer button:focus-visible {
+  border-color: #b68abe;
+  background: linear-gradient(140deg, #754b80, #34283a);
 }

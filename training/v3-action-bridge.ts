@@ -1,4 +1,5 @@
 import {
+  DOUBLE_JOKER_ACTION_INDEX,
   decodeSemanticAction,
   encodeSemanticAction,
 } from "./action-space.ts";
@@ -16,7 +17,13 @@ if (!Number.isInteger(V3_LEGAL_MASK_HEX_LENGTH)) {
 
 /** Map a legal legacy 506-space semantic action into the compact V3 space. */
 export function legacyActionIndexToV3(actionIndex: number): number {
-  return encodeV3SemanticAction(decodeSemanticAction(actionIndex));
+  const action = decodeSemanticAction(actionIndex);
+  if (action.type === "double-joker") {
+    throw new RangeError(
+      "the frozen V3 catalogue does not contain the later double-joker action",
+    );
+  }
+  return encodeV3SemanticAction(action);
 }
 
 /** Map a compact V3 semantic action back to the simulator's legacy space. */
@@ -37,7 +44,16 @@ export function legacyLegalActionIndicesToV3(
   // can mix a joker can therefore map an ascending legacy list to a
   // non-ascending V3 list (for example 44,47,48 -> 5,8,6). Canonicalize only
   // after the semantic one-to-one mapping.
-  const result = actionIndices
+  // V3 stays frozen at 236 actions for artifact compatibility. The production
+  // 506-space policy can use the later double-joker action; V3 policies retain
+  // their previous legal subset until a separately versioned catalogue exists.
+  const representableActionIndices = actionIndices.filter(
+    (actionIndex) => actionIndex !== DOUBLE_JOKER_ACTION_INDEX,
+  );
+  if (representableActionIndices.length < 1) {
+    throw new RangeError("no V3-representable legal action remains");
+  }
+  const result = representableActionIndices
     .map(legacyActionIndexToV3)
     .sort((left, right) => left - right);
   if (

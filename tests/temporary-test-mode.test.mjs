@@ -9,7 +9,7 @@ const {
   new URL("../lib/temporary-test-mode.ts", import.meta.url)
 );
 
-test("temporary great-revolution mode is disabled for normal play", () => {
+test("temporary great-revolution mode is disabled outside visual QA", () => {
   assert.equal(TEMP_GREAT_REVOLUTION_TEST_MODE, false);
 });
 

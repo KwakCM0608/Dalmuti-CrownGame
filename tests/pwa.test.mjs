@@ -36,9 +36,16 @@ test("manifest exposes a standalone install surface and both game shortcuts", ()
 
 test("service worker never caches online API or mutation requests", () => {
   const worker = read("public/sw.js");
+  const offline = read("public/offline.html");
 
-  assert.match(worker, /2026-07-31-pwa-no-web-splash-v3/);
+  assert.match(worker, /2026-08-04-online-round-ready-v18/);
   assert.match(worker, /icon-v2-512\.png/);
+  assert.match(worker, /cards\/halloween\/back\.webp/);
+  assert.match(worker, /themes\/halloween\/crown\.webp/);
+  assert.match(worker, /themes\/halloween\/dalmuti-hand-field-atlas-v2\.png/);
+  assert.match(worker, /themes\/halloween\/ink-wash-field-texture-v2\.webp/);
+  assert.match(worker, /themes\/halloween\/ink-impact-bloom-mask-v1\.png/);
+  assert.match(worker, /pathname\.startsWith\("\/themes\/"\)/);
   assert.doesNotMatch(worker, /installed-splash-v2\.webp/);
   assert.match(worker, /\.then\(\(\) => self\.skipWaiting\(\)\)/);
   assert.match(worker, /request\.method !== "GET"/);
@@ -48,6 +55,10 @@ test("service worker never caches online API or mutation requests", () => {
   assert.match(worker, /OFFLINE_URL/);
   assert.match(worker, /event\.data\?\.type === "SKIP_WAITING"/);
   assert.doesNotMatch(worker, /self\.skipWaiting\(\)[\s\S]*addEventListener\("install"/);
+  assert.match(offline, /dalmuti\.preferences\.v1/);
+  assert.match(offline, /html\[data-theme="halloween"\]/);
+  assert.match(offline, /themes\/halloween\/crown\.webp/);
+  assert.match(offline, /onclick="location\.reload\(\)"/);
 });
 
 test("updates are offered only on safe entry screens", () => {
@@ -80,7 +91,9 @@ test("updates are offered only on safe entry screens", () => {
   assert.match(layout, /viewportFit:\s*"cover"/);
   assert.match(layout, /appleWebApp/);
   assert.doesNotMatch(layout, /MobileSplash/);
-  assert.doesNotMatch(layout, /PreferenceRuntime|SettingsDialog/);
+  assert.match(layout, /AppPreferencesProvider/);
+  assert.match(layout, /THEME_BOOT_SCRIPT/);
+  assert.doesNotMatch(layout, /SettingsDialog/);
   assert.doesNotMatch(layout, /InstalledPwaSplash/);
   assert.match(layout, /<PwaLifecycle \/>/);
   assert.doesNotMatch(globalStyles, /installed-pwa-splash/);

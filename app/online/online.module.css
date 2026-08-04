@@ -173,7 +173,7 @@
   overflow: hidden;
   border: 2px solid #967131;
   border-radius: 50%;
-  background: #75539a url("/brand-dalmuti-crown.png") center / cover no-repeat;
+  background: #75539a var(--dalmuti-brand-crown-image) center / cover no-repeat;
   box-shadow:
     0 5px 16px rgba(0, 0, 0, 0.38),
     inset 0 0 0 2px rgba(255, 240, 178, 0.35);
@@ -875,7 +875,7 @@
   height: 30px;
   border: 1px solid rgba(244, 221, 170, 0.72);
   border-radius: 3px;
-  background: #79539a url("/cards/back.webp") center / cover no-repeat;
+  background: #79539a var(--dalmuti-card-back-image) center / cover no-repeat;
   box-shadow: 0 3px 6px rgba(0, 0, 0, 0.25);
 }
 
@@ -2278,7 +2278,7 @@
   margin-left: -9px;
   border: 1px solid rgba(239, 220, 171, 0.82);
   border-radius: 3px;
-  background: #76549b url("/cards/back.webp") center / cover no-repeat;
+  background: #76549b var(--dalmuti-card-back-image) center / cover no-repeat;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.34);
   transform-origin: 50% 50%;
   transform: translateY(0) rotateY(0deg);
@@ -3142,7 +3142,7 @@
 .rankChoiceCardBack {
   background:
     linear-gradient(rgba(255, 255, 255, 0.035), rgba(24, 11, 32, 0.08)),
-    #75539a url("/cards/back.webp") center / cover no-repeat;
+    #75539a var(--dalmuti-card-back-image) center / cover no-repeat;
 }
 
 .rankChoiceCardFront {
@@ -3405,6 +3405,7 @@
 }
 
 .card {
+  touch-action: manipulation;
   position: relative;
   display: block;
   width: 75px;
@@ -3433,14 +3434,14 @@
   user-select: none;
 }
 
-.card:not(.cardBack):has(> img[src*="/cards/01.webp"]),
-.card:not(.cardBack):has(> img[src*="/cards/joker.webp"]) {
+.card:not(.cardBack)[data-rank="1"],
+.card:not(.cardBack)[data-rank="13"] {
   border-color: #080808;
   background: #080808;
 }
 
-.card:not(.cardBack):has(> img[src*="/cards/01.webp"]) > img,
-.card:not(.cardBack):has(> img[src*="/cards/joker.webp"]) > img {
+.card:not(.cardBack)[data-rank="1"] > img,
+.card:not(.cardBack)[data-rank="13"] > img {
   background: #080808;
 }
 
@@ -3464,7 +3465,7 @@
 
 .cardBack {
   border-color: #8f6e92;
-  background: #76549b url("/cards/back.webp") center / cover no-repeat;
+  background: #76549b var(--dalmuti-card-back-image) center / cover no-repeat;
 }
 
 .cardBack img {
@@ -3941,7 +3942,7 @@
   border-radius: inherit;
   background:
     linear-gradient(rgba(255, 255, 255, 0.025), rgba(39, 19, 57, 0.08)),
-    #76549b url("/cards/back.webp") center / cover no-repeat;
+    #76549b var(--dalmuti-card-back-image) center / cover no-repeat;
   box-shadow: inset 0 0 0 2px rgba(37, 20, 52, 0.25);
   content: "";
   transform: translateZ(1px);
@@ -4364,7 +4365,7 @@
   overflow: hidden;
   border: 3px solid #13080b;
   border-radius: 8px;
-  background: #13080b url("/cards/joker.webp") center / cover no-repeat;
+  background: #13080b var(--dalmuti-joker-card-image) center / cover no-repeat;
   box-shadow:
     0 0 0 1px rgba(255, 201, 164, 0.44),
     0 0 36px rgba(222, 66, 78, 0.38),
@@ -5236,7 +5237,7 @@
   margin-bottom: 18px;
   border: 1px solid #a988aa;
   border-radius: 10px;
-  background: #75539a url("/cards/back.webp") center / cover no-repeat;
+  background: #75539a var(--dalmuti-card-back-image) center / cover no-repeat;
   box-shadow: 0 23px 48px rgba(0, 0, 0, 0.48);
   animation: revealFlip 2.1s cubic-bezier(0.3, 0.04, 0.18, 1) both;
 }
@@ -5356,6 +5357,30 @@
 
 .resultCard li strong {
   font-size: 10px;
+}
+
+.resultCard li strong.resultPlayerName {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.resultReadyBadge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: 2px 6px;
+  border: 1px solid rgba(222, 190, 116, 0.38);
+  border-radius: 999px;
+  background: rgba(216, 168, 57, 0.12);
+  color: #e6c778;
+  font-size: 6px;
+  font-style: normal;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
 }
 
 .resultCard li small {
@@ -5485,6 +5510,34 @@
   border-radius: 8px;
   color: #a39685;
   font-size: 9px;
+}
+
+.resultReadyPrompt {
+  margin: 0 0 10px;
+  color: #a99b87;
+  font-size: 8px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.resultReadyButtonOn {
+  border-color: rgba(222, 190, 116, 0.58) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 236, 183, 0.08),
+    0 0 24px rgba(214, 169, 62, 0.14) !important;
+}
+
+:global(html[data-theme="halloween"]) .resultReadyBadge {
+  border-color: rgba(192, 151, 205, 0.4);
+  background: rgba(116, 75, 128, 0.24);
+  color: #d9b6e0;
+}
+
+:global(html[data-theme="halloween"]) .resultReadyButtonOn {
+  border-color: rgba(192, 151, 205, 0.55) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(226, 198, 233, 0.07),
+    0 0 25px rgba(135, 84, 148, 0.2) !important;
 }
 
 .reconnectOverlay {
@@ -6427,7 +6480,7 @@
   border-color: rgba(241, 224, 177, 0.78);
   background:
     linear-gradient(rgba(255, 255, 255, 0.025), rgba(36, 18, 56, 0.08)),
-    #73529a url("/cards/back.webp") center / cover no-repeat;
+    #73529a var(--dalmuti-card-back-image) center / cover no-repeat;
   box-shadow:
     0 3px 7px rgba(29, 27, 23, 0.25),
     inset 0 0 0 1px rgba(31, 18, 47, 0.26);
@@ -7838,6 +7891,189 @@
     opacity: 1 !important;
     animation: none !important;
   }
+}
+
+/* Final Halloween opening sequence audit. Keep pseudo-elements outside :is()
+ * so the charcoal surface reliably replaces the original green treatment. */
+:global(html[data-theme="halloween"]) .openingSequenceVeil {
+  border-color: rgba(185, 137, 194, 0);
+  background:
+    radial-gradient(
+      ellipse at 50% 45%,
+      rgba(91, 68, 100, 0.2),
+      rgba(24, 22, 30, 0.12) 48%,
+      transparent 74%
+    ),
+    linear-gradient(115deg, transparent 24%, rgba(183, 141, 191, 0.035) 48%, transparent 72%);
+  box-shadow: inset 0 0 72px rgba(133, 85, 145, 0);
+}
+
+:global(html[data-theme="halloween"]) .openingSequenceVeilActive {
+  border-color: rgba(185, 137, 194, 0.13);
+  box-shadow: inset 0 0 72px rgba(133, 85, 145, 0.08);
+}
+
+/* Desktop online only: keep the Act I rank-draw board anchored to the same
+ * full table-center box while an optimistic claim becomes server-confirmed.
+ * Text-length and claimed-card decoration must never change its inline axis. */
+@media (min-width: 821px) and (hover: hover) and (pointer: fine) {
+  .gameShell.gameShell .tableRankSelection .tableCenter {
+    right: auto;
+    left: 50%;
+    width: min(860px, 88%);
+    margin: 0;
+    transform: translate(-50%, -50%);
+  }
+
+  .gameShell.gameShell
+    .tableRankSelection
+    .tableCenter
+    > :is(.rankChoiceField, .rankChoiceFieldRevealed) {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    width: 100%;
+    height: 100%;
+    place-content: center;
+    justify-items: center;
+    margin: 0;
+  }
+
+  .gameShell.gameShell .tableRankSelection .rankChoiceHeading,
+  .gameShell.gameShell .tableRankSelection .rankChoiceCards[data-card-count] {
+    width: min(830px, 100%);
+    justify-self: center;
+    margin-inline: auto;
+  }
+}
+
+:global(html[data-theme="halloween"]) .rankChoiceIntro::before,
+:global(html[data-theme="halloween"]) .rankConfirmation::before {
+  border-color: rgba(185, 137, 194, 0.27);
+  background: radial-gradient(ellipse, rgba(32, 27, 38, 0.94), rgba(19, 18, 25, 0.54) 60%, transparent 74%);
+  box-shadow:
+    inset 0 0 34px rgba(137, 84, 149, 0.12),
+    0 0 40px rgba(0, 0, 0, 0.24);
+}
+
+:global(html[data-theme="halloween"]) .table:not(.tableRevolution):not(.tableGreatRevolution):has(
+    .rankChoiceIntro,
+    .rankChoiceField,
+    .rankConfirmation,
+    .phaseIntroOverlay,
+    .taxWaitingField,
+    .taxDecisionField
+  ) {
+  background:
+    radial-gradient(circle at 50% 46%, rgba(83, 84, 94, 0.72), transparent 49%),
+    repeating-linear-gradient(38deg, rgba(255, 255, 255, 0.016) 0 2px, transparent 2px 5px),
+    #303137;
+}
+
+:global(html[data-theme="halloween"]) :is(
+    .rankChoiceIntro > strong,
+    .rankChoiceHeading > strong,
+    .rankConfirmationCopy strong,
+    .phaseIntroOverlay .eventCenterCopy > strong,
+    .playIntroOverlay .eventCenterCopy > strong
+  ) {
+  color: #eee7ed;
+  text-shadow: 0 7px 24px rgba(0, 0, 0, 0.58);
+}
+
+:global(html[data-theme="halloween"]) :is(
+    .rankChoiceIntro > span,
+    .rankChoiceIntroHint,
+    .rankChoiceHeading > p,
+    .rankConfirmationCopy span,
+    .rankConfirmationCopy em,
+    .phaseIntroOverlay .eventCenterCopy > span:last-child
+  ) {
+  color: #aaa0aa;
+}
+
+:global(html[data-theme="halloween"]) .rankChoiceHeading > small {
+  color: #c898d0;
+}
+
+:global(html[data-theme="halloween"]) .rankChoiceCardInner {
+  box-shadow:
+    0 12px 23px rgba(0, 0, 0, 0.52),
+    0 0 0 1px rgba(174, 132, 182, 0.28);
+}
+
+:global(html[data-theme="halloween"]) .rankChoiceSlotClaimed .rankChoiceCardInner,
+:global(html[data-theme="halloween"]) .rankChoiceSlotMine .rankChoiceCardInner {
+  box-shadow:
+    0 15px 28px rgba(0, 0, 0, 0.56),
+    0 0 0 3px #8e6598,
+    0 0 27px rgba(139, 84, 151, 0.42);
+}
+
+:global(html[data-theme="halloween"]) .rankChoiceSlotMine .rankChoiceCardInner {
+  border-color: rgba(220, 180, 225, 0.56);
+  box-shadow:
+    0 15px 28px rgba(0, 0, 0, 0.56),
+    0 0 0 3px #ac82b5,
+    0 0 31px rgba(155, 96, 168, 0.5);
+}
+
+:global(html[data-theme="halloween"]) .rankChoiceCard:focus-visible {
+  outline-color: #b58abd;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :global(html[data-theme="halloween"]) .gameShell .rankChoiceCard:hover:not(:disabled) .rankChoiceCardInner {
+    box-shadow:
+      0 0 0 3px rgba(181, 138, 189, 0.38),
+      0 0 24px rgba(132, 79, 144, 0.38),
+      0 21px 34px rgba(0, 0, 0, 0.5);
+  }
+}
+
+:global(html[data-theme="halloween"]) .taxRoute > strong,
+:global(html[data-theme="halloween"]) .taxRoute .transferNames i {
+  color: #c9a7cf;
+}
+
+:global(html[data-theme="halloween"]) :is(.decisionJokers, .decisionCard > small) {
+  color: #c99ed0;
+}
+
+:global(html[data-theme="halloween"]) .decisionCard p {
+  color: #aaa0aa;
+}
+
+:global(html[data-theme="halloween"]) .introOverlay:not(.phaseIntroOverlay) {
+  background: radial-gradient(ellipse at 50% 46%, rgba(35, 29, 41, 0.78), rgba(10, 9, 13, 0.34) 42%, transparent 68%);
+}
+
+:global(html[data-theme="halloween"]) .introOverlay .eventCenterCopy > small {
+  color: #c898d0;
+}
+
+:global(html[data-theme="halloween"]) .greatRevolutionRankSwapOverlay .eventCenterCopy > :is(b, span) {
+  color: #b8acb8;
+}
+
+:global(html[data-theme="halloween"]) .gameShell .revolutionJokers::before {
+  background: radial-gradient(ellipse, rgba(72, 54, 80, 0.24), rgba(5, 5, 7, 0.2) 48%, transparent 68%);
+}
+
+:global(html[data-theme="halloween"]) .gameShell .revolutionJokers > span {
+  filter:
+    drop-shadow(0 18px 24px rgba(0, 0, 0, 0.72))
+    drop-shadow(0 0 12px rgba(117, 82, 126, 0.25));
+}
+
+:global(html[data-theme="halloween"]) .gameShell .revolutionJokers > span::before {
+  border-color: rgba(157, 121, 165, 0.28);
+  background: radial-gradient(ellipse, rgba(93, 65, 102, 0.2), transparent 67%);
+  box-shadow: 0 0 28px rgba(91, 59, 100, 0.22);
+}
+
+:global(html[data-theme="halloween"]) .gameShell .revolutionJokers > i {
+  display: none;
 }
 
 /* Mobile viewport and touch hardening.
@@ -11542,4 +11778,1905 @@
     width: 100%;
     max-width: 100%;
   }
+}
+
+/* Presentation-only Halloween skin. Appended after every parity override so
+ * desktop and installed-mobile geometry remain exactly unchanged. */
+:global(html[data-theme="halloween"]) :is(.entryShell, .lobbyShell, .gameShell) {
+  --wine-950: #09090d;
+  --wine-900: #111218;
+  --wine-800: #1b1b25;
+  --wine-700: #30233d;
+  --wine-600: #5d356c;
+  --gold-500: #c27a4b;
+  --gold-400: #dda16d;
+  --gold-300: #efc69f;
+  --ivory: #eee9e2;
+  --paper: #d9d5d0;
+  --muted: #aaa2a9;
+  --green: #34363b;
+  background:
+    radial-gradient(circle at 14% 9%, rgba(112, 62, 126, 0.31), transparent 29%),
+    radial-gradient(circle at 87% 83%, rgba(185, 92, 45, 0.18), transparent 31%),
+    linear-gradient(137deg, #09090d, #17131c 54%, #0b0b0f);
+  color: #eee9e2;
+}
+
+:global(html[data-theme="halloween"]) .gameShell.gameShellGreatRevolution {
+  background:
+    radial-gradient(circle at 16% 10%, rgba(214, 52, 72, 0.29), transparent 31%),
+    radial-gradient(circle at 85% 80%, rgba(134, 14, 38, 0.3), transparent 35%),
+    linear-gradient(135deg, #1b050a, #320811 52%, #160408);
+}
+
+:global(html[data-theme="halloween"]) .grain {
+  opacity: 0.5;
+  background-image:
+    repeating-linear-gradient(
+      8deg,
+      transparent 0 4px,
+      rgba(232, 220, 234, 0.018) 4px 5px
+    ),
+    radial-gradient(circle, rgba(211, 151, 216, 0.1) 0 0.7px, transparent 0.8px);
+}
+
+:global(html[data-theme="halloween"]) :is(.entryHeader, .roomHeader) {
+  border-bottom-color: rgba(177, 125, 186, 0.24);
+  background: rgba(9, 9, 13, 0.79);
+}
+
+:global(html[data-theme="halloween"]) :is(.brandSeal, .entryCrown) {
+  border-color: #8d5d91;
+  background-color: #101116;
+  box-shadow:
+    0 0 0 4px rgba(151, 91, 158, 0.1),
+    0 8px 22px rgba(0, 0, 0, 0.48),
+    inset 0 0 0 2px rgba(230, 192, 157, 0.18);
+}
+
+:global(html[data-theme="halloween"]) :is(.soloLink, .rulesButton, .headerActions > button) {
+  border-color: rgba(184, 133, 193, 0.28);
+  background: rgba(117, 72, 125, 0.08);
+  color: #cfc5cb;
+}
+
+:global(html[data-theme="halloween"]) :is(.soloLink, .rulesButton, .headerActions > button):hover {
+  border-color: rgba(218, 141, 91, 0.68);
+  background: rgba(190, 91, 42, 0.14);
+  color: #f0bc94;
+}
+
+:global(html[data-theme="halloween"]) .heroCopy h1,
+:global(html[data-theme="halloween"]) .brand,
+:global(html[data-theme="halloween"]) .lobbyIntro h1 {
+  color: #eee8e2;
+}
+
+:global(html[data-theme="halloween"]) :is(.eyebrow, .formHeading small, .lobbyHeading small) {
+  color: #c886d2;
+}
+
+:global(html[data-theme="halloween"]) :is(.heroCopy > p, .formHeading p, .entryNote, .lobbyIntro > p) {
+  color: #9e969f;
+}
+
+:global(html[data-theme="halloween"]) .entryCard {
+  border-color: rgba(184, 132, 193, 0.34);
+  background:
+    radial-gradient(circle at 50% 0, rgba(116, 66, 128, 0.24), transparent 43%),
+    linear-gradient(145deg, #23202a, #101116 64%, #0a0a0e);
+  box-shadow:
+    0 32px 84px rgba(0, 0, 0, 0.64),
+    inset 0 0 0 5px rgba(224, 177, 230, 0.025);
+}
+
+:global(html[data-theme="halloween"]) .entryCard::before {
+  border-color: rgba(198, 151, 204, 0.13);
+}
+
+:global(html[data-theme="halloween"]) .modeTabs {
+  border-color: rgba(181, 134, 188, 0.2);
+  background: rgba(9, 9, 13, 0.48);
+}
+
+:global(html[data-theme="halloween"]) .modeTabs button {
+  color: #958c96;
+}
+
+:global(html[data-theme="halloween"]) .modeTabs .activeTab {
+  background: rgba(113, 64, 124, 0.27);
+  color: #e4b7e9;
+}
+
+:global(html[data-theme="halloween"]) .field input {
+  border-color: rgba(184, 139, 191, 0.25);
+  background: rgba(8, 8, 12, 0.58);
+  color: #ece6e1;
+}
+
+:global(html[data-theme="halloween"]) .field input:focus {
+  border-color: rgba(214, 140, 222, 0.78);
+  box-shadow: 0 0 0 3px rgba(145, 79, 157, 0.14);
+}
+
+:global(html[data-theme="halloween"]) :is(.primaryButton, .playButton, .submitButton) {
+  border-color: #d18b5b;
+  background: linear-gradient(140deg, #c87849, #78442f);
+  color: #170f0d;
+}
+
+:global(html[data-theme="halloween"]) :is(.secondaryButton, .passButton, .readyButton) {
+  border-color: rgba(183, 137, 190, 0.25);
+  background: rgba(116, 73, 124, 0.09);
+  color: #d4c9d2;
+}
+
+:global(html[data-theme="halloween"]) .inviteCard {
+  border-color: rgba(195, 135, 203, 0.38);
+  background:
+    linear-gradient(135deg, rgba(120, 70, 129, 0.19), transparent 62%),
+    rgba(15, 15, 21, 0.84);
+  color: #e0d8d6;
+}
+
+:global(html[data-theme="halloween"]) .inviteCard strong {
+  color: #e0a67a;
+}
+
+:global(html[data-theme="halloween"]) .lobbyPlayers {
+  border-color: rgba(184, 135, 191, 0.27);
+  background:
+    radial-gradient(circle at 100% 0, rgba(113, 64, 125, 0.18), transparent 36%),
+    rgba(13, 13, 18, 0.83);
+}
+
+:global(html[data-theme="halloween"]) :is(.lobbyPlayer, .emptySlot) {
+  border-color: rgba(181, 139, 187, 0.18);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+:global(html[data-theme="halloween"]) .lobbyPlayerSelf {
+  border-color: rgba(202, 135, 211, 0.42);
+  background: rgba(115, 66, 126, 0.14);
+}
+
+:global(html[data-theme="halloween"]) .botDifficultyLayer,
+:global(html[data-theme="halloween"]) .modalLayer,
+:global(html[data-theme="halloween"]) .roomExitLayer {
+  background:
+    radial-gradient(circle at 50% 35%, rgba(112, 63, 124, 0.2), transparent 45%),
+    rgba(6, 6, 9, 0.78);
+}
+
+:global(html[data-theme="halloween"]) :is(.botDifficultyDialog, .decisionCard, .resultCard, .roomExitDialog) {
+  border-color: rgba(187, 133, 196, 0.38);
+  background:
+    radial-gradient(circle at 50% 0, rgba(113, 65, 125, 0.22), transparent 43%),
+    linear-gradient(145deg, #24202b, #111117 65%, #0b0b0f);
+  color: #eee8e2;
+  box-shadow:
+    0 34px 88px rgba(0, 0, 0, 0.64),
+    inset 0 0 0 4px rgba(220, 176, 225, 0.025);
+}
+
+:global(html[data-theme="halloween"]) .botDifficultyDialog > div button {
+  border-color: rgba(182, 136, 190, 0.22);
+  background: rgba(109, 67, 117, 0.08);
+  color: #d5cbd2;
+}
+
+:global(html[data-theme="halloween"]) :is(.rankRail, .historyRail) {
+  background: rgba(10, 10, 15, 0.68);
+}
+
+:global(html[data-theme="halloween"]) .rankRail {
+  border-right-color: rgba(170, 117, 181, 0.19);
+}
+
+:global(html[data-theme="halloween"]) .historyRail {
+  border-left-color: rgba(170, 117, 181, 0.19);
+}
+
+:global(html[data-theme="halloween"]) :is(.railHeading, .quickLegend) {
+  border-color: rgba(178, 127, 186, 0.18);
+}
+
+:global(html[data-theme="halloween"]) :is(.railHeading small, .railRoom small) {
+  color: #c285cf;
+}
+
+:global(html[data-theme="halloween"]) :is(.rankRail strong, .railHeading span) {
+  color: #e7e0dc;
+}
+
+:global(html[data-theme="halloween"]) :is(.rankRail small, .historyRail p, .quickLegend) {
+  color: #99939c;
+}
+
+:global(html[data-theme="halloween"]) .rankRail .rankSelf {
+  border-color: rgba(194, 131, 203, 0.34);
+  background: rgba(116, 67, 126, 0.14);
+}
+
+:global(html[data-theme="halloween"]) .table:not(.tableRevolution):not(.tableGreatRevolution) {
+  border-color: #25242b;
+  background:
+    radial-gradient(circle at 50% 46%, rgba(91, 94, 102, 0.72), transparent 48%),
+    repeating-linear-gradient(
+      38deg,
+      rgba(255, 255, 255, 0.018) 0 2px,
+      transparent 2px 5px
+    ),
+    #34363b;
+  box-shadow:
+    inset 0 0 0 3px #55515d,
+    inset 0 0 70px rgba(0, 0, 0, 0.58),
+    0 22px 44px rgba(0, 0, 0, 0.38);
+}
+
+:global(html[data-theme="halloween"]) .table:not(.tableRevolution):not(.tableGreatRevolution)::before {
+  border-color: rgba(207, 163, 211, 0.2);
+}
+
+:global(html[data-theme="halloween"]) .table.tableMyTurn:not(.tableRevolution):not(.tableGreatRevolution) {
+  border-color: #77527e;
+  box-shadow:
+    inset 0 0 0 3px #9a6fa1,
+    inset 0 0 78px rgba(151, 91, 159, 0.15),
+    0 0 0 4px rgba(192, 126, 202, 0.13),
+    0 0 46px rgba(111, 64, 121, 0.28),
+    0 22px 44px rgba(0, 0, 0, 0.42);
+}
+
+:global(html[data-theme="halloween"]) .tableLine {
+  border-color: rgba(203, 157, 207, 0.17);
+  color: #b9a7bc;
+}
+
+:global(html[data-theme="halloween"]) .playerSeat {
+  border-color: rgba(183, 145, 189, 0.24);
+  background: rgba(17, 17, 23, 0.94);
+  color: #e1d9d8;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.42);
+}
+
+:global(html[data-theme="halloween"]) .playerSeatCurrent {
+  border-color: #bd7c50;
+  box-shadow:
+    0 0 0 3px rgba(198, 111, 58, 0.16),
+    0 12px 28px rgba(0, 0, 0, 0.44);
+}
+
+:global(html[data-theme="halloween"]) .playerSeatSelf {
+  border-color: rgba(205, 139, 213, 0.64);
+  background:
+    linear-gradient(120deg, rgba(113, 65, 124, 0.23), transparent 68%),
+    rgba(20, 19, 26, 0.96);
+}
+
+:global(html[data-theme="halloween"]) .ownDock {
+  background: linear-gradient(180deg, transparent, rgba(37, 29, 42, 0.48));
+}
+
+:global(html[data-theme="halloween"]) :is(.ownStatus, .actionBar, .selectionCopy) {
+  border-color: rgba(182, 137, 189, 0.22);
+  background-color: rgba(18, 18, 24, 0.92);
+}
+
+:global(html[data-theme="halloween"]) .chatPanel {
+  border-color: rgba(182, 136, 190, 0.26);
+  background:
+    linear-gradient(145deg, rgba(106, 61, 117, 0.13), transparent 44%),
+    rgba(12, 12, 17, 0.9);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.46);
+}
+
+:global(html[data-theme="halloween"]) :is(.chatComposer, .chatMessages) {
+  border-color: rgba(179, 133, 186, 0.18);
+  background-color: rgba(8, 8, 12, 0.42);
+}
+
+:global(html[data-theme="halloween"]) :is(
+    .sealedHand i,
+    .seatRevealCards i,
+    .rankChoiceCardBack,
+    .cardBack,
+    .revealCard
+  ) {
+  border-color: rgba(221, 214, 219, 0.62);
+  background-color: #050507;
+}
+
+:global(html[data-theme="halloween"]) .handRevealing .card::after {
+  border-color: rgba(221, 214, 219, 0.62);
+  background-color: #050507;
+}
+
+:global(html[data-theme="halloween"]) :is(.rankChoiceCardFront, .card, .card img) {
+  background-color: #d9d6d1;
+}
+
+:global(html[data-theme="halloween"]) .rankChoiceField,
+:global(html[data-theme="halloween"]) .rankChoiceFieldRevealed {
+  color: #eee8e2;
+}
+
+:global(html[data-theme="halloween"]) .reconnectOverlay {
+  background:
+    radial-gradient(circle at 50% 35%, rgba(112, 63, 124, 0.22), transparent 44%),
+    rgba(6, 6, 9, 0.88);
+}
+
+:global(html[data-theme="halloween"]) .errorToast {
+  border-color: rgba(216, 112, 81, 0.46);
+  background: rgba(68, 27, 25, 0.96);
+  color: #efc0ad;
+}
+
+/* Rank 1 and the joker keep their canonical black frame in every theme. */
+:global(html[data-theme="halloween"]) .card:not(.cardBack)[data-rank="1"],
+:global(html[data-theme="halloween"]) .card:not(.cardBack)[data-rank="13"] {
+  border-color: #080808;
+  background: #080808;
+}
+
+:global(html[data-theme="halloween"]) .card:not(.cardBack)[data-rank="1"] > img,
+:global(html[data-theme="halloween"]) .card:not(.cardBack)[data-rank="13"] > img {
+  background: #080808;
+}
+
+/* Terminal Halloween polish. Geometry and state timing stay shared with the
+ * quick match; only materials, colour and decorative effects change. */
+:global(html[data-theme="halloween"]) .heroCards > span {
+  isolation: isolate;
+  background: #050507;
+}
+
+:global(html[data-theme="halloween"]) .heroCards > span::before {
+  position: absolute;
+  inset: -2px;
+  z-index: 2;
+  border-radius: inherit;
+  background-color: #050507;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  content: "";
+}
+
+:global(html[data-theme="halloween"]) .heroCards > span[data-rank="1"]::before {
+  background-image: url("/cards/halloween/01.webp");
+}
+
+:global(html[data-theme="halloween"]) .heroCards > span[data-rank="2"]::before {
+  background-image: url("/cards/halloween/02.webp");
+}
+
+:global(html[data-theme="halloween"]) .heroCards > span[data-rank="13"]::before {
+  background-image: url("/cards/halloween/joker.webp");
+}
+
+:global(html[data-theme="halloween"]) .heroCards img {
+  opacity: 0;
+}
+
+:global(html[data-theme="halloween"]) :is(
+    .sealedHand i,
+    .seatRevealCards i,
+    .rankChoiceCardBack,
+    .cardBack,
+    .revealCard
+  ),
+:global(html[data-theme="halloween"]) .handRevealing .card::after {
+  border-color: #08080a;
+  background-color: #030305;
+  background-position: center;
+  background-size: cover;
+  box-shadow:
+    0 0 0 1px rgba(189, 154, 195, 0.18),
+    0 13px 25px rgba(0, 0, 0, 0.5);
+}
+
+:global(html[data-theme="halloween"]) :is(
+    .rankChoiceCardFront,
+    .rankConfirmationCard,
+    .card:not(.cardBack)
+  ) {
+  border-color: #070709;
+  background: #070709;
+  box-shadow:
+    0 8px 17px rgba(0, 0, 0, 0.5),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.025);
+}
+
+:global(html[data-theme="halloween"]) :is(
+    .rankChoiceCardFront img,
+    .rankConfirmationCard img,
+    .card:not(.cardBack) img
+  ) {
+  border-radius: inherit;
+  background: #070709;
+  object-fit: cover;
+  transform: scale(1.022);
+}
+
+:global(html[data-theme="halloween"]) .cardSelected {
+  border-color: #9d72a8;
+  box-shadow:
+    0 0 0 3px rgba(165, 111, 177, 0.3),
+    0 16px 26px rgba(0, 0, 0, 0.54);
+}
+
+:global(html[data-theme="halloween"]) :is(.primaryButton, .playButton, .submitButton) {
+  border-color: #9b70a5;
+  background: linear-gradient(140deg, #63406d, #29232f);
+  color: #f1eaf0;
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.07),
+    0 12px 28px rgba(0, 0, 0, 0.34);
+}
+
+:global(html[data-theme="halloween"]) :is(.primaryButton, .playButton, .submitButton):hover:not(:disabled) {
+  border-color: #b68abe;
+  background: linear-gradient(140deg, #754b80, #34283a);
+}
+
+:global(html[data-theme="halloween"]) :is(.primaryButton, .playButton, .submitButton) :is(span, small) {
+  color: #f1eaf0;
+}
+
+:global(html[data-theme="halloween"]) :is(.primaryButton, .playButton, .submitButton):disabled {
+  border-color: rgba(122, 105, 128, 0.3);
+  background: linear-gradient(140deg, #2b272f, #1c1a20);
+  color: rgba(221, 211, 220, 0.42);
+  box-shadow: none;
+}
+
+:global(html[data-theme="halloween"]) :is(.secondaryButton, .passButton, .readyButton) {
+  border-color: rgba(164, 123, 173, 0.34);
+  background: linear-gradient(145deg, rgba(111, 68, 120, 0.15), rgba(17, 16, 22, 0.88));
+  color: #dcd0d9;
+}
+
+:global(html[data-theme="halloween"]) .rankChoiceIntro::before,
+:global(html[data-theme="halloween"]) .rankConfirmation::before {
+  border-color: rgba(185, 137, 194, 0.27);
+  background: radial-gradient(ellipse, rgba(32, 27, 38, 0.9), rgba(19, 18, 25, 0.46) 60%, transparent 74%);
+  box-shadow:
+    inset 0 0 34px rgba(137, 84, 149, 0.1),
+    0 0 40px rgba(0, 0, 0, 0.2);
+}
+
+:global(html[data-theme="halloween"]) :is(
+    .rankChoiceIntro > small,
+    .rankChoiceIntroHint,
+    .rankConfirmation > small,
+    .rankConfirmationCopy span
+  ) {
+  color: #c898d0;
+}
+
+:global(html[data-theme="halloween"]) .rankChoiceIntro > .rankCountdown {
+  border-color: rgba(193, 143, 201, 0.58);
+  background: rgba(13, 11, 17, 0.78);
+  color: #e5c5e9;
+  box-shadow:
+    0 0 0 5px rgba(133, 78, 145, 0.11),
+    0 0 30px rgba(121, 68, 132, 0.24);
+}
+
+:global(html[data-theme="halloween"]) .phaseIntroOverlay .eventCenterCopy::before,
+:global(html[data-theme="halloween"]) .revolutionOverlay .eventCenterCopy::before,
+:global(html[data-theme="halloween"]) .greatRevolutionRankSwapOverlay .eventCenterCopy::before {
+  border-color: rgba(181, 135, 190, 0.28);
+  background: radial-gradient(ellipse, rgba(31, 27, 37, 0.92), rgba(18, 17, 23, 0.46) 60%, transparent 74%);
+  box-shadow:
+    inset 0 0 34px rgba(137, 84, 149, 0.1),
+    0 0 40px rgba(0, 0, 0, 0.24);
+}
+
+:global(html[data-theme="halloween"]) .phaseIntroOverlay .eventCenterCopy::after,
+:global(html[data-theme="halloween"]) .greatRevolutionRankSwapOverlay .eventCenterCopy::after {
+  background: linear-gradient(90deg, transparent, rgba(193, 145, 201, 0.72), transparent);
+}
+
+:global(html[data-theme="halloween"]) .taxIntroOverlay .eventCenterCopy::before {
+  border-color: rgba(185, 132, 158, 0.3);
+  background: radial-gradient(ellipse, rgba(61, 35, 51, 0.62), rgba(31, 25, 34, 0.38) 58%, transparent 72%);
+}
+
+:global(html[data-theme="halloween"]) .taxSkippedIntroOverlay .eventCenterCopy::before {
+  border-color: rgba(177, 139, 187, 0.3);
+  background: radial-gradient(ellipse, rgba(45, 34, 52, 0.68), rgba(24, 22, 29, 0.4) 58%, transparent 72%);
+}
+
+:global(html[data-theme="halloween"]) :is(
+    .phaseIntroOverlay .eventCenterCopy small,
+    .greatRevolutionRankSwapOverlay .eventCenterCopy > small
+  ) {
+  color: #c898d0;
+}
+
+:global(html[data-theme="halloween"]) .greatRevolutionRankSwapOverlay .eventCenterCopy > strong {
+  color: #eee7ee;
+  text-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.82),
+    0 0 24px rgba(103, 76, 111, 0.24);
+}
+
+:global(html[data-theme="halloween"]) :is(.taxDecisionField, .taxWaitingField) {
+  border-color: rgba(184, 133, 193, 0.3);
+  background:
+    linear-gradient(145deg, rgba(103, 61, 113, 0.16), transparent 48%),
+    rgba(17, 16, 22, 0.94);
+  color: #e9e1e5;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.025),
+    0 14px 31px rgba(0, 0, 0, 0.36);
+}
+
+:global(html[data-theme="halloween"]) :is(.taxDecisionField, .taxWaitingField) > small,
+:global(html[data-theme="halloween"]) .taxRoute .transferNames {
+  color: #c998d1;
+}
+
+:global(html[data-theme="halloween"]) .taxRoute .transferNames {
+  border-color: rgba(184, 133, 193, 0.3);
+  background: rgba(17, 16, 22, 0.95);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.44);
+}
+
+:global(html[data-theme="halloween"]) :is(.actionBar, .selectionCopy, .ownStatus) {
+  border-color: rgba(164, 123, 173, 0.28);
+  background:
+    linear-gradient(145deg, rgba(93, 55, 102, 0.1), transparent 48%),
+    rgba(16, 15, 20, 0.94);
+  color: #e6dde3;
+}
+
+:global(html[data-theme="halloween"]) .selectionCopy strong,
+:global(html[data-theme="halloween"]) .ownStatus strong {
+  color: #e8dfe5;
+}
+
+:global(html[data-theme="halloween"]) .selectionCopy small,
+:global(html[data-theme="halloween"]) .ownStatus :is(span, small, em) {
+  color: #aaa0a9;
+}
+
+:global(html[data-theme="halloween"]) .playerSeat {
+  border-color: rgba(157, 121, 165, 0.32);
+  background:
+    linear-gradient(135deg, rgba(88, 52, 96, 0.11), transparent 55%),
+    rgba(14, 14, 19, 0.96);
+}
+
+:global(html[data-theme="halloween"]) .playerSeat :is(.avatar, .handCount) {
+  border-color: rgba(158, 121, 166, 0.25);
+  background: rgba(8, 8, 11, 0.55);
+}
+
+:global(html[data-theme="halloween"]) .playerCopy strong,
+:global(html[data-theme="halloween"]) .handCount b {
+  color: #e5dce2;
+}
+
+:global(html[data-theme="halloween"]) .playerCopy em,
+:global(html[data-theme="halloween"]) .handCount em {
+  color: #9f949e;
+}
+
+:global(html[data-theme="halloween"]) :is(.hostMark, .turnMark) {
+  border-color: rgba(170, 126, 179, 0.34);
+  background: rgba(93, 54, 102, 0.24);
+  color: #d7b5dc;
+}
+
+:global(html[data-theme="halloween"]) .turnCountdown:not(.turnCountdownUrgent) .turnCountdownRing {
+  border-color: rgba(174, 132, 183, 0.42);
+  background:
+    radial-gradient(circle, #121016 55%, transparent 57%),
+    conic-gradient(
+      from -90deg,
+      #9b70a5 0 var(--turn-angle),
+      rgba(184, 137, 193, 0.14) var(--turn-angle) 360deg
+    );
+  box-shadow:
+    0 0 0 1px rgba(174, 132, 183, 0.36),
+    0 13px 29px rgba(0, 0, 0, 0.45);
+}
+
+:global(html[data-theme="halloween"]) .turnCountdown:not(.turnCountdownUrgent) :is(.turnCountdownRing b, .turnCountdownCopy) {
+  color: #ddc9e1;
+}
+
+:global(html[data-theme="halloween"]) .dalmutiEffectOverlay {
+  background: transparent;
+}
+
+:global(html[data-theme="halloween"]) .dalmutiEffectOverlay::before {
+  display: block;
+  top: var(--to-y);
+  left: var(--to-x);
+  width: min(720px, calc(100% - 32px));
+  height: min(390px, calc(100% - 32px));
+  aspect-ratio: auto;
+  border: 1px solid rgba(171, 137, 181, 0.28);
+  border-radius: 48% / 24%;
+  background:
+    radial-gradient(ellipse at 50% 54%, rgba(139, 105, 149, 0.3), transparent 30%),
+    radial-gradient(ellipse at 50% 52%, rgba(63, 51, 71, 0.64), rgba(31, 28, 37, 0.52) 58%, transparent 78%);
+  background-repeat: no-repeat;
+  background-size: auto;
+  box-shadow:
+    inset 0 0 72px rgba(104, 78, 114, 0.22),
+    0 0 44px rgba(92, 66, 102, 0.22);
+  mix-blend-mode: normal;
+  transform: translate(-50%, -50%);
+  animation: halloweenDalmutiVignetteOnline 3.15s ease both;
+  animation-delay: calc(var(--event-elapsed, 0ms) * -1);
+}
+
+:global(html[data-theme="halloween"]) .dalmutiEffectOverlay::after {
+  display: none;
+}
+
+:global(html[data-theme="halloween"]) .dalmutiSpectacle {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: visible;
+  pointer-events: none;
+}
+
+:global(html[data-theme="halloween"]) .dalmutiSpectacle::before,
+:global(html[data-theme="halloween"]) .dalmutiSpectacle::after,
+:global(html[data-theme="halloween"]) .dalmutiSpectacle > i,
+:global(html[data-theme="halloween"]) .dalmutiSpectacle > span:nth-of-type(-n + 2) {
+  --hand-slice-left: 0%;
+  --hand-slice-right: 0%;
+  --hand-delay: 0ms;
+  --hand-start-x: 0px;
+  display: block;
+  position: absolute;
+  top: calc(var(--to-y) - 82px);
+  left: var(--to-x);
+  z-index: 2;
+  width: min(540px, calc(100% - 56px), 92vh);
+  height: min(410px, calc(100% - var(--to-y) + 64px), 72vh);
+  min-height: 170px;
+  aspect-ratio: auto;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background:
+    radial-gradient(circle at 50% 24%, rgba(199, 174, 205, 0.42), transparent 34%),
+    linear-gradient(180deg, #9987a3 0%, #735f7d 38%, #51445c 67%, #312c3a 100%);
+  -webkit-mask: url("/themes/halloween/dalmuti-hands-v1.png") center bottom / contain no-repeat;
+  mask: url("/themes/halloween/dalmuti-hands-v1.png") center bottom / contain no-repeat;
+  clip-path: inset(0 var(--hand-slice-right) 0 var(--hand-slice-left));
+  content: "";
+  filter: none;
+  opacity: 0;
+  transform-origin: 50% 100%;
+  animation: halloweenDalmutiHandsEmergeOnline 2.84s cubic-bezier(0.18, 0.72, 0.2, 1) both;
+  animation-delay: calc(var(--hand-delay) - var(--event-elapsed, 0ms));
+}
+
+:global(html[data-theme="halloween"]) .dalmutiSpectacle::before {
+  --hand-slice-right: 77%;
+  --hand-delay: 90ms;
+  --hand-start-x: -18px;
+}
+
+:global(html[data-theme="halloween"]) .dalmutiSpectacle > i:nth-of-type(1) {
+  --hand-slice-left: 15%;
+  --hand-slice-right: 59%;
+  --hand-delay: 180ms;
+  --hand-start-x: -11px;
+}
+
+:global(html[data-theme="halloween"]) .dalmutiSpectacle > span:nth-of-type(1) {
+  --hand-slice-left: 33%;
+  --hand-slice-right: 43%;
+  --hand-delay: 260ms;
+  --hand-start-x: -5px;
+}
+
+:global(html[data-theme="halloween"]) .dalmutiSpectacle > span:nth-of-type(2) {
+  --hand-slice-left: 48%;
+  --hand-slice-right: 27%;
+  --hand-delay: 220ms;
+  --hand-start-x: 5px;
+}
+
+:global(html[data-theme="halloween"]) .dalmutiSpectacle > i:nth-of-type(2) {
+  --hand-slice-left: 64%;
+  --hand-slice-right: 10%;
+  --hand-delay: 125ms;
+  --hand-start-x: 11px;
+}
+
+:global(html[data-theme="halloween"]) .dalmutiSpectacle::after {
+  --hand-slice-left: 79%;
+  --hand-delay: 35ms;
+  --hand-start-x: 18px;
+}
+
+:global(html[data-theme="halloween"]) .dalmutiSpectacle > span:nth-of-type(n + 3) {
+  display: none;
+}
+
+/* Exact reference hands form a full-width lower-field crowd. The largest hand
+ * is centered and lowered behind the card so its palm meets the lower edge. */
+:global(html[data-theme="halloween"]) .dalmutiSpectacle {
+  position: absolute;
+  inset: auto;
+  top: var(--to-y);
+  left: var(--to-x);
+  z-index: 1;
+  width: min(1380px, calc(100% - 18px));
+  height: auto;
+  min-height: 0;
+  aspect-ratio: 1200 / 602;
+  overflow: hidden;
+  transform: translate(-50%, -50%);
+  animation: halloweenDalmutiHandsStageOnline 3.15s ease both;
+  animation-delay: calc(var(--event-elapsed, 0ms) * -1);
+}
+
+:global(html[data-theme="halloween"]) .dalmutiSpectacle::before,
+:global(html[data-theme="halloween"]) .dalmutiSpectacle::after,
+:global(html[data-theme="halloween"]) .dalmutiSpectacle > i {
+  display: none;
+}
+
+:global(html[data-theme="halloween"]) .dalmutiSpectacle > span:nth-of-type(n) {
+  --hand-sprite-x: 0%;
+  --hand-sprite-y: 0%;
+  --hand-reveal-delay: 80ms;
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border: 0;
+  border-radius: 0;
+  background: linear-gradient(180deg, #b39ab8 0%, #80698a 48%, #4d4257 100%);
+  box-shadow: none;
+  -webkit-mask-image: url("/themes/halloween/dalmuti-hand-field-atlas-v2.png");
+  mask-image: url("/themes/halloween/dalmuti-hand-field-atlas-v2.png");
+  -webkit-mask-position: var(--hand-sprite-x) var(--hand-sprite-y);
+  mask-position: var(--hand-sprite-x) var(--hand-sprite-y);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: 400% 300%;
+  mask-size: 400% 300%;
+  clip-path: none;
+  filter: drop-shadow(0 9px 11px rgba(32, 25, 38, 0.44));
+  opacity: 0;
+  transform: none;
+  transform-origin: 50% 100%;
+  animation: halloweenDalmutiHandRevealOnline 260ms ease-out both;
+  animation-delay: calc(var(--hand-reveal-delay) - var(--event-elapsed, 0ms));
+}
+
+:global(html[data-theme="halloween"]) .dalmutiSpectacle > span:nth-of-type(1) {
+  --hand-sprite-x: 0%; --hand-sprite-y: 0%; --hand-reveal-delay: 70ms;
+}
+:global(html[data-theme="halloween"]) .dalmutiSpectacle > span:nth-of-type(2) {
+  --hand-sprite-x: 33.333%; --hand-sprite-y: 0%; --hand-reveal-delay: 170ms;
+}
+:global(html[data-theme="halloween"]) .dalmutiSpectacle > span:nth-of-type(3) {
+  --hand-sprite-x: 66.667%; --hand-sprite-y: 0%; --hand-reveal-delay: 270ms;
+}
+:global(html[data-theme="halloween"]) .dalmutiSpectacle > span:nth-of-type(4) {
+  --hand-sprite-x: 100%; --hand-sprite-y: 0%; --hand-reveal-delay: 370ms;
+}
+:global(html[data-theme="halloween"]) .dalmutiSpectacle > span:nth-of-type(5) {
+  --hand-sprite-x: 0%; --hand-sprite-y: 50%; --hand-reveal-delay: 470ms;
+}
+:global(html[data-theme="halloween"]) .dalmutiSpectacle > span:nth-of-type(6) {
+  --hand-sprite-x: 33.333%; --hand-sprite-y: 50%; --hand-reveal-delay: 570ms;
+}
+:global(html[data-theme="halloween"]) .dalmutiSpectacle > span:nth-of-type(7) {
+  --hand-sprite-x: 66.667%; --hand-sprite-y: 50%; --hand-reveal-delay: 670ms;
+}
+:global(html[data-theme="halloween"]) .dalmutiSpectacle > span:nth-of-type(8) {
+  --hand-sprite-x: 100%; --hand-sprite-y: 50%; --hand-reveal-delay: 770ms;
+}
+:global(html[data-theme="halloween"]) .dalmutiSpectacle > span:nth-of-type(9) {
+  --hand-sprite-x: 0%; --hand-sprite-y: 100%; --hand-reveal-delay: 900ms;
+}
+:global(html[data-theme="halloween"]) .dalmutiSpectacle > span:nth-of-type(10) {
+  --hand-sprite-x: 33.333%; --hand-sprite-y: 100%; --hand-reveal-delay: 1030ms;
+}
+:global(html[data-theme="halloween"]) .dalmutiSpectacle > span:nth-of-type(11) {
+  --hand-sprite-x: 66.667%; --hand-sprite-y: 100%; --hand-reveal-delay: 1180ms;
+  z-index: 2;
+  transform: translate(-7.67%, 20%);
+}
+:global(html[data-theme="halloween"]) .dalmutiSpectacle > span:nth-of-type(12) {
+  --hand-sprite-x: 100%; --hand-sprite-y: 100%; --hand-reveal-delay: 1320ms;
+  z-index: 2;
+  background: linear-gradient(180deg, #b69cbb 0%, #7d6686 45%, #4b4054 100%);
+  transform: translate(-7.67%, 23.82%);
+}
+
+:global(html[data-theme="halloween"]) .dalmutiEffectOverlay.playOverlay .eventCardWrap {
+  --halloween-card-x: var(--event-card-offset-x);
+  animation: halloweenDalmutiCardRevealOnline 1.4s cubic-bezier(0.18, 0.72, 0.2, 1) both;
+  animation-delay: calc(1660ms + var(--event-card-delay, 0ms) - var(--event-elapsed, 0ms));
+}
+
+:global(html[data-theme="halloween"]) .dalmutiEffectOverlay .autoPassPlayers i {
+  color: #d8badf;
+  text-shadow: 0 0 12px rgba(177, 132, 187, 0.34);
+  animation-duration: 1.22s;
+  animation-delay: calc(var(--halloween-pass-delay) - var(--event-elapsed, 0ms));
+  animation-timing-function: cubic-bezier(0.2, 0.72, 0.22, 1);
+  animation-fill-mode: both;
+}
+
+:global(html[data-theme="halloween"]) .dalmutiEffectOverlay > small,
+:global(html[data-theme="halloween"]) .dalmutiEffectOverlay > strong,
+:global(html[data-theme="halloween"]) .dalmutiEffectOverlay > span {
+  opacity: 0;
+  animation: halloweenDalmutiCopyRevealOnline 1.4s ease both;
+  animation-delay: calc(1660ms - var(--event-elapsed, 0ms));
+}
+
+:global(html[data-theme="halloween"]) .dalmutiEffectOverlay > b {
+  animation-duration: 1.22s;
+  animation-delay: calc(1660ms - var(--event-elapsed, 0ms));
+  animation-timing-function: ease;
+  animation-fill-mode: both;
+}
+
+@media (hover: none) and (pointer: coarse) and (max-width: 820px),
+  (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 500px) {
+  :global(html[data-theme="halloween"]) .dalmutiEffectOverlay.playOverlay .eventCardWrap {
+    --halloween-card-x: var(--event-card-mobile-offset-x, var(--event-card-offset-x));
+  }
+}
+
+:global(html[data-theme="halloween"]) .dalmutiEffectOverlay.playOverlay .eventCards .card,
+:global(html[data-theme="halloween"]) .dalmutiEffectCard .card {
+  border-color: #020203;
+  box-shadow:
+    0 0 0 2px rgba(111, 79, 119, 0.3),
+    0 24px 42px rgba(0, 0, 0, 0.72);
+}
+
+:global(html[data-theme="halloween"]) .dalmutiEffectCard::before,
+:global(html[data-theme="halloween"]) .dalmutiEffectCard::after {
+  display: none;
+}
+
+:global(html[data-theme="halloween"]) .dalmutiEffectOverlay > small,
+:global(html[data-theme="halloween"]) .dalmutiEffectOverlay > b {
+  color: #c99ed0;
+}
+
+:global(html[data-theme="halloween"]) .dalmutiEffectOverlay > strong {
+  color: #eee7ed;
+  text-shadow: 0 12px 35px rgba(0, 0, 0, 0.78);
+}
+
+:global(html[data-theme="halloween"]) .dalmutiEffectOverlay .autoPassPlayers i {
+  border-color: rgba(159, 119, 168, 0.34);
+  background: rgba(11, 10, 14, 0.95);
+  color: #e7dce5;
+  box-shadow: 0 15px 34px rgba(0, 0, 0, 0.58);
+}
+
+:global(html[data-theme="halloween"]) .tableDalmutiBurst {
+  border-color: #28232d;
+  box-shadow:
+    inset 0 0 0 3px #514557,
+    inset 0 0 88px rgba(0, 0, 0, 0.78),
+    0 0 48px rgba(0, 0, 0, 0.52);
+}
+
+:global(html[data-theme="halloween"]) .tableDalmutiBurst::after,
+:global(html[data-theme="halloween"]) .playerSeatDalmuti::before {
+  display: none;
+}
+
+:global(html[data-theme="halloween"]) .playerSeatDalmuti {
+  border-color: #56465d;
+  box-shadow: 0 11px 28px rgba(0, 0, 0, 0.58);
+  animation: none;
+}
+
+/* Revolution fields share the exact grain sampled from the Halloween back. */
+:global(html[data-theme="halloween"]) .table.tableRevolution:not(.tableGreatRevolution) {
+  border-color: #4b4a50;
+  background:
+    radial-gradient(ellipse at 52% 44%, rgba(65, 63, 70, 0.28), transparent 51%),
+    radial-gradient(ellipse at 19% 26%, rgba(92, 89, 96, 0.12), transparent 34%),
+    linear-gradient(145deg, rgba(8, 9, 12, 0.28), rgba(24, 24, 29, 0.18)),
+    url("/themes/halloween/ink-wash-field-texture-v2.webp") center / cover no-repeat;
+  background-color: #101115;
+  box-shadow:
+    inset 0 0 0 3px #5b5960,
+    inset 0 0 82px rgba(0, 0, 0, 0.62),
+    0 22px 44px rgba(0, 0, 0, 0.48);
+}
+
+:global(html[data-theme="halloween"]) .table.tableRevolution:not(.tableGreatRevolution)::before {
+  opacity: 0;
+  animation: none;
+}
+
+/* Great Revolution: the one-shot ink fall reveals the same card-back grain;
+ * the later override supplies full-field reverse clockwork for the act. */
+:global(html[data-theme="halloween"]) .table.tableRevolution.tableGreatRevolution {
+  border-color: #38383e;
+  background:
+    radial-gradient(ellipse at 51% 43%, rgba(67, 65, 72, 0.25), transparent 50%),
+    radial-gradient(ellipse at 24% 68%, rgba(91, 87, 97, 0.11), transparent 32%),
+    linear-gradient(150deg, rgba(4, 5, 7, 0.38), rgba(19, 19, 23, 0.2)),
+    url("/themes/halloween/ink-wash-field-texture-v2.webp") center / cover no-repeat;
+  background-color: #0d0e12;
+  box-shadow:
+    inset 0 0 0 3px #4d4c53,
+    inset 0 0 96px rgba(0, 0, 0, 0.7),
+    0 0 0 4px rgba(83, 80, 89, 0.16),
+    0 24px 46px rgba(0, 0, 0, 0.56);
+}
+
+:global(html[data-theme="halloween"]) .table.tableRevolution.tableGreatRevolution::before {
+  opacity: 0;
+  animation: none;
+}
+
+.revolutionInkTransition {
+  display: none;
+}
+
+:global(html[data-theme="halloween"]) .revolutionInkTransition {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  overflow: hidden;
+  border-radius: inherit;
+  isolation: isolate;
+  pointer-events: none;
+  animation: none;
+}
+
+:global(html[data-theme="halloween"]) .revolutionInkTransition::before,
+:global(html[data-theme="halloween"]) .revolutionInkTransition::after {
+  position: absolute;
+  content: "";
+  pointer-events: none;
+}
+
+:global(html[data-theme="halloween"]) .revolutionInkTransition::before {
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(circle at 50% 46%, rgba(91, 94, 102, 0.72), transparent 48%),
+    repeating-linear-gradient(38deg, rgba(255, 255, 255, 0.018) 0 2px, transparent 2px 5px),
+    #34363b;
+  animation: none;
+}
+
+:global(html[data-theme="halloween"]) .revolutionInkTransition::after {
+  display: none;
+  animation: none;
+}
+
+:global(html[data-theme="halloween"]) .revolutionInkCanvas {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+:global(html[data-theme="halloween"]) .revolutionInkTransition > i {
+  position: absolute;
+  top: -20%;
+  left: var(--ink-drop-x);
+  z-index: 2;
+  width: var(--ink-drop-width);
+  aspect-ratio: 0.62;
+  opacity: 0;
+  transform-origin: 50% 82%;
+  animation: halloweenInkDropOnline 1.18s cubic-bezier(0.18, 0.62, 0.14, 1)
+    var(--ink-drop-delay) both;
+}
+
+:global(html[data-theme="halloween"]) .revolutionInkTransition > i::before,
+:global(html[data-theme="halloween"]) .revolutionInkTransition > i::after {
+  position: absolute;
+  content: "";
+  pointer-events: none;
+}
+
+:global(html[data-theme="halloween"]) .revolutionInkTransition > i::before {
+  inset: 0;
+  background:
+    radial-gradient(circle at 34% 69%, rgba(192, 181, 199, 0.34) 0 5%, transparent 13%),
+    linear-gradient(158deg, #17151c 0%, #050507 43%, #0d0c11 76%, #020203 100%);
+  clip-path: polygon(50% 0, 64% 25%, 84% 54%, 92% 72%, 82% 89%, 66% 98%, 50% 100%, 33% 98%, 17% 89%, 8% 72%, 16% 54%, 37% 25%);
+  filter: drop-shadow(0 7px 7px rgba(0, 0, 0, 0.66));
+}
+
+:global(html[data-theme="halloween"]) .revolutionInkTransition > i::after {
+  bottom: 86%;
+  left: 50%;
+  width: 2px;
+  height: 18px;
+  border-radius: 999px;
+  background: linear-gradient(transparent, rgba(7, 7, 10, 0.84));
+  box-shadow: 4px -7px 0 -0.3px rgba(9, 8, 12, 0.68);
+  transform: translateX(-50%);
+}
+
+:global(html[data-theme="halloween"]) .table.tableGreatRevolution > .greatRevolutionFieldEffect {
+  z-index: 2;
+  isolation: isolate;
+  mix-blend-mode: normal;
+}
+
+:global(html[data-theme="halloween"]) .greatRevolutionFieldEffect::before {
+  top: 0;
+  left: -5%;
+  width: 110%;
+  height: 32%;
+  aspect-ratio: auto;
+  border: 0;
+  border-radius: 0 0 48% 42%;
+  background:
+    radial-gradient(ellipse at 12% 100%, #020203 0 19%, transparent 20%),
+    radial-gradient(ellipse at 34% 100%, #050407 0 27%, transparent 28%),
+    radial-gradient(ellipse at 58% 100%, #010102 0 22%, transparent 23%),
+    radial-gradient(ellipse at 84% 100%, #070609 0 25%, transparent 26%),
+    linear-gradient(#000, #050407);
+  box-shadow: 0 24px 22px rgba(0, 0, 0, 0.58);
+  transform: translateY(-125%);
+  animation: halloweenInkFrontOnline 1.85s cubic-bezier(0.2, 0.74, 0.18, 1) both;
+}
+
+:global(html[data-theme="halloween"]) .greatRevolutionFieldEffect::after {
+  display: none;
+}
+
+:global(html[data-theme="halloween"]) .greatRevolutionFieldEffect::before {
+  display: none;
+  animation: none;
+}
+
+:global(html[data-theme="halloween"]) .greatRevolutionFieldEffect > i {
+  top: -28%;
+  left: 27%;
+  display: block;
+  width: 24px;
+  height: 64%;
+  aspect-ratio: auto;
+  border: 0;
+  border-radius: 45% 45% 58% 58%;
+  background: linear-gradient(#000, #08070a 78%, #151119);
+  box-shadow: 0 10px 15px rgba(0, 0, 0, 0.66);
+  transform: translate(-50%, -76%);
+  animation: halloweenInkDripOnline 1.55s 120ms cubic-bezier(0.24, 0.7, 0.16, 1) both;
+}
+
+:global(html[data-theme="halloween"]) .greatRevolutionFieldEffect > i:nth-of-type(2) {
+  left: 71%;
+  width: 16px;
+  height: 76%;
+  animation-delay: 260ms;
+  animation-duration: 1.7s;
+}
+
+:global(html[data-theme="halloween"]) .greatRevolutionFieldEffect > span {
+  top: var(--ember-y);
+  left: var(--ember-x);
+  display: block;
+  width: calc(var(--ember-size) * 3.2);
+  height: calc(var(--ember-size) * 2.25);
+  border: 1px solid rgba(148, 127, 154, 0.18);
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 30%, rgba(157, 137, 164, 0.22), rgba(3, 3, 5, 0.9) 43%, #000 72%);
+  box-shadow:
+    inset 0 -2px 4px rgba(0, 0, 0, 0.85),
+    0 2px 5px rgba(0, 0, 0, 0.7);
+  opacity: 0;
+  animation: halloweenFieldBubbleOnline var(--ember-duration) ease-in-out infinite;
+  animation-delay: calc(1.9s - var(--ember-delay));
+}
+
+:global(html[data-theme="halloween"]) .revolutionOverlay .eventCenterCopy::before,
+:global(html[data-theme="halloween"]) .greatRevolutionOverlay .eventCenterCopy::before {
+  border-color: rgba(151, 120, 158, 0.3);
+  background: radial-gradient(ellipse, rgba(17, 15, 21, 0.92), rgba(37, 30, 42, 0.5) 58%, transparent 74%);
+  box-shadow:
+    0 0 38px rgba(0, 0, 0, 0.42),
+    inset 0 0 34px rgba(123, 92, 131, 0.1);
+}
+
+:global(html[data-theme="halloween"]) .revolutionOverlay .eventCenterCopy :is(small, strong, b, span) {
+  color: #e8dfe7;
+  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.76);
+}
+
+:global(html[data-theme="halloween"]) .revolutionJokers > span::after {
+  display: none;
+}
+
+:global(html[data-theme="halloween"]) .gameShell {
+  --mobile-seat-panel: linear-gradient(180deg, rgba(29, 27, 35, 0.98), rgba(12, 12, 17, 0.99));
+  --mobile-seat-panel-border: rgba(181, 132, 190, 0.34);
+  --mobile-seat-panel-shadow: 0 8px 20px rgba(0, 0, 0, 0.46);
+}
+
+:global(html[data-theme="halloween"]) .turnFieldNotice {
+  border-color: rgba(176, 132, 185, 0.5);
+  background: rgba(28, 22, 32, 0.92);
+  box-shadow:
+    0 0 0 4px rgba(134, 82, 145, 0.09),
+    0 10px 24px rgba(0, 0, 0, 0.44);
+  color: #aa9aaa;
+}
+
+:global(html[data-theme="halloween"]) .turnFieldNotice b {
+  color: #ddc4e1;
+}
+
+:global(html[data-theme="halloween"]) .turnCountdown:not(.turnCountdownUrgent) {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #c9b8cc;
+}
+
+:global(html[data-theme="halloween"]) .turnCountdown:not(.turnCountdownUrgent) .turnCountdownRing::before {
+  border-color: rgba(186, 145, 195, 0.2);
+  background: transparent;
+}
+
+:global(html[data-theme="halloween"]) .turnCountdown:not(.turnCountdownUrgent) .turnCountdownRing b,
+:global(html[data-theme="halloween"]) .turnCountdown:not(.turnCountdownUrgent) .turnCountdownCopy {
+  color: #ddc9e1;
+}
+
+:global(html[data-theme="halloween"]) .turnCountdown:not(.turnCountdownUrgent) .turnCountdownRing small {
+  color: #9f919f;
+}
+
+:global(html[data-theme="halloween"]) .turnCountdownSelf:not(.turnCountdownUrgent) .turnCountdownCopy {
+  color: #cba6d1;
+}
+
+:global(html[data-theme="halloween"]) .playerSeatCurrent {
+  border-color: #9b70a5;
+  box-shadow:
+    0 0 0 3px rgba(155, 112, 165, 0.18),
+    0 12px 28px rgba(0, 0, 0, 0.48);
+}
+
+:global(html[data-theme="halloween"]) .playerCopy strong small {
+  border-color: rgba(167, 126, 176, 0.3);
+  background: #2d2432;
+  color: #cda9d2;
+}
+
+:global(html[data-theme="halloween"]) .gameShell .playerSeat.playerSeatSelf {
+  border-color: rgba(184, 132, 194, 0.68);
+  background:
+    linear-gradient(135deg, rgba(105, 61, 116, 0.24), transparent 58%),
+    rgba(16, 15, 21, 0.97);
+  box-shadow:
+    inset 0 0 0 1px rgba(213, 171, 218, 0.06),
+    0 0 0 3px rgba(145, 88, 157, 0.12),
+    0 11px 24px rgba(0, 0, 0, 0.42);
+}
+
+:global(html[data-theme="halloween"]) .gameShell .playerSeat.playerSeatSelf .avatar {
+  border-color: rgba(171, 129, 180, 0.36);
+  background: #4c3554;
+  color: #eadced;
+}
+
+:global(html[data-theme="halloween"]) .gameShell .ownStatus {
+  border-color: rgba(169, 126, 178, 0.34);
+  background:
+    linear-gradient(135deg, rgba(97, 57, 107, 0.14), transparent 52%),
+    rgba(14, 13, 18, 0.96);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.025),
+    0 8px 19px rgba(0, 0, 0, 0.4);
+  color: #e1d5df;
+}
+
+:global(html[data-theme="halloween"]) .gameShell .ownStatusAvatar {
+  border-color: rgba(171, 129, 180, 0.38);
+  background: #322839;
+  color: #e2d3e4;
+}
+
+:global(html[data-theme="halloween"]) .ownStatusCopy small {
+  color: #9f949e;
+}
+
+:global(html[data-theme="halloween"]) .ownStatusCopy strong {
+  color: #e6dde3;
+}
+
+:global(html[data-theme="halloween"]) .ownStatus > em {
+  background: #29242e;
+  color: #c9b5cc;
+}
+
+:global(html[data-theme="halloween"]) .ownStatusActive {
+  border-color: rgba(190, 139, 200, 0.76);
+  box-shadow:
+    inset 0 0 0 1px rgba(220, 180, 225, 0.07),
+    0 0 0 3px rgba(145, 88, 157, 0.12),
+    0 0 25px rgba(111, 64, 121, 0.22);
+}
+
+:global(html[data-theme="halloween"]) .ownStatusFinished {
+  border-color: rgba(150, 136, 155, 0.42);
+  background:
+    linear-gradient(135deg, rgba(126, 106, 132, 0.12), transparent 48%),
+    rgba(22, 20, 25, 0.96);
+}
+
+:global(html[data-theme="halloween"]) .finishedHand {
+  border-color: rgba(174, 131, 183, 0.34);
+  background:
+    radial-gradient(circle at 18% 35%, rgba(133, 88, 145, 0.14), transparent 38%),
+    linear-gradient(135deg, rgba(38, 31, 43, 0.98), rgba(13, 12, 17, 0.98));
+  box-shadow:
+    inset 0 0 0 3px rgba(222, 184, 227, 0.025),
+    0 14px 34px rgba(0, 0, 0, 0.44);
+}
+
+:global(html[data-theme="halloween"]) .finishedHand::after {
+  border-left-color: rgba(185, 143, 194, 0.12);
+  background: linear-gradient(90deg, transparent, rgba(126, 82, 137, 0.07));
+}
+
+:global(html[data-theme="halloween"]) .finishedMedal {
+  border-color: rgba(181, 140, 190, 0.58);
+  background:
+    radial-gradient(circle, #29222e 0 48%, transparent 49%),
+    conic-gradient(from 20deg, #4b3a52, #9f79a8, #4b3a52, #9f79a8, #4b3a52);
+  color: #e0cce4;
+  box-shadow:
+    inset 0 0 0 5px rgba(8, 7, 10, 0.74),
+    0 0 24px rgba(112, 69, 123, 0.2);
+}
+
+:global(html[data-theme="halloween"]) .finishedHandCopy small {
+  color: #bc96c3;
+}
+
+:global(html[data-theme="halloween"]) .finishedHandCopy strong {
+  color: #e8dfe6;
+}
+
+:global(html[data-theme="halloween"]) .finishedHandCopy em {
+  color: #a49aa3;
+}
+
+:global(html[data-theme="halloween"]) .ownDockTaxSelection {
+  background: linear-gradient(180deg, transparent, rgba(48, 35, 54, 0.6));
+  box-shadow: inset 0 2px rgba(164, 116, 174, 0.18);
+}
+
+:global(html[data-theme="halloween"]) .ownDockTaxSelection .actionBar {
+  border-color: rgba(175, 129, 185, 0.34);
+  background: rgba(15, 14, 20, 0.96);
+  box-shadow: 0 10px 27px rgba(0, 0, 0, 0.4);
+}
+
+:global(html[data-theme="halloween"]) :is(.taxDecisionField, .taxWaitingField) > span {
+  border-color: rgba(177, 132, 186, 0.46);
+  background: #201b25;
+  color: #cda8d3;
+}
+
+:global(html[data-theme="halloween"]) :is(.taxDecisionField, .taxWaitingField) > strong {
+  color: #e8dfe5;
+}
+
+:global(html[data-theme="halloween"]) :is(.taxDecisionField, .taxWaitingField) > p {
+  color: #a49aa3;
+}
+
+:global(html[data-theme="halloween"]) .taxDeadline {
+  border-color: rgba(185, 126, 157, 0.48);
+  background: rgba(92, 47, 70, 0.25);
+  box-shadow:
+    0 0 0 4px rgba(125, 68, 97, 0.06),
+    inset 0 0 18px rgba(132, 70, 101, 0.1);
+  color: #e3b4ca;
+  animation-name: halloweenTaxDeadlinePulse;
+}
+
+:global(html[data-theme="halloween"]) .taxDeadline > span {
+  color: rgba(217, 188, 204, 0.72);
+}
+
+:global(html[data-theme="halloween"]) .rankBulkButton {
+  border-color: rgba(172, 126, 181, 0.36);
+  background: rgba(104, 61, 113, 0.16);
+  color: #d1afd6;
+}
+
+:global(html[data-theme="halloween"]) :is(.playCaption, .passMotion) {
+  border-color: rgba(164, 123, 173, 0.34);
+  background:
+    linear-gradient(145deg, rgba(92, 55, 101, 0.12), transparent 50%),
+    rgba(12, 11, 16, 0.95);
+  color: #e8dfe5;
+  box-shadow: 0 14px 31px rgba(0, 0, 0, 0.5);
+}
+
+:global(html[data-theme="halloween"]) :is(.playCaption, .passMotion) :is(small, span) {
+  color: #bda3c1;
+}
+
+:global(html[data-theme="halloween"]) :is(.playCaption, .passMotion) strong {
+  color: #eee7ed;
+}
+
+:global(html[data-theme="halloween"]) :is(.secondaryButton, .passButton, .readyButton):disabled {
+  border-color: rgba(121, 106, 126, 0.26);
+  background: #1a181f;
+  color: #716b75;
+  filter: none;
+  opacity: 0.62;
+}
+
+:global(html[data-theme="halloween"]) :is(.chatHeading, .chatComposer) {
+  border-color: rgba(169, 125, 178, 0.2);
+}
+
+:global(html[data-theme="halloween"]) .chatHeading > span,
+:global(html[data-theme="halloween"]) .chatMessageSelf :is(strong, p) {
+  color: #d0afd5;
+}
+
+:global(html[data-theme="halloween"]) .chatHeading button,
+:global(html[data-theme="halloween"]) .chatComposer button {
+  border-color: rgba(171, 126, 180, 0.3);
+  background: rgba(104, 61, 113, 0.16);
+  color: #d0afd5;
+}
+
+:global(html[data-theme="halloween"]) .chatComposer input:focus {
+  border-color: rgba(190, 139, 200, 0.58);
+  box-shadow: 0 0 0 2px rgba(145, 88, 157, 0.1);
+}
+
+:global(html[data-theme="halloween"]) .playerSeatRankMoving {
+  border-color: rgba(187, 137, 197, 0.66);
+  background: rgba(20, 17, 24, 0.98);
+  box-shadow:
+    0 0 0 4px rgba(145, 88, 157, 0.16),
+    0 0 35px rgba(104, 58, 115, 0.28),
+    0 16px 32px rgba(0, 0, 0, 0.54);
+}
+
+:global(html[data-theme="halloween"]) .playerSeatRankMoving::before {
+  border-color: rgba(191, 145, 200, 0.38);
+  background: none;
+}
+
+:global(html[data-theme="halloween"]) .gameShell .seatRing[data-mobile-layout="true"] .playerSeat {
+  border-color: var(--mobile-seat-panel-border);
+  background: var(--mobile-seat-panel);
+  box-shadow: var(--mobile-seat-panel-shadow);
+}
+
+:global(html[data-theme="halloween"]) .gameShell .seatRing[data-mobile-layout="true"] .playerSeatSelf {
+  border-color: rgba(184, 132, 194, 0.7);
+  background:
+    linear-gradient(120deg, rgba(118, 69, 129, 0.22), transparent 68%),
+    var(--mobile-seat-panel);
+  box-shadow:
+    inset 3px 0 #8e6598,
+    var(--mobile-seat-panel-shadow);
+}
+
+:global(html[data-theme="halloween"]) .gameShell .seatRing[data-mobile-layout="true"] .playerCopy strong {
+  color: #e7dde4;
+}
+
+:global(html[data-theme="halloween"]) .gameShell .seatRing[data-mobile-layout="true"] .handCount,
+:global(html[data-theme="halloween"]) .gameShell .seatRing[data-mobile-layout="true"] .handCount b {
+  color: #d8c1dc;
+}
+
+:global(html[data-theme="halloween"]) .gameShell .seatRing[data-mobile-layout="true"] .handCount em {
+  color: #9d919d;
+}
+
+@keyframes halloweenTaxDeadlinePulse {
+  50% {
+    border-color: rgba(202, 143, 174, 0.72);
+    box-shadow:
+      0 0 0 6px rgba(125, 68, 97, 0.07),
+      inset 0 0 21px rgba(132, 70, 101, 0.12);
+  }
+}
+
+:global(html[data-theme="halloween"]) .rankShiftEffect {
+  border-color: rgba(175, 130, 184, 0.2);
+  background: radial-gradient(ellipse at center, rgba(126, 75, 138, 0.11), transparent 66%);
+  box-shadow: inset 0 0 54px rgba(104, 58, 115, 0.12);
+}
+
+:global(html[data-theme="halloween"]) .rankShiftEffect::before,
+:global(html[data-theme="halloween"]) .rankShiftEffect::after,
+:global(html[data-theme="halloween"]) .rankShiftEffect > i {
+  background: linear-gradient(90deg, transparent, rgba(209, 169, 215, 0.65), #8e6598, transparent);
+  box-shadow: 0 0 17px rgba(132, 79, 144, 0.42);
+}
+
+:global(html[data-theme="halloween"]) .rankShiftEffect > span {
+  background: #caa8cf;
+  box-shadow:
+    0 0 9px #9b70a5,
+    0 0 20px rgba(111, 64, 121, 0.5);
+}
+
+/* Keep the great-revolution tar visibly alive for the complete round. */
+:global(html[data-theme="halloween"]) .greatRevolutionFieldEffect::after {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  width: auto;
+  height: auto;
+  aspect-ratio: auto;
+  border: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(ellipse at 12% 74%, rgba(180, 158, 186, 0.2) 0 2%, rgba(23, 19, 26, 0.72) 5%, transparent 11%),
+    radial-gradient(ellipse at 33% 35%, rgba(139, 117, 146, 0.18) 0 2.5%, rgba(4, 4, 6, 0.82) 6%, transparent 13%),
+    radial-gradient(ellipse at 56% 69%, rgba(188, 164, 194, 0.17) 0 2%, rgba(7, 6, 9, 0.86) 5.5%, transparent 12%),
+    radial-gradient(ellipse at 78% 30%, rgba(146, 123, 153, 0.2) 0 2.2%, rgba(3, 3, 5, 0.84) 6%, transparent 13%),
+    radial-gradient(ellipse at 91% 78%, rgba(186, 164, 192, 0.16) 0 2%, rgba(5, 4, 7, 0.88) 5%, transparent 11%);
+  box-shadow: inset 0 -24px 44px rgba(0, 0, 0, 0.34);
+  opacity: 0;
+  transform: none;
+  animation:
+    halloweenTarSurfaceRevealOnline 620ms 1.5s ease-out both,
+    halloweenTarSurfaceOnline 7.2s 2.12s ease-in-out infinite;
+}
+
+:global(html[data-theme="halloween"]) .greatRevolutionFieldEffect::before,
+:global(html[data-theme="halloween"]) .greatRevolutionFieldEffect > i {
+  z-index: 2;
+}
+
+:global(html[data-theme="halloween"]) .greatRevolutionFieldEffect > span {
+  z-index: 1;
+  width: var(--tar-bubble-width);
+  height: var(--tar-bubble-height);
+  border: 1px solid rgba(174, 151, 181, 0.26);
+  border-radius: 52% 48% 58% 42% / 62% 56% 44% 38%;
+  background:
+    radial-gradient(ellipse at 34% 19%, rgba(224, 207, 228, 0.46) 0 3%, rgba(151, 126, 158, 0.19) 6%, transparent 16%),
+    radial-gradient(ellipse at 52% 78%, #010102 0 33%, rgba(7, 6, 9, 0.97) 56%, rgba(72, 59, 77, 0.74) 78%, #050406 100%);
+  box-shadow:
+    inset 0 -7px 9px rgba(0, 0, 0, 0.94),
+    inset 1px 3px 4px rgba(214, 194, 220, 0.12),
+    0 4px 7px rgba(0, 0, 0, 0.84),
+    0 0 0 3px rgba(7, 6, 9, 0.28);
+  opacity: 0;
+  transform-origin: 50% 76%;
+  isolation: isolate;
+  will-change: transform, opacity, border-radius;
+  animation: halloweenViscousBubbleOnline var(--tar-bubble-duration)
+    cubic-bezier(0.18, 0.66, 0.14, 1) var(--tar-bubble-delay) infinite both;
+}
+
+:global(html[data-theme="halloween"]) .greatRevolutionFieldEffect > span::before,
+:global(html[data-theme="halloween"]) .greatRevolutionFieldEffect > span::after {
+  position: absolute;
+  content: "";
+  pointer-events: none;
+}
+
+:global(html[data-theme="halloween"]) .greatRevolutionFieldEffect > span::before {
+  inset: 8% 8% 15%;
+  z-index: 1;
+  border-top: 1px solid rgba(231, 214, 235, 0.3);
+  border-radius: 48% 52% 45% 55% / 62% 59% 41% 38%;
+  background:
+    radial-gradient(ellipse at 31% 15%, rgba(239, 227, 242, 0.38) 0 4%, rgba(170, 145, 177, 0.12) 8%, transparent 20%),
+    linear-gradient(155deg, rgba(145, 122, 151, 0.09), transparent 44%);
+  box-shadow: inset 0 2px 5px rgba(220, 201, 225, 0.06);
+  opacity: 0;
+  animation: halloweenTarMembraneOnline var(--tar-bubble-duration)
+    ease-in-out var(--tar-bubble-delay) infinite both;
+}
+
+:global(html[data-theme="halloween"]) .greatRevolutionFieldEffect > span::after {
+  top: 52%;
+  left: 50%;
+  z-index: 2;
+  width: 44%;
+  height: 34%;
+  border: 1px solid rgba(160, 137, 167, 0.18);
+  border-radius: 50%;
+  background: radial-gradient(ellipse, #000 0 39%, rgba(31, 26, 34, 0.82) 47%, rgba(130, 108, 137, 0.2) 61%, transparent 72%);
+  box-shadow:
+    inset 0 2px 4px #000,
+    0 -1px 2px rgba(195, 173, 201, 0.09);
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.15, 0.08);
+  animation: halloweenTarCraterOnline var(--tar-bubble-duration)
+    ease-in-out var(--tar-bubble-delay) infinite both;
+}
+
+@keyframes halloweenTarSurfaceRevealOnline {
+  from { opacity: 0; }
+  to { opacity: 0.62; }
+}
+
+@keyframes halloweenTarSurfaceOnline {
+  0%, 100% {
+    background-position: 0 8px, 7px 0, -4px 6px, 5px -3px, 0 7px;
+    filter: blur(0.2px) contrast(1.02);
+    transform: scaleY(0.985);
+  }
+  35% {
+    background-position: 7px -5px, -5px 8px, 6px -7px, -7px 5px, 4px -6px;
+    filter: blur(0.65px) contrast(1.08);
+    transform: scaleY(1.018);
+  }
+  68% {
+    background-position: -6px 3px, 6px -6px, -7px 5px, 8px 4px, -5px 2px;
+    filter: blur(0.35px) contrast(1.05);
+    transform: scaleY(0.996);
+  }
+}
+
+@keyframes halloweenViscousBubbleOnline {
+  0%, 12%, 100% {
+    border-radius: 52% 48% 58% 42% / 56% 51% 49% 44%;
+    opacity: 0;
+    transform: translate3d(0, 11px, 0) rotate(var(--tar-bubble-tilt)) scale(0.16, 0.04);
+  }
+  21% {
+    border-radius: 58% 42% 51% 49% / 34% 38% 62% 66%;
+    opacity: 0.38;
+    transform: translate3d(var(--tar-bubble-drift), 6px, 0) rotate(var(--tar-bubble-tilt)) scale(0.68, 0.2);
+  }
+  38% {
+    border-radius: 46% 54% 42% 58% / 38% 44% 56% 62%;
+    opacity: 0.82;
+    transform: translate3d(var(--tar-bubble-drift), 1px, 0) rotate(var(--tar-bubble-tilt)) scale(1.04, 0.72);
+  }
+  55% {
+    border-radius: 42% 58% 61% 39% / 48% 42% 58% 52%;
+    opacity: 0.96;
+    transform: translate3d(var(--tar-bubble-drift), -3px, 0) rotate(var(--tar-bubble-tilt)) scale(0.96, 1.08);
+  }
+  68% {
+    border-radius: 39% 61% 55% 45% / 37% 35% 65% 63%;
+    opacity: 0.88;
+    transform: translate3d(0, -8px, 0) rotate(0deg) scale(0.82, 1.42);
+  }
+  79% {
+    border-radius: 62% 38% 47% 53% / 28% 31% 69% 72%;
+    opacity: 0.62;
+    transform: translate3d(var(--tar-bubble-drift), -11px, 0) rotate(var(--tar-bubble-tilt)) scale(1.34, 0.46);
+  }
+  88% {
+    border-radius: 46% 54% 58% 42% / 22% 25% 75% 78%;
+    opacity: 0.36;
+    transform: translate3d(0, -8px, 0) rotate(0deg) scale(1.58, 0.18);
+  }
+  96% {
+    opacity: 0;
+    transform: translate3d(0, -4px, 0) rotate(0deg) scale(1.82, 0.05);
+  }
+}
+
+@keyframes halloweenTarMembraneOnline {
+  0%, 20%, 91%, 100% { opacity: 0; transform: scale(0.42, 0.18); }
+  36% { opacity: 0.36; transform: scale(0.82, 0.58); }
+  55% { opacity: 0.8; transform: translateY(-2px) scale(1, 1); }
+  68% { opacity: 0.48; transform: translateY(-4px) scale(0.83, 1.12); }
+  78% { opacity: 0.12; transform: translateY(1px) scale(1.16, 0.34); }
+}
+
+@keyframes halloweenTarCraterOnline {
+  0%, 70%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(0.15, 0.08); }
+  78% { opacity: 0.08; transform: translate(-50%, -50%) scale(0.34, 0.16); }
+  86% { opacity: 0.92; transform: translate(-50%, -50%) scale(1.08, 0.58); }
+  94% { opacity: 0.28; transform: translate(-50%, -50%) scale(1.56, 0.24); }
+}
+
+/* Preserve the initial ink fall, then replace the old bubbling surface with
+ * the Original-style clockwork rotating counter-clockwise for the full round. */
+:global(html[data-theme="halloween"]) .greatRevolutionFieldEffect::after {
+  top: 50%;
+  left: 50%;
+  display: block;
+  width: 154%;
+  height: 196%;
+  aspect-ratio: auto;
+  border: 0;
+  border-radius: 0;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(211, 188, 216, 0.44) 0 4px, transparent 5px),
+    repeating-conic-gradient(from 0deg at 50% 50%, rgba(205, 180, 211, 0.17) 0 1deg, transparent 1deg 14deg),
+    conic-gradient(from 18deg at 50% 50%, transparent 0 23deg, rgba(157, 121, 166, 0.16) 23deg 29deg, transparent 29deg 91deg);
+  box-shadow: none;
+  opacity: 0.48;
+  transform: translate(-50%, -50%);
+  animation: none;
+}
+
+:global(html[data-theme="halloween"]) .greatRevolutionFieldEffect > i {
+  --clock-start: 0deg;
+  top: 50%;
+  left: 50%;
+  display: block;
+  width: min(720px, 48vw);
+  height: 3px;
+  aspect-ratio: auto;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #d0b4d5, rgba(135, 100, 145, 0.34) 74%, transparent);
+  box-shadow: 0 0 14px rgba(164, 126, 174, 0.3);
+  opacity: 0.65;
+  transform-origin: 0 50%;
+  animation: halloweenGreatRevolutionHandReverseOnline 8s linear infinite;
+}
+
+:global(html[data-theme="halloween"]) .greatRevolutionFieldEffect > i:nth-of-type(2) {
+  --clock-start: 92deg;
+  left: 50%;
+  width: min(520px, 36vw);
+  height: 2px;
+  animation-delay: 0ms;
+  animation-duration: 13s;
+}
+
+:global(html[data-theme="halloween"]) .greatRevolutionFieldEffect > span,
+:global(html[data-theme="halloween"]) .greatRevolutionFieldEffect > span::before,
+:global(html[data-theme="halloween"]) .greatRevolutionFieldEffect > span::after {
+  display: none;
+  animation: none;
+}
+
+@keyframes halloweenGreatRevolutionHandReverseOnline {
+  from { transform: translateY(-50%) rotate(var(--clock-start)); }
+  to { transform: translateY(-50%) rotate(calc(var(--clock-start) - 360deg)); }
+}
+
+@keyframes halloweenInkDropOnline {
+  0% { top: -20%; opacity: 0; transform: translateX(-50%) rotate(-4deg) scale(0.72, 0.56); }
+  12% { opacity: 0.98; }
+  42% { transform: translateX(-50%) rotate(3deg) scale(0.9, 1.08); }
+  68% { top: calc(var(--ink-impact-y) - 7%); opacity: 1; transform: translateX(-50%) rotate(-2deg) scale(0.96, 1.12); }
+  76% { top: var(--ink-impact-y); opacity: 1; transform: translateX(-50%) rotate(0) scale(1.04, 1.02); }
+  83% { top: calc(var(--ink-impact-y) + 0.4%); opacity: 0.92; transform: translateX(-50%) scale(1.72, 0.32); }
+  100% { top: calc(var(--ink-impact-y) + 1%); opacity: 0; transform: translateX(-50%) scale(2.15, 0.12); }
+}
+
+:global(html[data-theme="halloween"]) .revolutionOverlay .revolutionJokers {
+  z-index: 2;
+  overflow: visible;
+}
+
+:global(html[data-theme="halloween"]) .revolutionOverlay .revolutionJokers > span {
+  display: block;
+  visibility: visible;
+  background-color: #09080b;
+  background-image: var(--dalmuti-joker-card-image);
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+}
+
+:global(html[data-theme="halloween"]) .revolutionOverlay .eventCenterCopy {
+  z-index: 3;
+}
+
+@keyframes halloweenDalmutiVignetteOnline {
+  0%, 100% { opacity: 0; }
+  18%, 78% { opacity: 1; }
+}
+
+@keyframes halloweenDalmutiHandsStageOnline {
+  0%, 90% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes halloweenDalmutiHandRevealOnline {
+  from { opacity: 0; }
+  to { opacity: 0.92; }
+}
+
+@keyframes halloweenDalmutiCopyRevealOnline {
+  0%, 12% { opacity: 0; }
+  24%, 100% { opacity: 1; }
+}
+
+@keyframes halloweenDalmutiCardRevealOnline {
+  0%, 12% {
+    opacity: 0;
+    transform:
+      translate3d(
+        calc(
+          var(--center-x) - var(--event-card-half-width) +
+            var(--halloween-card-x)
+        ),
+        calc(var(--center-y) - var(--event-card-half-height)),
+        0
+      )
+      rotate(var(--event-card-angle))
+      scale(0.74);
+  }
+  24% {
+    opacity: 1;
+    transform:
+      translate3d(
+        calc(
+          var(--center-x) - var(--event-card-half-width) +
+            var(--halloween-card-x)
+        ),
+        calc(var(--center-y) - var(--event-card-half-height)),
+        0
+      )
+      rotate(var(--event-card-angle))
+      scale(1.06);
+  }
+  36%, 100% {
+    opacity: 1;
+    transform:
+      translate3d(
+        calc(
+          var(--center-x) - var(--event-card-half-width) +
+            var(--halloween-card-x)
+        ),
+        calc(var(--center-y) - var(--event-card-half-height)),
+        0
+      )
+      rotate(var(--event-card-angle))
+      scale(1);
+  }
+}
+
+@keyframes halloweenDalmutiHandsEmergeOnline {
+  0%, 9% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--hand-start-x)), 62%) scaleY(0.78);
+  }
+  19% {
+    opacity: 0.28;
+    transform: translate(calc(-50% + var(--hand-start-x)), 41%) scaleY(0.86);
+  }
+  33% {
+    opacity: 0.82;
+    transform: translate(-50%, 13%) scaleY(1.04);
+  }
+  45%, 78% {
+    opacity: 1;
+    transform: translate(-50%, 0) scaleY(1);
+  }
+  90% {
+    opacity: 0.78;
+    transform: translate(-50%, -2%) scaleY(1.015);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -7%) scaleY(1.035);
+  }
+}
+
+@keyframes halloweenInkFloodOnline {
+  0% {
+    clip-path: polygon(0 0, 100% 0, 100% 0, 84% 0, 69% 0, 54% 0, 39% 0, 23% 0, 0 0);
+  }
+  56% {
+    clip-path: polygon(0 0, 100% 0, 100% 54%, 84% 68%, 69% 48%, 54% 76%, 39% 55%, 23% 71%, 0 58%);
+  }
+  100% {
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 84% 100%, 69% 100%, 54% 100%, 39% 100%, 23% 100%, 0 100%);
+  }
+}
+
+@keyframes halloweenInkFrontOnline {
+  0% { opacity: 0; transform: translateY(-125%); }
+  15% { opacity: 1; }
+  78% { opacity: 0.96; }
+  100% { opacity: 0; transform: translateY(330%); }
+}
+
+@keyframes halloweenInkDripOnline {
+  0% { opacity: 0; transform: translate(-50%, -76%) scaleY(0.5); }
+  18% { opacity: 1; }
+  82% { opacity: 0.9; }
+  100% { opacity: 0; transform: translate(-50%, 220%) scaleY(1.18); }
+}
+
+@keyframes halloweenFieldBubbleOnline {
+  0%, 18%, 100% { opacity: 0; transform: translateY(8px) scale(0.2); }
+  38% { opacity: 0.48; transform: translateY(1px) scale(0.92); }
+  64% { opacity: 0.34; transform: translateY(-4px) scale(1.08); }
+  84% { opacity: 0; transform: translateY(-12px) scale(1.45); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :global(html[data-theme="halloween"]) .revolutionInkTransition,
+  :global(html[data-theme="halloween"]) .revolutionInkTransition::before,
+  :global(html[data-theme="halloween"]) .revolutionInkTransition::after,
+  :global(html[data-theme="halloween"]) .revolutionInkTransition > i,
+  :global(html[data-theme="halloween"]) .revolutionInkCanvas,
+  :global(html[data-theme="halloween"]) .dalmutiEffectOverlay::before,
+  :global(html[data-theme="halloween"]) .dalmutiSpectacle::before,
+  :global(html[data-theme="halloween"]) .dalmutiSpectacle::after,
+  :global(html[data-theme="halloween"]) .dalmutiSpectacle > i,
+  :global(html[data-theme="halloween"]) .dalmutiSpectacle > span:nth-of-type(n),
+  :global(html[data-theme="halloween"]) .table.tableGreatRevolution::before,
+  :global(html[data-theme="halloween"]) .greatRevolutionFieldEffect::before,
+  :global(html[data-theme="halloween"]) .greatRevolutionFieldEffect::after,
+  :global(html[data-theme="halloween"]) .greatRevolutionFieldEffect > i {
+    animation: none !important;
+  }
+
+  :global(html[data-theme="halloween"]) .revolutionInkTransition {
+    display: none !important;
+  }
+
+  :global(html[data-theme="halloween"]) .dalmutiSpectacle::before,
+  :global(html[data-theme="halloween"]) .dalmutiSpectacle::after,
+  :global(html[data-theme="halloween"]) .dalmutiSpectacle > i,
+  :global(html[data-theme="halloween"]) .dalmutiSpectacle > span:nth-of-type(n) {
+    display: none !important;
+  }
+
+  :global(html[data-theme="halloween"]) .table.tableGreatRevolution::before {
+    clip-path: none;
+  }
+
+  :global(html[data-theme="halloween"]) .greatRevolutionFieldEffect::before,
+  :global(html[data-theme="halloween"]) .greatRevolutionFieldEffect::after,
+  :global(html[data-theme="halloween"]) .greatRevolutionFieldEffect > i,
+  :global(html[data-theme="halloween"]) .greatRevolutionFieldEffect > span {
+    display: none !important;
+  }
+}
+
+/* Terminal safeguard for mobile/installed opening presentation surfaces. */
+:global(html[data-theme="halloween"]) .openingSequenceVeil {
+  border-color: rgba(185, 137, 194, 0);
+  background:
+    radial-gradient(ellipse at 50% 45%, rgba(91, 68, 100, 0.2), rgba(24, 22, 30, 0.12) 48%, transparent 74%),
+    linear-gradient(115deg, transparent 24%, rgba(183, 141, 191, 0.035) 48%, transparent 72%);
+  box-shadow: inset 0 0 72px rgba(133, 85, 145, 0);
+}
+
+:global(html[data-theme="halloween"]) .openingSequenceVeilActive {
+  border-color: rgba(185, 137, 194, 0.13);
+  box-shadow: inset 0 0 72px rgba(133, 85, 145, 0.08);
+}
+
+:global(html[data-theme="halloween"]) .rankChoiceIntro::before,
+:global(html[data-theme="halloween"]) .rankConfirmation::before {
+  border-color: rgba(185, 137, 194, 0.27);
+  background: radial-gradient(ellipse, rgba(32, 27, 38, 0.94), rgba(19, 18, 25, 0.54) 60%, transparent 74%);
+  box-shadow:
+    inset 0 0 34px rgba(137, 84, 149, 0.12),
+    0 0 40px rgba(0, 0, 0, 0.24);
 }

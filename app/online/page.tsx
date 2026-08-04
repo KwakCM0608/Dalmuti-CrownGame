@@ -19,6 +19,7 @@ import {
 } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import HalloweenInkContaminationCanvas from "@/app/components/HalloweenInkContaminationCanvas";
 import type { OnlineCommand, OnlineSnapshot } from "@/lib/online-game";
 import {
   ONLINE_CHAT_HISTORY_LIMIT,
@@ -58,6 +59,12 @@ import {
   RULEBOOK_DIALOG_ID,
   RulebookDialog,
 } from "@/app/components/RulebookDialog";
+import { useAppPreferences } from "@/app/components/AppPreferencesProvider";
+import {
+  cardArtPath,
+  cardProfessionName,
+  type AppTheme,
+} from "@/lib/app-preferences";
 import styles from "./online.module.css";
 
 type LooseRecord = Record<string, unknown>;
@@ -282,9 +289,9 @@ const BOT_DIFFICULTY_LABELS: Record<BotDifficulty, string> = {
   hard: "어려움",
 };
 const BOT_DIFFICULTY_DESCRIPTIONS: Record<BotDifficulty, string> = {
-  easy: "기본적인 카드 제출",
+  easy: "상대의 완주 위협까지 대응",
   normal: "조커와 묶음을 관리",
-  hard: "상대의 완주 위협까지 대응",
+  hard: "AI가 직접 판단",
 };
 
 function eventPresentationStartsAt(
@@ -314,22 +321,6 @@ const ROLE_MARKS: Record<string, string> = {
   "great-peon": "♟",
   great_peon: "♟",
 };
-const RANK_NAMES: Record<number, string> = {
-  1: "달무티",
-  2: "대주교",
-  3: "시종장",
-  4: "남작부인",
-  5: "수녀원장",
-  6: "기사",
-  7: "재봉사",
-  8: "석공",
-  9: "요리사",
-  10: "양치기",
-  11: "광부",
-  12: "농노",
-  13: "어릿광대",
-};
-
 function isRecord(value: unknown): value is LooseRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -880,10 +871,12 @@ function readSession(code?: string): StoredSession | null {
   }
 }
 
-function cardImage(rank: number): string {
-  return rank === 13
-    ? "/cards/joker.webp"
-    : `/cards/${String(rank).padStart(2, "0")}.webp`;
+function useCardImage(): (rank: number) => string {
+  const { preferences } = useAppPreferences();
+  return useCallback(
+    (rank: number) => cardArtPath(preferences.theme, rank),
+    [preferences.theme],
+  );
 }
 
 function roleLabel(role: string): string {
@@ -1047,10 +1040,10 @@ function mobileAppLayoutSnapshot(): boolean {
   );
 }
 
-function formatRank(rank: number): string {
+function formatRank(rank: number, theme: AppTheme): string {
   return rank === 13
-    ? "어릿광대"
-    : `${RANK_NAMES[rank] ?? `${rank}등급`}(${rank})`;
+    ? cardProfessionName(theme, rank)
+    : `${cardProfessionName(theme, rank)}(${rank})`;
 }
 
 function PlayingCard({
@@ -1072,6 +1065,9 @@ function PlayingCard({
   displayOnly?: boolean;
   style?: CSSProperties;
 }) {
+  const { preferences } = useAppPreferences();
+  const cardImage = useCardImage();
+  const lastTouchAtRef = useRef(0);
   return (
     <button
       type="button"
@@ -1080,13 +1076,25 @@ function PlayingCard({
       } ${displayOnly ? styles.cardDisplayOnly : ""}`}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
+      onTouchEnd={(event) => {
+        if (!onDoubleClick) return;
+        const now = performance.now();
+        if (now - lastTouchAtRef.current <= 360) {
+          event.preventDefault();
+          lastTouchAtRef.current = 0;
+          onDoubleClick();
+          return;
+        }
+        lastTouchAtRef.current = now;
+      }}
       disabled={disabled || displayOnly}
       style={style}
+      data-rank={card.rank}
       aria-pressed={displayOnly ? undefined : selected}
       aria-label={
         concealed
           ? "뒤집힌 카드"
-          : `${formatRank(card.rank)} 카드${selected ? ", 선택됨" : ""}`
+          : `${formatRank(card.rank, preferences.theme)} 카드${selected ? ", 선택됨" : ""}`
       }
     >
       <img
@@ -1377,6 +1385,8 @@ function RankSelectionField({
   busy: boolean;
   onChoose: (slotIndex: number) => void;
 }) {
+  const { preferences } = useAppPreferences();
+  const cardImage = useCardImage();
   const isIntro = rankSelection.stage === "intro";
   const isRevealed = rankSelection.stage === "revealed";
   const isConfirmed = rankSelection.stage === "confirmed";
@@ -1475,7 +1485,7 @@ function RankSelectionField({
               {roleLabelForRank(viewerRank - 1, players.length)}
             </strong>
             <em>
-              {RANK_NAMES[viewerRank] ?? "계급"}({viewerRank}) 카드를
+              {cardProfessionName(preferences.theme, viewerRank)}({viewerRank}) 카드를
               선택했습니다
             </em>
           </div>
@@ -1559,7 +1569,7 @@ function RankSelectionField({
                 disabled={!canChoose}
                 aria-label={
                   isRevealed
-                    ? `${claimant?.name ?? "플레이어"}, ${formatRank(rank ?? index + 1)}`
+                    ? `${claimant?.name ?? "플레이어"}, ${formatRank(rank ?? index + 1, preferences.theme)}`
                     : claimed
                       ? mine
                         ? "내가 선택한 카드"
@@ -1602,6 +1612,7 @@ function EventOverlayView({
   anchors,
   effectiveClock,
 }: EventOverlayProps) {
+  const { preferences } = useAppPreferences();
   const type = event.type;
   const data = event.data;
   const cards = cardsFrom(
@@ -1896,7 +1907,7 @@ function EventOverlayView({
               </div>
               <strong>
                 {routeIsPrivate
-                  ? cards.map((card) => formatRank(card.rank)).join(" · ")
+                  ? cards.map((card) => formatRank(card.rank, preferences.theme)).join(" · ")
                   : `카드 ${routeCount}장 이동`}
               </strong>
               <small>
@@ -1999,7 +2010,8 @@ function EventOverlayView({
         </div>
         <strong>DALMUTI</strong>
         <span>
-          {playerName(players, actorId)}이(가) 달무티(1) x{" "}
+          {playerName(players, actorId)}이(가){" "}
+          {cardProfessionName(preferences.theme, 1)}(1) x{" "}
           {dalmutiCards.length}장을 냈습니다
         </span>
         <div className={styles.autoPassPlayers}>
@@ -2026,6 +2038,7 @@ function EventOverlayView({
                     playerIndex *
                       INSTALLED_MOBILE_PRESENTATION.dalmutiAutoPassStagger
                   }ms`,
+                  "--halloween-pass-delay": `${1660 + playerIndex * 38}ms`,
                 } as CSSProperties
               }
             >
@@ -2128,7 +2141,7 @@ function EventOverlayView({
           <small>공개 플레이</small>
           <strong>{playerName(players, actorId)}</strong>
           <span>
-            {RANK_NAMES[playedRank] ?? "어릿광대"}({playedRank}) x{" "}
+            {cardProfessionName(preferences.theme, playedRank)}({playedRank}) x{" "}
             {cards.length}장
           </span>
         </div>
@@ -2655,6 +2668,8 @@ function OnlineChatPanel({
 
 export default function OnlinePage() {
   const router = useRouter();
+  const { preferences } = useAppPreferences();
+  const cardImage = useCardImage();
   const mobileGameLayout = useSyncExternalStore(
     subscribeMobileGameLayout,
     mobileGameLayoutSnapshot,
@@ -3741,9 +3756,7 @@ export default function OnlinePage() {
   const playError = useMemo(() => {
     if (!selectedCards.length) return "낼 카드를 선택하세요.";
     if (selectedNormalRanks.length > 1)
-      return "같은 숫자의 카드와 어릿광대만 함께 낼 수 있습니다.";
-    if (selectedCards.every((card) => card.rank === 13) && selectedCards.length > 1)
-      return "어릿광대만 낼 때는 한 장만 선택하세요.";
+      return `같은 숫자의 카드와 ${cardProfessionName(preferences.theme, 13)}만 함께 낼 수 있습니다.`;
     if (snapshot?.table) {
       if (selectedCards.length !== snapshot.table.count)
         return `카드 ${snapshot.table.count}장을 내야 합니다.`;
@@ -3751,7 +3764,13 @@ export default function OnlinePage() {
         return `${snapshot.table.rank}보다 낮은 숫자가 필요합니다.`;
     }
     return null;
-  }, [selectedCards, selectedNormalRanks.length, selectedRank, snapshot?.table]);
+  }, [
+    preferences.theme,
+    selectedCards,
+    selectedNormalRanks.length,
+    selectedRank,
+    snapshot?.table,
+  ]);
   const effectiveClock = clock + serverOffset;
   const activeEmotesByPlayerId = useMemo(() => {
     const active: Record<string, RoomEmoteView> = {};
@@ -4529,6 +4548,7 @@ export default function OnlinePage() {
               {[1, 2, 13].map((rank, index) => (
                 <span
                   key={rank}
+                  data-rank={rank}
                   style={{ "--hero-card": index } as CSSProperties}
                 >
                   <img src={cardImage(rank)} alt="" />
@@ -4913,7 +4933,11 @@ export default function OnlinePage() {
                     }}
                   >
                     <strong>{BOT_DIFFICULTY_LABELS[difficulty]}</strong>
-                    <span>{BOT_DIFFICULTY_DESCRIPTIONS[difficulty]}</span>
+                    <span>
+                      {difficulty === "normal" && preferences.theme === "halloween"
+                        ? `${cardProfessionName(preferences.theme, 13)}와 묶음을 관리`
+                        : BOT_DIFFICULTY_DESCRIPTIONS[difficulty]}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -5281,6 +5305,29 @@ export default function OnlinePage() {
               <i />
               <span>♝</span>
             </div>
+            {revolutionFieldActive && (
+              <div
+                className={styles.revolutionInkTransition}
+                aria-hidden="true"
+              >
+                <HalloweenInkContaminationCanvas
+                  className={styles.revolutionInkCanvas}
+                />
+                {Array.from({ length: 7 }, (_, index) => (
+                  <i
+                    key={`revolution-ink-drop-${index}`}
+                    style={
+                      {
+                        "--ink-drop-x": `${8 + ((index * 19) % 86)}%`,
+                        "--ink-impact-y": `${24 + ((index * 17) % 48)}%`,
+                        "--ink-drop-delay": `${index * 90}ms`,
+                        "--ink-drop-width": `${11 + (index % 3) * 2}px`,
+                      } as CSSProperties
+                    }
+                  />
+                ))}
+              </div>
+            )}
             {greatRevolutionActive && (
               <div
                 className={styles.greatRevolutionFieldEffect}
@@ -5526,7 +5573,7 @@ export default function OnlinePage() {
                     })}
                   </div>
                   <strong>
-                    {formatRank(visibleTable.rank)} × {visibleTable.count}장
+                    {formatRank(visibleTable.rank, preferences.theme)} × {visibleTable.count}장
                   </strong>
                   <p>
                     {visibleTable.rank}보다 낮은 숫자의 카드{" "}
@@ -5696,7 +5743,7 @@ export default function OnlinePage() {
                       ? selectedIds.length
                         ? `${selectedIds.length}장 선택 · ${
                             playError ??
-                            `${formatRank(selectedRank ?? 13)} × ${selectedIds.length}장`
+                            `${formatRank(selectedRank ?? 13, preferences.theme)} × ${selectedIds.length}장`
                           }`
                         : playError ?? "카드를 선택하세요"
                       : "상대의 행동을 기다리고 있습니다"}
@@ -5803,7 +5850,7 @@ export default function OnlinePage() {
                                 : "혁명"
                             }을 일으켰습니다`
                     : event.type === "DALMUTI_EFFECT"
-                      ? `${playerName(snapshot.players, event.actorPlayerId)}이(가) 달무티를 내 모두 자동 패스했습니다`
+                      ? `${playerName(snapshot.players, event.actorPlayerId)}이(가) ${cardProfessionName(preferences.theme, 1)}를 내 모두 자동 패스했습니다`
                       : event.type.includes("PASS")
                       ? `${playerName(snapshot.players, event.actorPlayerId)}이(가) 패스했습니다`
                       : event.type.includes("PLAY")
@@ -5831,7 +5878,11 @@ export default function OnlinePage() {
               <i className={styles.legendWeak} />12는 가장 약함
             </span>
             <span>
-              <i className={styles.legendJoker} />조커는 만능 카드
+              <i className={styles.legendJoker} />
+              {preferences.theme === "halloween"
+                ? cardProfessionName(preferences.theme, 13)
+                : "조커"}
+              는 만능 카드
             </span>
           </div>
         </aside>
@@ -5843,7 +5894,10 @@ export default function OnlinePage() {
           <div className={styles.modalLayer}>
             <section className={styles.decisionCard}>
               <span className={styles.decisionJokers}>♠ ♣</span>
-              <small>두 어릿광대가 당신의 손에 있습니다</small>
+              <small>
+                두 {cardProfessionName(preferences.theme, 13)}가 당신의 손에
+                있습니다
+              </small>
               <h2>
                 {["great-peon", "great_peon"].includes(me?.role ?? "")
                   ? "대혁명을 선포하시겠습니까?"
@@ -5917,7 +5971,12 @@ export default function OnlinePage() {
                   >
                     <span>{index + 1}</span>
                     <p>
-                      <strong>{player.name}</strong>
+                      <strong className={styles.resultPlayerName}>
+                        {player.name}
+                        {player.id !== snapshot.hostId && player.ready && (
+                          <i className={styles.resultReadyBadge}>Ready</i>
+                        )}
+                      </strong>
                       <small
                         className={`${styles.resultRoleChange} ${
                           rankDirection === "up"
@@ -5937,21 +5996,45 @@ export default function OnlinePage() {
                 );
               })}
             </ol>
+            <p className={styles.resultReadyPrompt}>
+              {isHost
+                ? allReady
+                  ? "모든 플레이어가 준비되었습니다. 다음 막을 시작할 수 있습니다."
+                  : "다른 플레이어들이 다음 막을 준비하고 있습니다."
+                : me?.ready
+                  ? "준비가 완료되었습니다. 방장이 다음 막을 시작할 때까지 기다려 주세요."
+                  : "다음 막으로 가려면 준비하세요."}
+            </p>
             {isHost ? (
               <button
                 type="button"
                 className={styles.primaryButton}
-                disabled={busy}
+                disabled={busy || !allReady}
                 onClick={() => void sendCommand("START_NEXT_ROUND")}
               >
                 <span>다음 막으로</span>
-                <small>새 계급으로 카드 배분</small>
+                <small>
+                  {allReady
+                    ? "새 계급으로 카드 배분"
+                    : "모든 플레이어의 Ready를 기다리는 중"}
+                </small>
                 <b>→</b>
               </button>
             ) : (
-              <p className={styles.resultWait}>
-                방장이 다음 막을 시작하기를 기다리고 있습니다.
-              </p>
+              <button
+                type="button"
+                className={`${styles.primaryButton} ${
+                  me?.ready ? styles.resultReadyButtonOn : ""
+                }`}
+                disabled={busy}
+                onClick={() =>
+                  void sendCommand("SET_READY", { ready: !me?.ready })
+                }
+              >
+                <span>다음 막을 위한 준비</span>
+                <small>{me?.ready ? "클릭하면 준비 취소" : "준비 상태 알리기"}</small>
+                <b>{me?.ready ? "✓" : "→"}</b>
+              </button>
             )}
           </section>
         </div>

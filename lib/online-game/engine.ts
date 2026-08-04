@@ -21,6 +21,8 @@ import {
   chooseFacedownRankSlot,
   type BotDifficulty,
 } from "../bot-strategy.ts";
+import { chooseDeployedHardBotCardIds } from "../deployed-hard-bot-policy.ts";
+import { deploymentHeuristicDifficulty } from "../deployed-bot-difficulty.ts";
 import {
   forceClaimedPlayerToLastRank,
   forceTwoJokersIntoHand,
@@ -766,7 +768,7 @@ function normalizedSet(
   if (cards.length === 0) return null;
   const normalCards = cards.filter((card) => card.rank !== 13);
   if (normalCards.length === 0) {
-    return cards.length === 1 ? { rank: 13, count: 1 } : null;
+    return { rank: 13, count: cards.length };
   }
   const rank = normalCards[0].rank;
   if (normalCards.some((card) => card.rank !== rank)) return null;
@@ -1237,7 +1239,7 @@ function autoSelectTaxReturns(
       ? chooseBotTaxReturn(
           state.hands[exchange.nobleId],
           exchange.count,
-          noble.botDifficulty ?? "normal",
+          deploymentHeuristicDifficulty(noble.botDifficulty),
         ).cardIds
       : selectAutomaticNobleReturns(
           state.hands[exchange.nobleId],
@@ -1296,7 +1298,7 @@ function advanceOneTimedPhase(
             role: holder.role,
             playerCount: state.players.length,
           },
-          holder.botDifficulty ?? "normal",
+          deploymentHeuristicDifficulty(holder.botDifficulty),
         );
         chooseRevolution(state, decision.declare, at);
       } else {
@@ -1380,6 +1382,13 @@ function finishRoundIfNeeded(
     (player) => !state.finishOrder.includes(player.id),
   );
   if (last) state.finishOrder.push(last.id);
+  state.players = state.players.map((player) => ({
+    ...player,
+    // The host starts the next act and therefore does not ready up. Bots are
+    // always ready; every other human must explicitly confirm from the result
+    // screen before the host may continue.
+    ready: player.isBot,
+  }));
   state.phase = "round-end";
   state.phaseEndsAt = null;
   state.turnDeadline = null;
@@ -1698,29 +1707,45 @@ function chooseOnlineBotCards(
     }
   }
 
+  const observation = {
+    actorId: playerId,
+    hand: state.hands[playerId] ?? [],
+    table: state.table
+      ? {
+          rank: state.table.rank,
+          count: state.table.count,
+          playerId: state.table.playerId,
+        }
+      : null,
+    players: state.players.map((player) => ({
+      id: player.id,
+      handCount: state.hands[player.id]?.length ?? 0,
+      finished: state.finishOrder.includes(player.id),
+    })),
+    passedPlayerIds: state.passedPlayerIds,
+    publicPlayedCards: [...publicCounts].map(([rank, count]) => ({
+      rank,
+      count,
+    })),
+  };
+  const difficulty = bot?.botDifficulty ?? "normal";
+
+  if (difficulty === "hard") {
+    return chooseDeployedHardBotCardIds(observation, {
+      round: state.round,
+      rolesByPlayerId: Object.fromEntries(
+        state.players.map((player) => [player.id, player.role]),
+      ),
+      scoresByPlayerId: Object.fromEntries(
+        state.players.map((player) => [player.id, player.score]),
+      ),
+      revolution: state.declaredRevolution?.kind ?? null,
+    });
+  }
+
   return chooseBotCardIds(
-    {
-      actorId: playerId,
-      hand: state.hands[playerId] ?? [],
-      table: state.table
-        ? {
-            rank: state.table.rank,
-            count: state.table.count,
-            playerId: state.table.playerId,
-          }
-        : null,
-      players: state.players.map((player) => ({
-        id: player.id,
-        handCount: state.hands[player.id]?.length ?? 0,
-        finished: state.finishOrder.includes(player.id),
-      })),
-      passedPlayerIds: state.passedPlayerIds,
-      publicPlayedCards: [...publicCounts].map(([rank, count]) => ({
-        rank,
-        count,
-      })),
-    },
-    bot?.botDifficulty ?? "normal",
+    observation,
+    deploymentHeuristicDifficulty(difficulty),
   );
 }
 
@@ -1759,7 +1784,7 @@ function performBotAction(
         role: bot.role,
         playerCount: state.players.length,
       },
-      bot.botDifficulty ?? "normal",
+      deploymentHeuristicDifficulty(bot.botDifficulty),
     );
     chooseRevolution(state, decision.declare, at);
     return;
@@ -1774,7 +1799,7 @@ function performBotAction(
     const cardIds = chooseBotTaxReturn(
       state.hands[bot.id],
       exchange.count,
-      bot.botDifficulty ?? "normal",
+      deploymentHeuristicDifficulty(bot.botDifficulty),
     ).cardIds;
     selectTaxReturn(state, bot.id, cardIds, at, true);
     return;
@@ -2103,13 +2128,25 @@ export function applyOnlineCommand(
   const next = cloneRoom(advanced);
   switch (command.type) {
     case "SET_READY": {
-      if (next.phase !== "lobby") {
-        fail("WRONG_PHASE", "readiness can only change in the lobby");
+      if (next.phase !== "lobby" && next.phase !== "round-end") {
+        fail(
+          "WRONG_PHASE",
+          "readiness can only change in the lobby or after a round",
+        );
       }
       if (typeof command.ready !== "boolean") {
         fail("INVALID_READY_VALUE", "ready must be a boolean");
       }
       const player = next.players.find((candidate) => candidate.id === actorId)!;
+      if (next.phase === "round-end" && player.id === next.hostId) {
+        fail(
+          "HOST_READY_NOT_REQUIRED",
+          "the host starts the next round and does not ready up",
+        );
+      }
+      if (next.phase === "round-end" && player.isBot) {
+        fail("BOT_ALREADY_READY", "bots are automatically ready");
+      }
       if (player.ready === command.ready) {
         next.processedCommandIds = [
           ...next.processedCommandIds,
@@ -2125,12 +2162,13 @@ export function applyOnlineCommand(
       // The opening deal depends on the rank-card result, so it cannot be
       // assigned by temporary lobby order. Clear a legacy pre-sealed deal and
       // deal only after the rank reveal has established the real order.
-      if (next.dealSealed) {
+      if (next.phase === "lobby" && next.dealSealed) {
         clearSealedDeal(next);
       }
       appendEvent(next, "PLAYER_READY_CHANGED", now, {
         playerId: actorId,
         ready: command.ready,
+        phase: next.phase,
       });
       break;
     }
@@ -2262,6 +2300,18 @@ export function applyOnlineCommand(
       }
       if (actorId !== next.hostId) {
         fail("HOST_ONLY", "only the host can start the next round");
+      }
+      if (
+        next.players.some(
+          (player) =>
+            player.id !== next.hostId &&
+            (!player.ready || !player.connected),
+        )
+      ) {
+        fail(
+          "PLAYERS_NOT_READY",
+          "every non-host player must be ready and connected",
+        );
       }
       const byId = new Map(next.players.map((player) => [player.id, player]));
       next.players = next.finishOrder.map((id) => {

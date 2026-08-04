@@ -46,7 +46,7 @@ test("exposes the three supported bot difficulties", () => {
   assert.deepEqual(BOT_DIFFICULTIES, ["easy", "normal", "hard"]);
 });
 
-test("enumerates every legal response by card id and excludes invalid joker-only pairs", () => {
+test("enumerates every legal response by card id without using a joker pair as a response", () => {
   const plays = enumerateLegalBotPlays(
     observation({
       hand: [
@@ -84,7 +84,7 @@ test("enumerates every legal response by card id and excludes invalid joker-only
   assert.equal(plays.some((play) => play.rank === 9), false);
 });
 
-test("allows either joker as a single lead but never a two-joker-only lead", () => {
+test("allows either joker singly or both jokers together as an empty-table lead", () => {
   const plays = enumerateLegalBotPlays(
     observation({
       hand: [card("joker-a", 13), card("joker-b", 13)],
@@ -93,7 +93,7 @@ test("allows either joker as a single lead but never a two-joker-only lead", () 
 
   assert.deepEqual(
     plays.map((play) => play.cardIds),
-    [["joker-a"], ["joker-b"]],
+    [["joker-a"], ["joker-b"], ["joker-a", "joker-b"]],
   );
 });
 

@@ -12,10 +12,18 @@ export const MAX_PLAY_COUNT = 14;
 export const JOKER_COUNT_OPTIONS = 3;
 export const ACTION_SPACE_SIZE =
   2 + NORMAL_RANK_COUNT * MAX_PLAY_COUNT * JOKER_COUNT_OPTIONS;
+// Reuse a physically impossible V1 slot (rank 12, count 2, two jokers and no
+// natural card) so deployed 506-logit policies remain binary-compatible.
+export const DOUBLE_JOKER_ACTION_INDEX =
+  2 +
+  ((NORMAL_RANK_COUNT - 1) * MAX_PLAY_COUNT + (2 - 1)) *
+    JOKER_COUNT_OPTIONS +
+  2;
 
 export type SemanticAction =
   | { type: "pass" }
   | { type: "solo-joker" }
+  | { type: "double-joker" }
   | {
       type: "play";
       rank: number;
@@ -49,6 +57,7 @@ function assertIntegerInRange(
 export function encodeSemanticAction(action: SemanticAction): number {
   if (action.type === "pass") return PASS_ACTION_INDEX;
   if (action.type === "solo-joker") return SOLO_JOKER_ACTION_INDEX;
+  if (action.type === "double-joker") return DOUBLE_JOKER_ACTION_INDEX;
 
   assertIntegerInRange(action.rank, 1, NORMAL_RANK_COUNT, "rank");
   assertIntegerInRange(action.count, 1, MAX_PLAY_COUNT, "count");
@@ -72,6 +81,9 @@ export function decodeSemanticAction(actionIndex: number): SemanticAction {
   if (actionIndex === PASS_ACTION_INDEX) return { type: "pass" };
   if (actionIndex === SOLO_JOKER_ACTION_INDEX) {
     return { type: "solo-joker" };
+  }
+  if (actionIndex === DOUBLE_JOKER_ACTION_INDEX) {
+    return { type: "double-joker" };
   }
 
   const offset = actionIndex - 2;
@@ -104,6 +116,7 @@ export function legalSemanticActionIndices(
     result.push(PASS_ACTION_INDEX);
   } else if (jokerCountInHand > 0) {
     result.push(SOLO_JOKER_ACTION_INDEX);
+    if (jokerCountInHand >= 2) result.push(DOUBLE_JOKER_ACTION_INDEX);
   }
 
   for (let rank = 1; rank <= NORMAL_RANK_COUNT; rank += 1) {
@@ -165,6 +178,13 @@ export function semanticActionIndexFromBotAction(action: BotAction): number {
   ) {
     return SOLO_JOKER_ACTION_INDEX;
   }
+  if (
+    action.rank === 13 &&
+    action.count === 2 &&
+    action.jokerCount === 2
+  ) {
+    return DOUBLE_JOKER_ACTION_INDEX;
+  }
   return encodeSemanticAction({
     type: "play",
     rank: action.rank,
@@ -210,6 +230,19 @@ export function resolveSemanticAction(
       jokerCount: 1,
     };
   }
+  if (semantic.type === "double-joker") {
+    const selectedJokers = jokers.slice(0, 2);
+    if (selectedJokers.length !== 2) {
+      throw new Error("legal double-joker action requires two jokers");
+    }
+    return {
+      type: "play",
+      cardIds: selectedJokers.map((card) => card.id),
+      rank: 13,
+      count: 2,
+      jokerCount: 2,
+    };
+  }
 
   const naturals = sortedCards(
     observation.hand.filter((card) => card.rank === semantic.rank),
@@ -229,4 +262,3 @@ export function resolveSemanticAction(
   };
   return action;
 }
-

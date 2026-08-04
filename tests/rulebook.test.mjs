@@ -47,7 +47,7 @@ test("beginner rulebook covers the complete implemented ruleset", () => {
   for (const expected of [
     "같은 장수",
     "더 낮은 숫자",
-    "어릿광대만 낼 때는 한 장",
+    "어릿광대만 한 장 또는 두 장",
     "달무티(1)를 내면 나머지 플레이어가 즉시 자동 PASS",
     "제1막은 세금 교환 없이",
     "농노 → 달무티",
@@ -105,8 +105,8 @@ test("quick and online modes share an accessible visual rulebook", async () => {
   assert.match(component, /event\.key === "Escape"/);
   assert.match(component, /event\.key !== "Tab"/);
   assert.match(component, /restoreFocusRef\.current\?\.focus\(\)/);
-  assert.match(component, /\/cards\/joker\.webp/);
-  assert.match(styles, /\/cards\/back\.webp/);
+  assert.match(component, /cardArtPath\(preferences\.theme, rank\)/);
+  assert.match(styles, /var\(--dalmuti-card-back-image\)/);
   assert.match(component, /게임은 계속 진행 중입니다/);
 
   assert.match(styles, /\.layer\s*\{[^}]*z-index: 120;/s);

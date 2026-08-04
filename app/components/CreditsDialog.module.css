@@ -78,7 +78,7 @@
   border: 2px solid rgba(225, 185, 85, 0.72);
   border-radius: 50%;
   background:
-    #77539b url("/brand-dalmuti-crown.png") center / cover no-repeat;
+    #77539b var(--dalmuti-brand-crown-image) center / cover no-repeat;
   box-shadow:
     0 0 0 7px rgba(220, 174, 70, 0.055),
     0 15px 45px rgba(0, 0, 0, 0.42);
@@ -287,4 +287,66 @@
   .layer.closing .dialog {
     animation: none;
   }
+}
+
+:global(html[data-theme="halloween"]) .layer {
+  background:
+    radial-gradient(circle at 50% 30%, rgba(112, 63, 124, 0.24), transparent 38%),
+    rgba(5, 5, 8, 0.86);
+}
+
+:global(html[data-theme="halloween"]) .dialog {
+  border-color: rgba(188, 135, 196, 0.42);
+  color: #e8e1de;
+  background:
+    radial-gradient(circle at 50% 0, rgba(113, 65, 125, 0.22), transparent 42%),
+    linear-gradient(145deg, #24202b, #111117 68%, #0a0a0e);
+  box-shadow:
+    0 36px 100px rgba(0, 0, 0, 0.68),
+    inset 0 0 80px rgba(187, 116, 197, 0.035);
+}
+
+:global(html[data-theme="halloween"]) .crown {
+  border-color: rgba(187, 126, 196, 0.74);
+  background-color: #101116;
+  box-shadow:
+    0 0 0 7px rgba(151, 91, 158, 0.075),
+    0 16px 46px rgba(0, 0, 0, 0.5);
+}
+
+:global(html[data-theme="halloween"]) .close {
+  border-color: rgba(184, 135, 191, 0.28);
+  background: rgba(105, 65, 113, 0.1);
+  color: #d2c6cf;
+}
+
+:global(html[data-theme="halloween"]) .dialog > small,
+:global(html[data-theme="halloween"]) .list dt {
+  color: #c886d2;
+}
+
+:global(html[data-theme="halloween"]) .dialog h2 {
+  color: #eee7e1;
+}
+
+:global(html[data-theme="halloween"]) .dialog > p,
+:global(html[data-theme="halloween"]) .list span {
+  color: #a299a1;
+}
+
+:global(html[data-theme="halloween"]) .list > div {
+  border-color: rgba(181, 136, 188, 0.18);
+  background: rgba(106, 66, 114, 0.07);
+}
+
+:global(html[data-theme="halloween"]) .dialog .notice {
+  border-color: rgba(185, 132, 194, 0.22);
+  background: rgba(111, 64, 122, 0.1);
+  color: #b8abb6;
+}
+
+:global(html[data-theme="halloween"]) .done {
+  border-color: #d18b5b;
+  background: linear-gradient(140deg, #c87849, #78442f);
+  color: #1a100d;
 }

@@ -234,8 +234,8 @@ function assertObservation(observation: BotPlayObservation): void {
  * Enumerates every distinct legal card-id selection.
  *
  * A lead may contain any positive number of one natural rank plus zero, one,
- * or two jokers. A joker may be led alone, but the two jokers cannot form a
- * joker-only pair. A response must match the table count and use a lower rank.
+ * or two jokers. One or two jokers may also lead by themselves at rank 13.
+ * A response must match the table count and use a lower rank.
  */
 export function enumerateLegalBotPlays(
   observation: BotPlayObservation,
@@ -250,6 +250,9 @@ export function enumerateLegalBotPlays(
   if (!observation.table) {
     for (const joker of jokers) {
       result.push(playAction([joker], JOKER_RANK));
+    }
+    if (jokers.length === 2) {
+      result.push(playAction(jokers, JOKER_RANK));
     }
 
     for (const [rank, cards] of groups) {
@@ -320,7 +323,7 @@ function estimatedTurns(hand: readonly BotCard[]): number {
       .map((card) => card.rank),
   );
   const jokerCount = hand.filter((card) => card.rank === JOKER_RANK).length;
-  if (normalRanks.size === 0) return jokerCount;
+  if (normalRanks.size === 0) return Math.ceil(jokerCount / 2);
   return normalRanks.size;
 }
 

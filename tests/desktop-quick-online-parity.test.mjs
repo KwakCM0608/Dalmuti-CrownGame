@@ -168,6 +168,21 @@ test("desktop online self seat, timer, and compact dock status match quick play"
   );
 });
 
+test("desktop online rank draw keeps one center through optimistic claims", () => {
+  assert.match(
+    onlineStyles,
+    /Desktop online only: keep the Act I rank-draw board anchored[\s\S]*?@media \(min-width: 821px\) and \(hover: hover\) and \(pointer: fine\)/,
+  );
+  assert.match(
+    onlineStyles,
+    /\.tableRankSelection \.tableCenter\s*\{[^}]*left: 50%;[^}]*width: min\(860px, 88%\);[^}]*transform: translate\(-50%, -50%\);/,
+  );
+  assert.match(
+    onlineStyles,
+    /> :is\(\.rankChoiceField, \.rankChoiceFieldRevealed\)\s*\{[^}]*position: absolute;[^}]*inset: 0;[^}]*place-content: center;/,
+  );
+});
+
 test("quick desktop score rail is pinned to the online rail contract", () => {
   assert.match(
     quickStyles,

@@ -1,7 +1,22 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
+import { AppPreferencesProvider } from "@/app/components/AppPreferencesProvider";
 import { PwaLifecycle } from "@/app/components/PwaLifecycle";
+import { APP_PREFERENCES_STORAGE_KEY } from "@/lib/app-preferences";
 import "./globals.css";
+
+const THEME_BOOT_SCRIPT = `(() => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(${JSON.stringify(
+      APP_PREFERENCES_STORAGE_KEY,
+    )}) || "null");
+    const theme = stored?.theme === "halloween" ? "halloween" : "original";
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = "dark";
+  } catch {
+    document.documentElement.dataset.theme = "original";
+  }
+})();`;
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -71,10 +86,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko">
+    <html lang="ko" data-theme="original" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
+      </head>
       <body>
-        {children}
-        <PwaLifecycle />
+        <AppPreferencesProvider>
+          {children}
+          <PwaLifecycle />
+        </AppPreferencesProvider>
       </body>
     </html>
   );

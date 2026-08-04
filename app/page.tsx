@@ -8,6 +8,19 @@ import {
   useRef,
   useState,
 } from "react";
+import Link from "next/link";
+import { useAppPreferences } from "@/app/components/AppPreferencesProvider";
+import HalloweenInkContaminationCanvas from "@/app/components/HalloweenInkContaminationCanvas";
+import {
+  cardArtPath,
+  cardProfessionName,
+  type AppTheme,
+} from "@/lib/app-preferences";
+import {
+  chooseLoadedHardBotCardIds,
+  loadDeployedHardBot,
+} from "@/lib/deployed-hard-bot-loader";
+import { deploymentHeuristicDifficulty } from "@/lib/deployed-bot-difficulty";
 import { selectPeonTaxCards } from "@/lib/taxation";
 import { rankedDealCounts } from "@/lib/dealing";
 import { resolveQuickDalmutiAutoPass } from "@/lib/quick-dalmuti";
@@ -221,9 +234,9 @@ const BOT_DIFFICULTY_LABELS: Record<BotDifficulty, string> = {
 };
 
 const BOT_DIFFICULTY_DESCRIPTIONS: Record<BotDifficulty, string> = {
-  easy: "기본적인 카드 제출",
+  easy: "상대의 완주 위협까지 대응",
   normal: "조커와 묶음을 관리",
-  hard: "상대 위협까지 적극 대응",
+  hard: "AI가 직접 판단",
 };
 
 function createTaxAnimationId() {
@@ -275,25 +288,17 @@ const ROLE_MARKS: Record<Role, string> = {
   "great-peon": "♟",
 };
 
-const RANK_NAMES: Record<number, string> = {
-  1: "달무티",
-  2: "대주교",
-  3: "시종장",
-  4: "남작부인",
-  5: "수녀원장",
-  6: "기사",
-  7: "재봉사",
-  8: "석공",
-  9: "요리사",
-  10: "양치기",
-  11: "광부",
-  12: "농노",
-  13: "어릿광대",
-};
-
 function subjectLabel(name: string): string {
   if (name === "나") return "내가";
   return `${name}이(가)`;
+}
+
+function themedCardLogEntry(entry: string, theme: AppTheme): string {
+  if (theme === "original") return entry;
+  const dalmutiName = cardProfessionName(theme, 1);
+  return entry
+    .replaceAll("달무티로", `${dalmutiName}로`)
+    .replaceAll("달무티를 내", `${dalmutiName}를 내`);
 }
 
 function roleForIndex(index: number, total: number): Role {
@@ -382,7 +387,7 @@ function normalizedSet(cards: Card[]): { rank: number; count: number } | null {
   if (cards.length === 0) return null;
   const normalCards = cards.filter((card) => card.rank !== 13);
   if (normalCards.length === 0) {
-    return cards.length === 1 ? { rank: 13, count: 1 } : null;
+    return { rank: 13, count: cards.length };
   }
   const rank = normalCards[0].rank;
   if (normalCards.some((card) => card.rank !== rank)) return null;
@@ -448,7 +453,7 @@ function applyTax(
       : chooseBotTaxReturn(
           sourceHands[noble.id],
           count,
-          botDifficulty,
+          deploymentHeuristicDifficulty(botDifficulty),
         ).cardIds.map(
           (cardId) =>
             sourceHands[noble.id].find((card) => card.id === cardId)!,
@@ -542,7 +547,10 @@ function selectedOpeningRank(
   return cardIndex >= 0 ? selection.cards[cardIndex] : null;
 }
 
-function completeOpeningRankSelection(state: GameState): GameState {
+function completeOpeningRankSelection(
+  state: GameState,
+  theme: AppTheme,
+): GameState {
   const selection = state.openingRankSelection;
   if (!selection || selection.selectedBy.some((playerId) => !playerId)) {
     return state;
@@ -571,7 +579,7 @@ function completeOpeningRankSelection(state: GameState): GameState {
   );
   const rankLog = players.map(
     (player) =>
-      `${player.name} · ${RANK_NAMES[rankByPlayer.get(player.id)!]}(${rankByPlayer.get(player.id)})`,
+      `${player.name} · ${cardProfessionName(theme, rankByPlayer.get(player.id)!)}(${rankByPlayer.get(player.id)})`,
   );
 
   return {
@@ -663,7 +671,7 @@ function prepareRound(
         role: holder.role,
         playerCount: players.length,
       },
-      botDifficulty,
+      deploymentHeuristicDifficulty(botDifficulty),
     );
     if (revolutionDecision.declare) {
       if (holder.role === "great-peon") {
@@ -764,7 +772,7 @@ function advanceAfterHandReveal(state: GameState): GameState {
           role: holder.role,
           playerCount: state.players.length,
         },
-        state.botDifficulty,
+        deploymentHeuristicDifficulty(state.botDifficulty),
       )
     : null;
 
@@ -1088,30 +1096,41 @@ function insufficientCardsPassTurn(
 }
 
 function chooseBotCards(state: GameState, playerId: string): string[] | null {
-  return chooseBotCardIds(
-    {
-      actorId: playerId,
-      hand: state.hands[playerId] ?? [],
-      table: state.table
-        ? {
-            rank: state.table.rank,
-            count: state.table.count,
-            playerId: state.table.playerId,
-          }
-        : null,
-      players: state.players.map((player) => ({
-        id: player.id,
-        handCount: state.hands[player.id]?.length ?? 0,
-        finished: state.finishOrder.includes(player.id),
-      })),
-      passedPlayerIds: state.passed,
-      publicPlayedCards: state.publicPlayedCards.map((card) => ({
-        rank: card.rank,
-        count: 1,
-      })),
-    },
-    state.botDifficulty,
-  );
+  const observation = {
+    actorId: playerId,
+    hand: state.hands[playerId] ?? [],
+    table: state.table
+      ? {
+          rank: state.table.rank,
+          count: state.table.count,
+          playerId: state.table.playerId,
+        }
+      : null,
+    players: state.players.map((player) => ({
+      id: player.id,
+      handCount: state.hands[player.id]?.length ?? 0,
+      finished: state.finishOrder.includes(player.id),
+    })),
+    passedPlayerIds: state.passed,
+    publicPlayedCards: state.publicPlayedCards.map((card) => ({
+      rank: card.rank,
+      count: 1,
+    })),
+  };
+  if (state.botDifficulty !== "hard") {
+    return chooseBotCardIds(
+      observation,
+      deploymentHeuristicDifficulty(state.botDifficulty),
+    );
+  }
+  return chooseLoadedHardBotCardIds(observation, {
+    round: state.round,
+    rolesByPlayerId: Object.fromEntries(
+      state.players.map((player) => [player.id, player.role]),
+    ),
+    scoresByPlayerId: state.scores,
+    revolution: state.revolutionAnnouncement?.kind ?? null,
+  });
 }
 
 function skipRemainingBotTurns(state: GameState): GameState {
@@ -1271,14 +1290,15 @@ function PlayingCard({
   taxSourcePlaceholder?: boolean;
   revealIndex?: number;
 }) {
+  const { preferences } = useAppPreferences();
   const isJoker = card.rank === 13;
   const [artLoaded, setArtLoaded] = useState(false);
-  const artFile = isJoker ? "joker" : String(card.rank).padStart(2, "0");
+  const lastTouchAtRef = useRef(0);
   const content = (
     <>
       <img
         className="card-face-art"
-        src={`/cards/${artFile}.webp?v=${CARD_ART_VERSION}`}
+        src={`${cardArtPath(preferences.theme, card.rank)}?v=${CARD_ART_VERSION}`}
         alt=""
         aria-hidden="true"
         onLoad={() => setArtLoaded(true)}
@@ -1292,8 +1312,14 @@ function PlayingCard({
         <span className="card-emblem">
           {isJoker ? "☾" : ROLE_MARKS[roleForCard(card.rank)]}
         </span>
-        <strong>{isJoker ? "JESTER" : String(card.rank).padStart(2, "0")}</strong>
-        <small>{RANK_NAMES[card.rank]}</small>
+        <strong>
+          {isJoker
+            ? preferences.theme === "halloween"
+              ? "FOOL"
+              : "JESTER"
+            : String(card.rank).padStart(2, "0")}
+        </strong>
+        <small>{cardProfessionName(preferences.theme, card.rank)}</small>
         <span className="card-corner card-corner-bottom">
           {isJoker ? "★" : card.rank}
         </span>
@@ -1307,6 +1333,7 @@ function PlayingCard({
         className={`playing-card ${isJoker ? "is-joker" : ""} ${
           artLoaded ? "has-art" : ""
         }`}
+        data-rank={card.rank}
       >
         {content}
       </div>
@@ -1321,12 +1348,13 @@ function PlayingCard({
       } ${artLoaded ? "has-art" : ""} ${
         taxSourcePlaceholder ? "is-tax-source-placeholder" : ""
       }`}
+      data-rank={card.rank}
       disabled={disabled}
       aria-pressed={selected}
       aria-label={
         concealed
           ? "뒤집힌 카드"
-          : `${RANK_NAMES[card.rank]} 카드 ${selected ? "선택됨" : ""}`
+          : `${cardProfessionName(preferences.theme, card.rank)} 카드 ${selected ? "선택됨" : ""}`
       }
       data-concealed={concealed || undefined}
       style={
@@ -1338,6 +1366,17 @@ function PlayingCard({
       }
       onClick={onClick}
       onDoubleClick={onDoubleClick}
+      onTouchEnd={(event) => {
+        if (!onDoubleClick) return;
+        const now = performance.now();
+        if (now - lastTouchAtRef.current <= 360) {
+          event.preventDefault();
+          lastTouchAtRef.current = 0;
+          onDoubleClick();
+          return;
+        }
+        lastTouchAtRef.current = now;
+      }}
     >
       {content}
     </button>
@@ -1372,6 +1411,7 @@ function TaxTransferLayer({
   taxStage: TaxStage;
   animationKey: string;
 }) {
+  const { preferences } = useAppPreferences();
   if (!anchors.midpoint) return null;
 
   return (
@@ -1459,7 +1499,7 @@ function TaxTransferLayer({
                       <PlayingCard card={card} displayOnly />
                       <span className="tax-card-identity">
                         {card.rank === 13 ? "광대" : `${card.rank}등급`} ·{" "}
-                        {RANK_NAMES[card.rank]}
+                        {cardProfessionName(preferences.theme, card.rank)}
                       </span>
                     </>
                   ) : (
@@ -1486,6 +1526,7 @@ function PublicTurnActionLayer({
   players: Player[];
   fastForward: boolean;
 }) {
+  const { preferences } = useAppPreferences();
   const from = anchors.players[action.player.id];
   const to = anchors.midpoint;
   if (!from || !to) return null;
@@ -1539,8 +1580,8 @@ function PublicTurnActionLayer({
       aria-label={
         action.kind === "play" && playedSet
           ? isDalmuti
-            ? `${subjectLabel(action.player.name)} 달무티를 내 나머지 플레이어가 자동 패스했습니다`
-            : `${subjectLabel(action.player.name)} ${RANK_NAMES[playedSet.rank]} 카드 ${playedSet.count}장을 냈습니다`
+            ? `${subjectLabel(action.player.name)} ${cardProfessionName(preferences.theme, 1)}를 내 나머지 플레이어가 자동 패스했습니다`
+            : `${subjectLabel(action.player.name)} ${cardProfessionName(preferences.theme, playedSet.rank)} 카드 ${playedSet.count}장을 냈습니다`
           : action.automatic
             ? action.automaticReason === "insufficient-cards"
               ? `${subjectLabel(action.player.name)} 필요한 장수보다 손패가 적어 자동으로 패스했습니다`
@@ -1588,6 +1629,7 @@ function PublicTurnActionLayer({
                   playerIndex *
                     INSTALLED_MOBILE_PRESENTATION.dalmutiAutoPassStagger
             }ms`,
+            "--halloween-pass-delay": `${1660 + playerIndex * 38}ms`,
           } as React.CSSProperties;
 
           return (
@@ -1643,7 +1685,7 @@ function PublicTurnActionLayer({
             <small>{isDalmuti ? "DALMUTI" : "공개 플레이"}</small>
             <strong>{action.player.name}</strong>
             <span>
-              {RANK_NAMES[playedSet.rank]}({playedSet.rank}) x {playedSet.count}장
+              {cardProfessionName(preferences.theme, playedSet.rank)}({playedSet.rank}) x {playedSet.count}장
             </span>
           </div>
         </>
@@ -1690,11 +1732,14 @@ function shouldUseInstalledMobileTransition(): boolean {
 }
 
 export default function Home() {
+  const { preferences } = useAppPreferences();
   const [game, setGame] = useState<GameState | null>(null);
   const [landingView, setLandingView] = useState<LandingView>("main");
   const [quickPlayerCount, setQuickPlayerCount] = useState(5);
   const [quickBotDifficulty, setQuickBotDifficulty] =
     useState<BotDifficulty>("normal");
+  const [hardBotLoading, setHardBotLoading] = useState(false);
+  const [hardBotLoadError, setHardBotLoadError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showRules, setShowRules] = useState(false);
   const [showCredits, setShowCredits] = useState(false);
@@ -2459,12 +2504,12 @@ export default function Home() {
         ) {
           return latest;
         }
-        return completeOpeningRankSelection(latest);
+        return completeOpeningRankSelection(latest, preferences.theme);
       });
     }, RANK_CONFIRM_DURATION_MS);
 
     return () => window.clearTimeout(timer);
-  }, [game]);
+  }, [game, preferences.theme]);
 
   useEffect(() => {
     if (!game || game.phase !== "reveal-intro") return;
@@ -2770,6 +2815,38 @@ export default function Home() {
     );
   };
 
+  const selectQuickBotDifficulty = (difficulty: BotDifficulty) => {
+    setQuickBotDifficulty(difficulty);
+    setHardBotLoadError(null);
+    if (difficulty !== "hard") return;
+    setHardBotLoading(true);
+    void loadDeployedHardBot()
+      .catch(() => {
+        setHardBotLoadError(
+          "어려움 봇 모델을 불러오지 못했습니다. 다시 선택해 주세요.",
+        );
+      })
+      .finally(() => setHardBotLoading(false));
+  };
+
+  const startSelectedGame = async () => {
+    setHardBotLoadError(null);
+    if (quickBotDifficulty === "hard") {
+      setHardBotLoading(true);
+      try {
+        await loadDeployedHardBot();
+      } catch {
+        setHardBotLoadError(
+          "어려움 봇 모델을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.",
+        );
+        return;
+      } finally {
+        setHardBotLoading(false);
+      }
+    }
+    runScreenTransition(startGame);
+  };
+
   const returnToModeSelection = () => {
     setSelectedIds([]);
     setShowRules(false);
@@ -2951,12 +3028,9 @@ export default function Home() {
 
   const selectAllOfRank = (card: Card) => {
     if (!isHumanTurn) return;
-    const sameRankIds =
-      card.rank === 13
-        ? [card.id]
-        : humanHand
-            .filter((candidate) => candidate.rank === card.rank)
-            .map((candidate) => candidate.id);
+    const sameRankIds = humanHand
+      .filter((candidate) => candidate.rank === card.rank)
+      .map((candidate) => candidate.id);
     setSelectedIds((current) =>
       toggleWholePlayableRankSelection(current, sameRankIds, humanHand),
     );
@@ -3072,8 +3146,8 @@ export default function Home() {
     : game.publicAction
       ? game.publicAction.kind === "play" && publicPlayedSet
         ? publicPlayedSet.rank === 1
-          ? `${subjectLabel(game.publicAction.player.name)} 달무티를 내 모두 자동 패스합니다`
-          : `${subjectLabel(game.publicAction.player.name)} ${RANK_NAMES[publicPlayedSet.rank]} 카드 ${publicPlayedSet.count}장을 내는 중`
+          ? `${subjectLabel(game.publicAction.player.name)} ${cardProfessionName(preferences.theme, 1)}를 내 모두 자동 패스합니다`
+          : `${subjectLabel(game.publicAction.player.name)} ${cardProfessionName(preferences.theme, publicPlayedSet.rank)} 카드 ${publicPlayedSet.count}장을 내는 중`
         : game.publicAction.automaticReason === "insufficient-cards"
           ? `${subjectLabel(game.publicAction.player.name)} 필요한 장수가 부족해 자동 패스합니다`
           : `${subjectLabel(game.publicAction.player.name)} 패스했습니다`
@@ -3206,11 +3280,21 @@ export default function Home() {
               규칙
             </button>
             {game && (
-              <button type="button" onClick={startGame}>
+              <button type="button" onClick={() => void startSelectedGame()}>
                 새 게임
               </button>
             )}
           </nav>
+        )}
+        {!game && landingView === "main" && (
+          <Link
+            className="settings-gear-link"
+            href="/settings"
+            aria-label="환경설정"
+            title="환경설정"
+          >
+            <span aria-hidden="true">⚙</span>
+          </Link>
         )}
       </header>
 
@@ -3386,6 +3470,28 @@ export default function Home() {
               <i />
               <span>♝</span>
             </div>
+
+            {isRevolutionActive && (
+              <div
+                className="halloween-revolution-ink-transition"
+                aria-hidden="true"
+              >
+                <HalloweenInkContaminationCanvas className="halloween-revolution-ink-canvas" />
+                {Array.from({ length: 7 }, (_, index) => (
+                  <i
+                    key={`revolution-ink-drop-${index}`}
+                    style={
+                      {
+                        "--ink-drop-x": `${8 + ((index * 19) % 86)}%`,
+                        "--ink-impact-y": `${24 + ((index * 17) % 48)}%`,
+                        "--ink-drop-delay": `${index * 90}ms`,
+                        "--ink-drop-width": `${11 + (index % 3) * 2}px`,
+                      } as React.CSSProperties
+                    }
+                  />
+                ))}
+              </div>
+            )}
 
             {isGreatRevolutionActive && (
               <div className="great-revolution-field-effect" aria-hidden="true">
@@ -3584,7 +3690,7 @@ export default function Home() {
                           onClick={() => chooseOpeningRankCard(cardIndex)}
                           aria-label={
                             game.phase === "rank-reveal"
-                              ? `${selectedPlayer?.name ?? "선택자"}의 계급 카드, ${RANK_NAMES[rank]} ${rank}`
+                              ? `${selectedPlayer?.name ?? "선택자"}의 계급 카드, ${cardProfessionName(preferences.theme, rank)} ${rank}`
                               : selectedPlayer
                                 ? `${subjectLabel(selectedPlayer.name)} 선택한 카드`
                                 : `${cardIndex + 1}번째 뒤집힌 계급 카드 선택`
@@ -3597,7 +3703,7 @@ export default function Home() {
                             />
                             <span className="opening-rank-card-front">
                               <img
-                                src={`/cards/${String(rank).padStart(2, "0")}.webp?v=${CARD_ART_VERSION}`}
+                                src={`${cardArtPath(preferences.theme, rank)}?v=${CARD_ART_VERSION}`}
                                 alt=""
                                 aria-hidden="true"
                               />
@@ -3629,7 +3735,7 @@ export default function Home() {
                       aria-hidden="true"
                     >
                       <img
-                        src={`/cards/${String(humanOpeningRank).padStart(2, "0")}.webp?v=${CARD_ART_VERSION}`}
+                        src={`${cardArtPath(preferences.theme, humanOpeningRank)}?v=${CARD_ART_VERSION}`}
                         alt=""
                       />
                     </div>
@@ -3637,7 +3743,7 @@ export default function Home() {
                       <span>나의 서열</span>
                       <strong>{ROLE_LABELS[humanOpeningRole]}</strong>
                       <em>
-                        {RANK_NAMES[humanOpeningRank]}({humanOpeningRank}) 카드를
+                        {cardProfessionName(preferences.theme, humanOpeningRank)}({humanOpeningRank}) 카드를
                         선택했습니다
                       </em>
                     </div>
@@ -3833,7 +3939,7 @@ export default function Home() {
                   </div>
                   {visibleTable && (
                     <strong className="table-callout">
-                      {RANK_NAMES[visibleTable.rank]}({visibleTable.rank}) x{" "}
+                      {cardProfessionName(preferences.theme, visibleTable.rank)}({visibleTable.rank}) x{" "}
                       {visibleTable.count}장
                     </strong>
                   )}
@@ -4011,7 +4117,7 @@ export default function Home() {
                       ? "필드의 카드 한 장을 선택하세요"
                       : game?.phase === "rank-reveal"
                         ? humanOpeningRank
-                          ? `${RANK_NAMES[humanOpeningRank]}(${humanOpeningRank}) 선택`
+                          ? `${cardProfessionName(preferences.theme, humanOpeningRank)}(${humanOpeningRank}) 선택`
                           : "계급 확인 중"
                         : game?.phase === "rank-confirm" && humanOpeningRole
                           ? `나의 서열 · ${ROLE_LABELS[humanOpeningRole]}`
@@ -4129,7 +4235,7 @@ export default function Home() {
             ]).map((entry, index) => (
               <li key={`${entry}-${index}`}>
                 <span>{String(index + 1).padStart(2, "0")}</span>
-                <p>{entry}</p>
+                <p>{themedCardLogEntry(entry, preferences.theme)}</p>
               </li>
             ))}
           </ul>
@@ -4149,6 +4255,14 @@ export default function Home() {
               role="dialog"
               aria-labelledby="main-menu-title"
             >
+              <Link
+                className="settings-gear-link main-menu-settings-gear-link"
+                href="/settings"
+                aria-label="환경설정"
+                title="환경설정"
+              >
+                <span aria-hidden="true">⚙</span>
+              </Link>
               <span className="welcome-crown" aria-hidden="true" />
               <span className="eyebrow">CHOOSE YOUR TABLE</span>
               <h1 id="main-menu-title">DALMUTI</h1>
@@ -4259,23 +4373,41 @@ export default function Home() {
                           quickBotDifficulty === difficulty ? "is-selected" : ""
                         }
                         aria-pressed={quickBotDifficulty === difficulty}
-                        onClick={() => setQuickBotDifficulty(difficulty)}
+                        onClick={() => selectQuickBotDifficulty(difficulty)}
                       >
                         <span>{BOT_DIFFICULTY_LABELS[difficulty]}</span>
-                        <small>{BOT_DIFFICULTY_DESCRIPTIONS[difficulty]}</small>
+                        <small>
+                          {difficulty === "normal" &&
+                          preferences.theme === "halloween"
+                            ? `${cardProfessionName(preferences.theme, 13)}와 묶음을 관리`
+                            : BOT_DIFFICULTY_DESCRIPTIONS[difficulty]}
+                        </small>
                       </button>
                     ))}
                   </div>
                 </fieldset>
               </div>
+              {hardBotLoadError && (
+                <p className="quick-model-status" role="alert">
+                  {hardBotLoadError}
+                </p>
+              )}
               <button
                 type="button"
                 className="start-button"
-                onClick={() => runScreenTransition(startGame)}
+                disabled={hardBotLoading}
+                aria-busy={hardBotLoading || undefined}
+                onClick={() => void startSelectedGame()}
               >
-                <span>빠른 대전({quickPlayerCount}인)</span>
+                <span>
+                  {hardBotLoading
+                    ? "어려움 봇 준비 중"
+                    : `빠른 대전(${quickPlayerCount}인)`}
+                </span>
                 <i>
-                  {BOT_DIFFICULTY_LABELS[quickBotDifficulty]} 난이도로 게임 시작
+                  {hardBotLoading
+                    ? "강화학습 모델을 불러오고 있습니다"
+                    : `${BOT_DIFFICULTY_LABELS[quickBotDifficulty]} 난이도로 게임 시작`}
                 </i>
                 <b>→</b>
               </button>

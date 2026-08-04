@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "dalmuti-pwa";
-const CACHE_VERSION = "2026-07-31-pwa-no-web-splash-v3";
+const CACHE_VERSION = "2026-08-04-online-round-ready-v18";
 const PRECACHE = `${CACHE_PREFIX}-precache-${CACHE_VERSION}`;
 const RUNTIME = `${CACHE_PREFIX}-runtime-${CACHE_VERSION}`;
 const OFFLINE_URL = "/offline.html";
@@ -17,6 +17,11 @@ const PRECACHE_URLS = [
   "/pwa/icon-maskable-v2-512.png",
   "/pwa/apple-touch-icon-v2.png",
   "/cards/back.webp",
+  "/cards/halloween/back.webp",
+  "/themes/halloween/crown.webp",
+  "/themes/halloween/dalmuti-hand-field-atlas-v2.png",
+  "/themes/halloween/ink-wash-field-texture-v2.webp",
+  "/themes/halloween/ink-impact-bloom-mask-v1.png",
 ];
 
 self.addEventListener("install", (event) => {
@@ -60,6 +65,7 @@ function isCardOrBrandAsset(pathname) {
   return (
     pathname.startsWith("/cards/") ||
     pathname.startsWith("/pwa/") ||
+    pathname.startsWith("/themes/") ||
     pathname === "/brand-dalmuti-crown.png"
   );
 }
