@@ -310,6 +310,14 @@ test("quick, online, and rulebook card faces share the selected theme", () => {
   assert.match(rulebookStyles, /var\(--dalmuti-card-back-image\)/);
   assert.match(rulebookStyles, /var\(--dalmuti-brand-crown-image\)/);
   assert.match(creditsStyles, /var\(--dalmuti-brand-crown-image\)/);
+  assert.match(
+    creditsStyles,
+    /data-theme="halloween"\]\) \.done\s*\{[\s\S]{0,240}background: linear-gradient\(140deg, #543b5b, #29242f 58%, #17151c\);/,
+  );
+  assert.doesNotMatch(
+    creditsStyles,
+    /data-theme="halloween"\]\) \.done\s*\{[\s\S]{0,180}#c87849/,
+  );
 
   assert.match(quick, /data-rank=\{card\.rank\}/);
   assert.match(online, /data-rank=\{card\.rank\}/);

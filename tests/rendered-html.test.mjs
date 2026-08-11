@@ -1353,7 +1353,7 @@ test("online chat is room-scoped and score rails use compact casino chips", asyn
   assert.match(onlinePage, /function OnlineChatPanel/);
   assert.match(onlinePage, /initiallyCollapsed = true/);
   assert.ok(
-    (onlinePage.match(/\n\s+initiallyCollapsed\n/g) ?? []).length >= 2,
+    (onlinePage.match(/\r?\n\s+initiallyCollapsed\r?\n/g) ?? []).length >= 2,
   );
   assert.match(quickPage, /빠른 대전 플레이 인원/);
   assert.match(onlinePage, /ONLINE_CHAT_MAX_LENGTH/);
