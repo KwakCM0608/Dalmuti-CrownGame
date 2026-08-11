@@ -7,6 +7,14 @@ export const ONLINE_EMOTES = [
   { id: "clap", emoji: "👏", label: "박수" },
   { id: "heart", emoji: "❤️", label: "하트" },
   { id: "celebrate", emoji: "🎉", label: "축하" },
+  { id: "smirk", emoji: "😏", label: "아쉽네요" },
+  { id: "sunglasses", emoji: "😎", label: "여유" },
+  { id: "yawn", emoji: "🥱", label: "졸리네요" },
+  { id: "shush", emoji: "🤫", label: "쉿" },
+  { id: "tongue", emoji: "😜", label: "메롱" },
+  { id: "wave", emoji: "👋", label: "잘 가요" },
+  { id: "eyes", emoji: "👀", label: "다 보여요" },
+  { id: "popcorn", emoji: "🍿", label: "구경 중" },
 ] as const;
 
 export type OnlineEmoteId = (typeof ONLINE_EMOTES)[number]["id"];

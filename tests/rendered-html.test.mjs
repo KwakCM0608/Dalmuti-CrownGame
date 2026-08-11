@@ -1378,6 +1378,12 @@ test("online chat is room-scoped and score rails use compact casino chips", asyn
     /\.gameChatPanel\s*\{[\s\S]{0,120}bottom: 61px/,
   );
   assert.match(onlineStyles, /\.emotePicker\s*\{/);
+  assert.match(
+    onlineStyles,
+    /\.chatPanel \.chatMessages\s*\{[\s\S]{0,220}pointer-events: auto;[\s\S]{0,120}touch-action: pan-y;/,
+  );
+  assert.match(onlinePage, /chatShouldFollowLatestRef/);
+  assert.match(onlinePage, /onScroll=\{updateChatScrollPreference\}/);
   assert.match(onlineStyles, /\.playerEmote\s*\{/);
   assert.match(onlinePage, /onEmote=\{sendEmote\}/);
   assert.match(onlinePage, /activeEmote=\{activeEmotesByPlayerId/);

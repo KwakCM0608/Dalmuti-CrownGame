@@ -227,6 +227,17 @@ test("installed online CSS matches quick table, action, PASS, and dock geometry"
   assert.match(onlineStyles, /\.actionBar\s*\{\s*min-height: 44px;/);
 });
 
+test("installed online chat opens as a narrower and taller touch viewport", () => {
+  assert.match(
+    onlineStyles,
+    /@media \(display-mode: standalone\)[\s\S]*?\.gameChatPanel:not\(\.chatPanelCollapsed\)\s*\{[\s\S]*?width: min\(78vw, 306px\);[\s\S]*?height: clamp\(260px, 46dvh, 380px\);/,
+  );
+  assert.match(
+    onlineStyles,
+    /\.chatPanel \.chatMessages\s*\{[\s\S]{0,220}pointer-events: auto;[\s\S]{0,120}touch-action: pan-y;/,
+  );
+});
+
 test("installed quick and online seats use matching exterior rails and count alignment", () => {
   for (const styles of [quickStyles, onlineStyles]) {
     assert.match(styles, /margin-block: 43px 45px;/);

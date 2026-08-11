@@ -7956,6 +7956,45 @@
     0 0 40px rgba(0, 0, 0, 0.24);
 }
 
+/* Online chat interaction repair. The transparent game panel deliberately
+ * ignores table input, but its message viewport must still own wheel, scrollbar
+ * and touch gestures. */
+.chatPanel .chatMessages {
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  pointer-events: auto;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+.emotePicker {
+  max-height: min(290px, 58dvh);
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-color: rgba(215, 170, 72, 0.34) transparent;
+  scrollbar-width: thin;
+  touch-action: pan-y;
+}
+
+/* Installed phones use a compact portrait-style chat window. Browser mobile
+ * and desktop geometry intentionally remain unchanged. */
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) {
+  .gameChatPanel:not(.chatPanelCollapsed) {
+    right: calc(8px + env(safe-area-inset-right, 0px));
+    width: min(78vw, 306px);
+    height: clamp(260px, 46dvh, 380px);
+    max-height: calc(
+      100dvh - var(--app-header-block) - 70px -
+        env(safe-area-inset-bottom, 0px)
+    );
+  }
+
+  .gameChatPanel:not(.chatPanelCollapsed) .chatMessages {
+    padding-top: 10px;
+  }
+}
+
 :global(html[data-theme="halloween"]) .table:not(.tableRevolution):not(.tableGreatRevolution):has(
     .rankChoiceIntro,
     .rankChoiceField,
