@@ -2278,6 +2278,7 @@ function OnlineChatPanel({
   const [dragging, setDragging] = useState(false);
   const panelRef = useRef<HTMLElement | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
+  const chatShouldFollowLatestRef = useRef(true);
   const emotePickerRef = useRef<HTMLDivElement | null>(null);
   const sendingRef = useRef(false);
   const dragOffsetRef = useRef(dragOffset);
@@ -2390,11 +2391,21 @@ function OnlineChatPanel({
     return () => window.cancelAnimationFrame(frame);
   }, [collapsed, keepChatInsideViewport]);
 
-  useEffect(() => {
+  const updateChatScrollPreference = useCallback(() => {
     const messageList = messageListRef.current;
     if (!messageList) return;
+    const remainingScroll =
+      messageList.scrollHeight -
+      messageList.clientHeight -
+      messageList.scrollTop;
+    chatShouldFollowLatestRef.current = remainingScroll <= 24;
+  }, []);
+
+  useEffect(() => {
+    const messageList = messageListRef.current;
+    if (!messageList || collapsed || !chatShouldFollowLatestRef.current) return;
     messageList.scrollTop = messageList.scrollHeight;
-  }, [messages.length]);
+  }, [collapsed, messages.length]);
 
   useEffect(() => {
     if (!emotePickerOpen) return;
@@ -2578,6 +2589,7 @@ function OnlineChatPanel({
       <div
         className={styles.chatMessages}
         ref={messageListRef}
+        onScroll={updateChatScrollPreference}
         aria-live="polite"
         aria-relevant="additions"
       >
