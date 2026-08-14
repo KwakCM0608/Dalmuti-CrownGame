@@ -38,7 +38,7 @@ test("service worker never caches online API or mutation requests", () => {
   const worker = read("public/sw.js");
   const offline = read("public/offline.html");
 
-  assert.match(worker, /2026-08-14-update-recovery-v21/);
+  assert.match(worker, /2026-08-14-halloween-dalmuti-name-v22/);
   assert.match(worker, /icon-v3-512\.png/);
   assert.match(worker, /cards\/halloween\/back\.webp/);
   assert.match(worker, /themes\/halloween\/crown\.webp/);

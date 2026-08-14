@@ -39,7 +39,7 @@ export const ORIGINAL_CARD_PROFESSION_NAMES: Readonly<Record<number, string>> =
  */
 export const HALLOWEEN_CARD_PROFESSION_NAMES: Readonly<Record<number, string>> =
   Object.freeze({
-    1: "위대한 달무티",
+    1: "달무티",
     2: "심령대신",
     3: "법무관",
     4: "뱀 남작부인",

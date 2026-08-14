@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "dalmuti-pwa";
-const CACHE_VERSION = "2026-08-14-update-recovery-v21";
+const CACHE_VERSION = "2026-08-14-halloween-dalmuti-name-v22";
 const PRECACHE = `${CACHE_PREFIX}-precache-${CACHE_VERSION}`;
 const RUNTIME = `${CACHE_PREFIX}-runtime-${CACHE_VERSION}`;
 const LEGACY_AUTO_UPDATE_PRECACHES = [
