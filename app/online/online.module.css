@@ -7956,6 +7956,29 @@
     0 0 40px rgba(0, 0, 0, 0.24);
 }
 
+/* Keep the collapsed chat label, unread badge, drag hint, and expand button on
+ * one line at every viewport size. */
+.chatPanelCollapsed,
+.gameChatPanel.chatPanelCollapsed {
+  width: 142px;
+  min-width: 142px;
+}
+
+.chatPanelCollapsed .chatHeading {
+  gap: 6px;
+}
+
+.chatPanelCollapsed .chatHeading > span {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.chatPanelCollapsed :is(.chatUnreadBadge, .chatDragHint),
+.chatPanelCollapsed .chatHeading > button {
+  flex: 0 0 auto;
+}
+
 /* Collapsed chat notification stays local to the viewer and does not alter
  * room messages or table geometry. */
 .chatUnreadBadge {

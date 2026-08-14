@@ -38,6 +38,8 @@ test("collapsed online chat surfaces unread incoming messages", async () => {
   assert.match(page, /새 메시지 \$\{unreadCount\}개/);
   assert.match(styles, /\.chatPanelUnread\.chatPanelCollapsed/);
   assert.match(styles, /@keyframes chatUnreadPulse/);
+  assert.match(styles, /\.gameChatPanel\.chatPanelCollapsed\s*\{[\s\S]*?width:\s*142px/);
+  assert.match(styles, /\.chatPanelCollapsed \.chatHeading > span\s*\{[\s\S]*?white-space:\s*nowrap/);
 });
 
 test("mobile install prompt promotes stable app play", async () => {

@@ -38,7 +38,7 @@ test("service worker never caches online API or mutation requests", () => {
   const worker = read("public/sw.js");
   const offline = read("public/offline.html");
 
-  assert.match(worker, /2026-08-14-auto-pass-icon-v19/);
+  assert.match(worker, /2026-08-14-installed-update-prompt-v20/);
   assert.match(worker, /icon-v3-512\.png/);
   assert.match(worker, /cards\/halloween\/back\.webp/);
   assert.match(worker, /themes\/halloween\/crown\.webp/);
@@ -47,13 +47,13 @@ test("service worker never caches online API or mutation requests", () => {
   assert.match(worker, /themes\/halloween\/ink-impact-bloom-mask-v1\.png/);
   assert.match(worker, /pathname\.startsWith\("\/themes\/"\)/);
   assert.doesNotMatch(worker, /installed-splash-v2\.webp/);
-  assert.match(worker, /\.then\(\(\) => self\.skipWaiting\(\)\)/);
   assert.match(worker, /request\.method !== "GET"/);
   assert.match(worker, /pathname\.startsWith\("\/api\/online\/"\)/);
   assert.match(worker, /event\.respondWith\(fetch\(request\)\)/);
   assert.match(worker, /request\.mode === "navigate"/);
   assert.match(worker, /OFFLINE_URL/);
   assert.match(worker, /event\.data\?\.type === "SKIP_WAITING"/);
+  assert.doesNotMatch(worker, /\.then\(\(\) => self\.skipWaiting\(\)\)/);
   assert.doesNotMatch(worker, /self\.skipWaiting\(\)[\s\S]*addEventListener\("install"/);
   assert.match(offline, /dalmuti\.preferences\.v1/);
   assert.match(offline, /html\[data-theme="halloween"\]/);
@@ -83,6 +83,8 @@ test("updates are offered only on safe entry screens", () => {
   assert.match(lifecycle, /홈 화면에 추가를 선택하세요/);
   assert.match(lifecycle, /웹 앱으로 열기를 켜고 추가하세요/);
   assert.match(lifecycle, /isStandalone\(\)/);
+  assert.match(lifecycle, /isStandalone\(\) && !waitingWorker/);
+  assert.match(lifecycle, /업데이트 설치/);
   assert.match(lifecycle, /installPrompt\.prompt\(\)/);
   assert.match(lifecycleStyles, /url\("\/pwa\/icon-v3-192\.png"\)/);
   assert.match(lifecycleStyles, /\.guideBackdrop/);

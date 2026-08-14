@@ -214,7 +214,8 @@ export function PwaLifecycle() {
     waitingWorker.postMessage({ type: "SKIP_WAITING" });
   };
 
-  if (!safeScreen || isStandalone()) return null;
+  if (!safeScreen) return null;
+  if (isStandalone() && !waitingWorker) return null;
   if (!waitingWorker && !(mobileWeb && installPrompt) && !iphoneWeb) return null;
 
   const showingIphoneInstall = !waitingWorker && iphoneWeb;
@@ -259,7 +260,7 @@ export function PwaLifecycle() {
           {waitingWorker
             ? updating
               ? "적용 중"
-              : "업데이트"
+              : "업데이트 설치"
             : showingIphoneInstall
               ? "설치 방법"
               : installing
