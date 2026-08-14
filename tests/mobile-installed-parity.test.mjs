@@ -322,6 +322,14 @@ test("mobile controls reserve Android navigation space and expose private auto P
     onlineStyles,
     /\.ownDock:not\(\.ownDockFinished\) \.handScroller\s*\{[\s\S]{0,240}position: fixed;[\s\S]{0,240}bottom: calc\(var\(--mobile-system-bottom-inset\) \+ 106px\);/,
   );
+  assert.match(
+    quickStyles,
+    /\.turn-controls:has\(\.auto-pass-toggle\) \.rank-bulk-button\s*\{[\s\S]{0,180}height: 34px;[\s\S]{0,120}min-height: 34px;[\s\S]{0,180}align-self: center;/,
+  );
+  assert.match(
+    onlineStyles,
+    /\.actionBar:has\(\.autoPassToggle\) \.rankBulkButton\s*\{[\s\S]{0,180}height: 34px;[\s\S]{0,120}min-height: 34px;[\s\S]{0,180}align-self: center;/,
+  );
   assert.match(quickPage, /className="auto-pass-toggle"/);
   assert.match(onlinePage, /className=\{styles\.autoPassToggle\}/);
   assert.match(quickPage, /hasLegalCardPlay\(hand, game\.table\)/);
