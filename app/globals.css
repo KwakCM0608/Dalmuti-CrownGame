@@ -11543,7 +11543,7 @@ html[data-theme="halloween"] .game-shell .phase-intro:not(.is-tax):not(.is-tax-s
       330px,
       calc(
         100dvh - var(--app-header-block) -
-          var(--mobile-system-bottom-inset) - 350px
+          var(--mobile-system-bottom-inset) - 315px
       ),
       420px
     );

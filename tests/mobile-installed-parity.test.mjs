@@ -307,7 +307,7 @@ test("mobile controls reserve Android navigation space and expose private auto P
   for (const styles of [quickStyles, onlineStyles]) {
     assert.match(
       styles,
-      /--installed-portrait-table-height: clamp\([\s\S]{0,180}330px,[\s\S]{0,180}100dvh - var\(--app-header-block\) -[\s\S]{0,120}var\(--mobile-system-bottom-inset\) - 350px[\s\S]{0,120}420px/,
+      /--installed-portrait-table-height: clamp\([\s\S]{0,180}330px,[\s\S]{0,180}100dvh - var\(--app-header-block\) -[\s\S]{0,120}var\(--mobile-system-bottom-inset\) - 315px[\s\S]{0,120}420px/,
     );
     assert.match(
       styles,
