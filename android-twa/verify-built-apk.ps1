@@ -55,10 +55,10 @@ $badging = $badgingLines -join "`n"
 if (
     $badging -notmatch (
         "package: name='lab\.dclab\.dalmuti' " +
-        "versionCode='11' versionName='1\.0\.10'"
+        "versionCode='12' versionName='1\.0\.11'"
     )
 ) {
-    throw "APK package or version does not match DALMUTI Android 1.0.10 (11)."
+    throw "APK package or version does not match DALMUTI Android 1.0.11 (12)."
 }
 
 $resourceTableLines = @(& $resolvedAapt dump resources $resolvedApk 2>&1)
@@ -99,12 +99,12 @@ try {
     $proofEntries = @(
         $entries |
             Where-Object {
-                $_.FullName -eq "assets/dalmuti-native-assets-v11.json"
+                $_.FullName -eq "assets/dalmuti-native-assets-v12.json"
             }
     )
     if ($proofEntries.Count -ne 1) {
         throw (
-            "APK does not contain exactly one DALMUTI v11 packaging proof. " +
+            "APK does not contain exactly one DALMUTI v12 packaging proof. " +
             "Run apply-native-customizations.ps1 before building."
         )
     }
@@ -123,8 +123,8 @@ try {
     $expectedProof = [ordered]@{
         schemaVersion = 2
         packageId = "lab.dclab.dalmuti"
-        appVersion = "1.0.10"
-        versionCode = 11
+        appVersion = "1.0.11"
+        versionCode = 12
         launcherIconResource = "@mipmap/dalmuti_app_icon_v5"
         systemSplashResource = "@drawable/dalmuti_splash_os_black_v4"
         browserHelperSplashDisabled = $true
@@ -250,7 +250,7 @@ try {
     }
 
     Write-Output (
-        "Verified DALMUTI Android 1.0.10 (11): immediate unbranded launch, " +
+        "Verified DALMUTI Android 1.0.11 (12): immediate unbranded launch, " +
         "black Android 12+ system frame, and customization proof."
     )
 } finally {

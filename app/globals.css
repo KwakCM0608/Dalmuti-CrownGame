@@ -11466,3 +11466,55 @@ html[data-theme="halloween"] .game-shell .phase-intro:not(.is-tax):not(.is-tax-s
     inset 0 0 34px rgba(137, 84, 149, 0.12),
     0 0 40px rgba(0, 0, 0, 0.24);
 }
+
+/* Terminal installed-app bottom controls.
+ * Some Android TWA builds expose the gesture-navigation area as part of the
+ * dynamic viewport while reporting a zero CSS safe-area inset. The board owns
+ * one conservative fallback inset so the dock is never clipped behind system
+ * navigation. The dock itself must not add the same inset a second time. */
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) {
+  .game-shell {
+    --mobile-system-bottom-inset: max(env(safe-area-inset-bottom, 0px), 28px);
+  }
+
+  .game-shell .table-column {
+    padding-bottom: calc(4px + var(--mobile-system-bottom-inset));
+  }
+
+  .game-shell .turn-controls {
+    margin-bottom: 0;
+    padding-bottom: 8px;
+  }
+
+  .game-shell .selection-hint {
+    min-width: 56px;
+  }
+
+  .game-shell .selection-hint > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    word-break: keep-all;
+  }
+}
+
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse) and
+    (orientation: landscape) and (max-height: 500px),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) and
+    (orientation: landscape) and (max-height: 500px) {
+  .game-shell .turn-controls:has(.auto-pass-toggle) {
+    grid-template-columns: minmax(190px, 1fr) 70px 64px 90px;
+  }
+
+  .game-shell .selection-hint:has(.rank-bulk-button) {
+    min-width: 190px;
+    grid-template-columns: minmax(58px, 1fr) minmax(112px, auto);
+    column-gap: 6px;
+  }
+
+  .game-shell .rank-bulk-button {
+    max-width: 126px;
+    padding-inline: 7px;
+  }
+}

@@ -13897,3 +13897,51 @@
     inset 0 0 34px rgba(137, 84, 149, 0.12),
     0 0 40px rgba(0, 0, 0, 0.24);
 }
+
+/* Terminal installed-app bottom controls. Android gesture navigation may be
+ * included in 100dvh even when the browser reports a zero safe-area inset.
+ * Reserve that space at the board boundary and keep action copy horizontal. */
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) {
+  .gameShell {
+    --mobile-system-bottom-inset: max(env(safe-area-inset-bottom, 0px), 28px);
+  }
+
+  .boardColumn {
+    padding-bottom: calc(4px + var(--mobile-system-bottom-inset));
+  }
+
+  .actionBar {
+    padding-bottom: 8px;
+  }
+
+  .selectionCopy {
+    min-width: 56px;
+  }
+
+  .selectionCopy > strong,
+  .selectionCopy > small {
+    white-space: nowrap;
+    word-break: keep-all;
+  }
+}
+
+@media (display-mode: standalone) and (hover: none) and (pointer: coarse) and
+    (orientation: landscape) and (max-height: 500px),
+  (display-mode: fullscreen) and (hover: none) and (pointer: coarse) and
+    (orientation: landscape) and (max-height: 500px) {
+  .actionBar:has(.autoPassToggle) {
+    grid-template-columns: minmax(190px, 1fr) 70px 64px 90px;
+  }
+
+  .selectionCopy:has(.rankBulkButton) {
+    min-width: 190px;
+    grid-template-columns: minmax(58px, 1fr) minmax(112px, auto);
+    column-gap: 6px;
+  }
+
+  .rankBulkButton {
+    max-width: 126px;
+    padding-inline: 7px;
+  }
+}

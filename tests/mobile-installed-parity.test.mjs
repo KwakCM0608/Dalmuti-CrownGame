@@ -242,10 +242,30 @@ test("mobile controls reserve Android navigation space and expose private auto P
   for (const styles of [quickStyles, onlineStyles]) {
     assert.match(
       styles,
-      /--mobile-system-bottom-inset: max\(env\(safe-area-inset-bottom, 0px\), 24px\)/,
+      /--mobile-system-bottom-inset: max\(env\(safe-area-inset-bottom, 0px\), 28px\)/,
+    );
+    assert.match(
+      styles,
+      /padding-bottom: calc\(4px \+ var\(--mobile-system-bottom-inset\)\)/,
     );
     assert.match(styles, /grid-template-rows: minmax\(0, 1fr\) 124px/);
   }
+  assert.match(
+    quickStyles,
+    /\.game-shell \.selection-hint > span\s*\{[\s\S]{0,180}white-space: nowrap;[\s\S]{0,80}word-break: keep-all;/,
+  );
+  assert.match(
+    onlineStyles,
+    /\.selectionCopy > strong,[\s\S]{0,120}\.selectionCopy > small\s*\{[\s\S]{0,100}white-space: nowrap;[\s\S]{0,80}word-break: keep-all;/,
+  );
+  assert.match(
+    quickStyles,
+    /\.turn-controls:has\(\.auto-pass-toggle\)\s*\{\s*grid-template-columns: minmax\(190px, 1fr\) 70px 64px 90px;/,
+  );
+  assert.match(
+    onlineStyles,
+    /\.actionBar:has\(\.autoPassToggle\)\s*\{\s*grid-template-columns: minmax\(190px, 1fr\) 70px 64px 90px;/,
+  );
   assert.match(quickPage, /className="auto-pass-toggle"/);
   assert.match(onlinePage, /className=\{styles\.autoPassToggle\}/);
   assert.match(quickPage, /hasLegalCardPlay\(hand, game\.table\)/);

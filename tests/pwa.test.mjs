@@ -134,8 +134,10 @@ test("installed Android app launches immediately without a branded native splash
   assert.match(wrapper.iconUrl, /icon-v4-512\.png/);
   assert.equal(wrapper.backgroundColor, "#000000");
   assert.equal(wrapper.splashScreenFadeOutDuration, 0);
-  assert.equal(wrapper.appVersionCode, 11);
-  assert.equal(wrapper.appVersion, "1.0.10");
+  assert.equal(wrapper.appVersionCode, 12);
+  assert.equal(wrapper.appVersion, "1.0.11");
+  assert.equal(wrapper.navigationColor, "#100e16");
+  assert.equal(wrapper.navigationColorDark, "#100e16");
   assert.equal(wrapper.startUrl, "/?source=android-twa");
   assert.equal(wrapper.orientation, "default");
   assert.doesNotMatch(webManifest, /orientation:\s*"any"/);
@@ -148,7 +150,7 @@ test("installed Android app launches immediately without a branded native splash
   assert.match(customizer, /SPLASH_SCREEN_FADE_OUT_DURATION/);
   assert.match(customizer, /browserHelperSplashMetadataNames/);
   assert.match(customizer, /browserHelperSplashDisabled = \$true/);
-  assert.match(customizer, /dalmuti-native-assets-v11\.json/);
+  assert.match(customizer, /dalmuti-native-assets-v12\.json/);
   assert.match(customizer, /Native LauncherActivity hash mismatch after copy/);
   assert.match(customizer, /Native resource hash mismatch after copy/);
   assert.match(nativeLauncher, /Settings\.System\.ACCELEROMETER_ROTATION/);
@@ -284,7 +286,7 @@ test("installed Android app launches immediately without a branded native splash
     sha256("android-twa/assets/dalmuti-app-icon-v5.png"),
     "80664605da730198b2d59d7d5beb3b1dbf7b837a49e9b560f03b8d73d403081c",
   );
-  assert.match(apkVerifier, /dalmuti-native-assets-v11\.json/);
+  assert.match(apkVerifier, /dalmuti-native-assets-v12\.json/);
   assert.match(apkVerifier, /dump badging/);
   assert.match(apkVerifier, /dump resources/);
   assert.match(apkVerifier, /dump xmltree/);
@@ -307,8 +309,8 @@ test("installed Android app launches immediately without a branded native splash
   assert.match(apkVerifier, /Compiled LauncherActivity/);
   assert.match(apkVerifier, /Compiled Android 12\+ launch theme/);
   assert.match(apkVerifier, /resources\.arsc/);
-  assert.match(apkVerifier, /appVersion = "1\.0\.10"/);
-  assert.match(apkVerifier, /versionCode = 11/);
+  assert.match(apkVerifier, /appVersion = "1\.0\.11"/);
+  assert.match(apkVerifier, /versionCode = 12/);
   assert.doesNotMatch(androidSplashTheme, /windowSplashScreenBrandingImage/);
   assert.equal(
     fs.existsSync(
@@ -471,14 +473,14 @@ test(
         fs.readFileSync(
           path.join(
             fixtureRoot,
-            "app/src/main/assets/dalmuti-native-assets-v11.json",
+            "app/src/main/assets/dalmuti-native-assets-v12.json",
           ),
           "utf8",
         ),
       );
       assert.equal(proof.schemaVersion, 2);
-      assert.equal(proof.appVersion, "1.0.10");
-      assert.equal(proof.versionCode, 11);
+      assert.equal(proof.appVersion, "1.0.11");
+      assert.equal(proof.versionCode, 12);
       assert.equal(
         proof.launcherIconResource,
         "@mipmap/dalmuti_app_icon_v5",
