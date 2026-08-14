@@ -10,6 +10,7 @@ import {
 } from "react";
 import Link from "next/link";
 import { useAppPreferences } from "@/app/components/AppPreferencesProvider";
+import { useAutoPassPreference } from "@/app/components/useAutoPassPreference";
 import HalloweenInkContaminationCanvas from "@/app/components/HalloweenInkContaminationCanvas";
 import {
   cardArtPath,
@@ -21,6 +22,7 @@ import {
   loadDeployedHardBot,
 } from "@/lib/deployed-hard-bot-loader";
 import { deploymentHeuristicDifficulty } from "@/lib/deployed-bot-difficulty";
+import { hasLegalCardPlay } from "@/lib/auto-pass";
 import { selectPeonTaxCards } from "@/lib/taxation";
 import { rankedDealCounts } from "@/lib/dealing";
 import { resolveQuickDalmutiAutoPass } from "@/lib/quick-dalmuti";
@@ -1733,6 +1735,7 @@ function shouldUseInstalledMobileTransition(): boolean {
 
 export default function Home() {
   const { preferences } = useAppPreferences();
+  const { autoPassEnabled, setAutoPassEnabled } = useAutoPassPreference();
   const [game, setGame] = useState<GameState | null>(null);
   const [landingView, setLandingView] = useState<LandingView>("main");
   const [quickPlayerCount, setQuickPlayerCount] = useState(5);
@@ -1886,13 +1889,24 @@ export default function Home() {
     ? ROLE_LABELS[pendingHumanTaxRecipient.role]
     : "하위 계급";
   const isHumanTaxSelecting = Boolean(pendingHumanTaxExchange);
-  const currentPlayerMustAutoPass = Boolean(
+  const currentPlayerHasInsufficientCards = Boolean(
     game?.phase === "playing" &&
       !game.publicAction &&
       game.table &&
       currentPlayer &&
       (game.hands[currentPlayer.id]?.length ?? 0) > 0 &&
       (game.hands[currentPlayer.id]?.length ?? 0) < game.table.count,
+  );
+  const currentHumanHasLegalPlay = Boolean(
+    game &&
+      currentPlayer?.id === HUMAN_ID &&
+      hasLegalCardPlay(humanHand, game.table),
+  );
+  const currentPlayerMustAutoPass = Boolean(
+    currentPlayer &&
+      (currentPlayer.isHuman
+        ? autoPassEnabled && game?.table && !currentHumanHasLegalPlay
+        : currentPlayerHasInsufficientCards),
   );
   const isHumanTurn =
     game?.phase === "playing" &&
@@ -2685,8 +2699,18 @@ export default function Home() {
       return;
     }
     const player = game.players[game.currentIndex];
-    const handCount = game.hands[player.id]?.length ?? 0;
-    if (handCount === 0 || handCount >= game.table.count) return;
+    const hand = game.hands[player.id] ?? [];
+    const handCount = hand.length;
+    const shouldPassHuman =
+      player.id === HUMAN_ID &&
+      autoPassEnabled &&
+      handCount > 0 &&
+      !hasLegalCardPlay(hand, game.table);
+    const shouldPassBot =
+      player.id !== HUMAN_ID &&
+      handCount > 0 &&
+      handCount < game.table.count;
+    if (!shouldPassHuman && !shouldPassBot) return;
 
     const turnRevision = game.revision;
     const playerId = player.id;
@@ -2703,12 +2727,14 @@ export default function Home() {
         ) {
           return latest;
         }
-        return insufficientCardsPassTurn(latest, playerId);
+        return playerId === HUMAN_ID
+          ? passTurn(latest, playerId)
+          : insufficientCardsPassTurn(latest, playerId);
       });
     }, humanFinished ? 70 : 170);
 
     return () => window.clearTimeout(timer);
-  }, [game, humanFinished]);
+  }, [autoPassEnabled, game, humanFinished]);
 
   useEffect(() => {
     if (
@@ -4199,6 +4225,18 @@ export default function Home() {
                       </button>
                     )}
                   </div>
+                  <label className="auto-pass-toggle">
+                    <span>자동 PASS</span>
+                    <input
+                      type="checkbox"
+                      checked={autoPassEnabled}
+                      onChange={(event) =>
+                        setAutoPassEnabled(event.target.checked)
+                      }
+                      aria-label="낼 수 있는 패가 없을 때 자동으로 패스"
+                    />
+                    <i aria-hidden="true" />
+                  </label>
                   <button
                     type="button"
                     className="pass-button"

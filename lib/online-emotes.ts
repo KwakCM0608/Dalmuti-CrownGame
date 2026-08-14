@@ -15,6 +15,10 @@ export const ONLINE_EMOTES = [
   { id: "wave", emoji: "👋", label: "잘 가요" },
   { id: "eyes", emoji: "👀", label: "다 보여요" },
   { id: "popcorn", emoji: "🍿", label: "구경 중" },
+  { id: "middle-finger", emoji: "🖕", label: "가운데 손가락" },
+  { id: "clown", emoji: "🤡", label: "광대 등장" },
+  { id: "rolling-laugh", emoji: "🤣", label: "웃음 폭발" },
+  { id: "skull", emoji: "💀", label: "끝났네" },
 ] as const;
 
 export type OnlineEmoteId = (typeof ONLINE_EMOTES)[number]["id"];

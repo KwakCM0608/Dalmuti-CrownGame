@@ -48,7 +48,7 @@ export async function generateMetadata(): Promise<Metadata> {
       shortcut: "/brand-dalmuti-crown.png",
       apple: [
         {
-          url: "/pwa/apple-touch-icon-v2.png",
+          url: "/pwa/apple-touch-icon-v3.png",
           sizes: "180x180",
           type: "image/png",
         },

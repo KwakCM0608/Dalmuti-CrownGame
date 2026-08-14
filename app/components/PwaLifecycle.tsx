@@ -240,8 +240,8 @@ export function PwaLifecycle() {
             {waitingWorker
               ? "초기 화면에서 안전하게 업데이트할 수 있습니다."
               : showingIphoneInstall
-                ? "홈 화면에 추가해 앱처럼 실행하세요."
-                : "홈 화면에서 앱처럼 빠르게 실행하세요."}
+                ? "설치하면 브라우저 간섭을 줄여 더 안정적으로 플레이할 수 있어요."
+                : "앱을 설치하면 화면 잘림 없이 더 안정적으로 플레이할 수 있어요."}
           </small>
         </span>
         <button
@@ -298,7 +298,8 @@ export function PwaLifecycle() {
             <span className={styles.guideEyebrow}>iPhone 앱 설치</span>
             <h2 id="iphone-install-title">DALMUTI를 홈 화면에 추가하세요</h2>
             <p id="iphone-install-description">
-              별도 다운로드 없이 현재 웹사이트를 앱처럼 실행할 수 있습니다.
+              별도 다운로드 없이 현재 웹사이트를 앱처럼 설치하세요. 브라우저
+              화면 간섭을 줄여 더 안정적으로 플레이할 수 있습니다.
             </p>
 
             <ol className={styles.guideSteps}>
@@ -322,7 +323,10 @@ export function PwaLifecycle() {
                 <span aria-hidden="true">3</span>
                 <div>
                   <strong>웹 앱으로 열기를 켜고 추가하세요</strong>
-                  <small>설치 후 DALMUTI 아이콘으로 바로 실행할 수 있습니다.</small>
+                  <small>
+                    설치 후 DALMUTI 아이콘으로 실행하면 게임 화면을 더 안정적으로
+                    사용할 수 있습니다.
+                  </small>
                 </div>
               </li>
             </ol>

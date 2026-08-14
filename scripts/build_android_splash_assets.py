@@ -15,12 +15,12 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 ASSET_ROOT = ROOT / "android-twa" / "assets"
 OUTPUT_ROOT = ROOT / "android-twa" / "custom" / "res"
-ICON_SOURCE = ASSET_ROOT / "dalmuti-app-icon-v3.png"
+ICON_SOURCE = ASSET_ROOT / "dalmuti-app-icon-v4.png"
 EXPECTED_SOURCE_HASHES = {
-    ICON_SOURCE: "5c953737fb31f5a8ed8e2d7f53a75681e5b37a0fcf8db55a743206260f6d7946",
+    ICON_SOURCE: "80664605da730198b2d59d7d5beb3b1dbf7b837a49e9b560f03b8d73d403081c",
 }
-ICON_RESOURCE = "dalmuti_app_icon_v3.png"
-MASKABLE_ICON_RESOURCE = "dalmuti_app_icon_maskable_v3.png"
+ICON_RESOURCE = "dalmuti_app_icon_v4.png"
+MASKABLE_ICON_RESOURCE = "dalmuti_app_icon_maskable_v4.png"
 
 LEGACY_ICON_SIZES = {
     "mdpi": 48,

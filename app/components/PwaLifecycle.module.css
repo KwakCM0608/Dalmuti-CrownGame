@@ -27,7 +27,7 @@
   height: 42px;
   border: 1px solid rgba(235, 196, 95, 0.56);
   border-radius: 10px;
-  background: #16070b url("/pwa/icon-v2-192.png") center / cover no-repeat;
+  background: #16070b url("/pwa/icon-v3-192.png") center / cover no-repeat;
   box-shadow: 0 5px 16px rgba(0, 0, 0, 0.32);
 }
 
@@ -138,7 +138,7 @@
   margin-bottom: 13px;
   border: 1px solid rgba(235, 196, 95, 0.64);
   border-radius: 16px;
-  background: #16070b url("/pwa/icon-v2-192.png") center / cover no-repeat;
+  background: #16070b url("/pwa/icon-v3-192.png") center / cover no-repeat;
   box-shadow:
     0 12px 28px rgba(0, 0, 0, 0.42),
     0 0 26px rgba(216, 166, 57, 0.1);

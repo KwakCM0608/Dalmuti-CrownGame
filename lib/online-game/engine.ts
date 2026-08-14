@@ -23,6 +23,7 @@ import {
 } from "../bot-strategy.ts";
 import { chooseDeployedHardBotCardIds } from "../deployed-hard-bot-policy.ts";
 import { deploymentHeuristicDifficulty } from "../deployed-bot-difficulty.ts";
+import { hasLegalCardPlay } from "../auto-pass.ts";
 import {
   forceClaimedPlayerToLastRank,
   forceTwoJokersIntoHand,
@@ -139,6 +140,7 @@ function normalizePlayer(
     role,
     ready: false,
     connected: true,
+    autoPassEnabled: true,
     joinedAt,
     score: 0,
   };
@@ -169,6 +171,7 @@ function createBotPlayer(
     role: "merchant",
     ready: true,
     connected: true,
+    autoPassEnabled: true,
     joinedAt,
     score: 0,
   };
@@ -196,6 +199,7 @@ function cloneRoom(state: OnlineRoomState): OnlineRoomState {
             : null,
       ready: player.isBot === true ? true : player.ready,
       connected: player.isBot === true ? true : player.connected,
+      autoPassEnabled: player.autoPassEnabled !== false,
     })),
     hands: Object.fromEntries(
       Object.entries(state.hands).map(([id, hand]) => [id, [...hand]]),
@@ -1902,9 +1906,9 @@ function insufficientCardsPassAt(
 ): number | null {
   if (state.phase !== "playing" || !state.table) return null;
   const current = state.players[state.currentIndex];
-  if (!current) return null;
-  const handCount = state.hands[current.id]?.length ?? 0;
-  if (handCount === 0 || handCount >= state.table.count) return null;
+  if (!current || current.autoPassEnabled === false) return null;
+  const hand = state.hands[current.id] ?? [];
+  if (hand.length === 0 || hasLegalCardPlay(hand, state.table)) return null;
   return (
     finiteDeadline(state.actionLockUntil) ??
     finiteDeadline(state.updatedAt) ??
@@ -2077,10 +2081,9 @@ export function advanceOnlineRoom(
       if (!current) {
         fail("ROOM_INVARIANT", "an automatic pass has no current player");
       }
-      handlePass(next, current.id, transitionAt, {
-        automatic: true,
-        reason: "insufficient-cards",
-      });
+      // Keep this publicly indistinguishable from a manual PASS. Other
+      // players must not learn whether the actor had a legal response.
+      handlePass(next, current.id, transitionAt);
     } else if (
       nextBotActionAt !== null &&
       nextBotActionAt <= (nextTurnDeadline ?? Number.POSITIVE_INFINITY)
@@ -2115,6 +2118,7 @@ export function applyOnlineCommand(
   }
   if (
     command.type !== "SET_READY" &&
+    command.type !== "SET_AUTO_PASS" &&
     command.type !== "CHOOSE_RANK_CARD" &&
     command.expectedRevision !== undefined &&
     command.expectedRevision !== advanced.revision
@@ -2127,6 +2131,28 @@ export function applyOnlineCommand(
 
   const next = cloneRoom(advanced);
   switch (command.type) {
+    case "SET_AUTO_PASS": {
+      if (typeof command.enabled !== "boolean") {
+        fail("INVALID_AUTO_PASS_VALUE", "auto pass must be a boolean");
+      }
+      const player = next.players.find((candidate) => candidate.id === actorId)!;
+      if (player.isBot) {
+        fail("BOT_AUTO_PASS_FIXED", "bot auto pass cannot be changed");
+      }
+      if (player.autoPassEnabled === command.enabled) {
+        next.processedCommandIds = [
+          ...next.processedCommandIds,
+          command.id,
+        ].slice(-MAX_PROCESSED_COMMANDS);
+        return next;
+      }
+      next.players = next.players.map((candidate) =>
+        candidate.id === actorId
+          ? { ...candidate, autoPassEnabled: command.enabled }
+          : candidate,
+      );
+      break;
+    }
     case "SET_READY": {
       if (next.phase !== "lobby" && next.phase !== "round-end") {
         fail(
@@ -2442,6 +2468,9 @@ export function projectOnlineRoom(
     round: state.round,
     viewerId: actorId,
     hostId: state.hostId,
+    autoPassEnabled:
+      state.players.find((player) => player.id === actorId)
+        ?.autoPassEnabled !== false,
     dealSealed: state.dealSealed,
     minPlayers: MIN_PLAYERS,
     maxPlayers: MAX_PLAYERS,

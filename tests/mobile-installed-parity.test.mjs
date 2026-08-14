@@ -238,6 +238,25 @@ test("installed online chat opens as a narrower and taller touch viewport", () =
   );
 });
 
+test("mobile controls reserve Android navigation space and expose private auto PASS", () => {
+  for (const styles of [quickStyles, onlineStyles]) {
+    assert.match(
+      styles,
+      /--mobile-system-bottom-inset: max\(env\(safe-area-inset-bottom, 0px\), 24px\)/,
+    );
+    assert.match(styles, /grid-template-rows: minmax\(0, 1fr\) 124px/);
+  }
+  assert.match(quickPage, /className="auto-pass-toggle"/);
+  assert.match(onlinePage, /className=\{styles\.autoPassToggle\}/);
+  assert.match(quickPage, /hasLegalCardPlay\(hand, game\.table\)/);
+  assert.match(onlinePage, /type: "SET_AUTO_PASS"/);
+  assert.match(onlineEngine, /current\.autoPassEnabled === false/);
+  assert.match(
+    onlineEngine,
+    /publicly indistinguishable from a manual PASS/,
+  );
+});
+
 test("installed quick and online seats use matching exterior rails and count alignment", () => {
   for (const styles of [quickStyles, onlineStyles]) {
     assert.match(styles, /margin-block: 43px 45px;/);

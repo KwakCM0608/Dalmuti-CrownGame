@@ -60,6 +60,7 @@ import {
   RulebookDialog,
 } from "@/app/components/RulebookDialog";
 import { useAppPreferences } from "@/app/components/AppPreferencesProvider";
+import { useAutoPassPreference } from "@/app/components/useAutoPassPreference";
 import {
   cardArtPath,
   cardProfessionName,
@@ -203,6 +204,7 @@ type SnapshotView = {
   round: number;
   viewerId: string;
   hostId: string;
+  autoPassEnabled: boolean;
   players: PlayerView[];
   hand: CardView[] | null;
   table: TableView;
@@ -699,6 +701,10 @@ function snapshotFrom(
     hostId: stringValue(
       publicView.hostId,
       stringValue(publicView.hostPlayerId, stringValue(root.hostId)),
+    ),
+    autoPassEnabled: booleanValue(
+      publicView.autoPassEnabled,
+      booleanValue(root.autoPassEnabled, true),
     ),
     players: Array.isArray(playersValue)
       ? playersValue.map(playerFrom)
@@ -2273,6 +2279,9 @@ function OnlineChatPanel({
   const [emoteSending, setEmoteSending] = useState(false);
   const [emotePickerOpen, setEmotePickerOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(initiallyCollapsed);
+  const [lastReadMessageId, setLastReadMessageId] = useState<string | null>(
+    () => messages.at(-1)?.id ?? null,
+  );
   const [chatError, setChatError] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
@@ -2406,6 +2415,19 @@ function OnlineChatPanel({
     if (!messageList || collapsed || !chatShouldFollowLatestRef.current) return;
     messageList.scrollTop = messageList.scrollHeight;
   }, [collapsed, messages.length]);
+
+  const unreadCount = useMemo(() => {
+    if (!collapsed) return 0;
+    const boundaryIndex = lastReadMessageId
+      ? messages.findIndex((message) => message.id === lastReadMessageId)
+      : -1;
+    return Math.min(
+      99,
+      messages
+        .slice(boundaryIndex + 1)
+        .filter((message) => message.playerId !== viewerId).length,
+    );
+  }, [collapsed, lastReadMessageId, messages, viewerId]);
 
   useEffect(() => {
     if (!emotePickerOpen) return;
@@ -2549,7 +2571,9 @@ function OnlineChatPanel({
       ref={panelRef}
       className={`${styles.chatPanel} ${
         collapsed ? styles.chatPanelCollapsed : ""
-      } ${dragging ? styles.chatPanelDragging : ""} ${className}`}
+      } ${unreadCount > 0 ? styles.chatPanelUnread : ""} ${
+        dragging ? styles.chatPanelDragging : ""
+      } ${className}`}
       style={
         {
           "--chat-drag-x": `${dragOffset.x}px`,
@@ -2570,6 +2594,11 @@ function OnlineChatPanel({
         <span>
           <i aria-hidden="true" />
           채팅
+          {unreadCount > 0 && (
+            <b className={styles.chatUnreadBadge} aria-label={`읽지 않은 채팅 ${unreadCount}개`}>
+              {unreadCount}
+            </b>
+          )}
           <small className={styles.chatDragHint} aria-hidden="true">
             ⠿
           </small>
@@ -2578,10 +2607,17 @@ function OnlineChatPanel({
           type="button"
           onClick={() => {
             setEmotePickerOpen(false);
+            setLastReadMessageId(messages.at(-1)?.id ?? null);
             setCollapsed((current) => !current);
           }}
           aria-expanded={!collapsed}
-          aria-label={collapsed ? "채팅 펼치기" : "채팅 접기"}
+          aria-label={
+            collapsed && unreadCount > 0
+              ? `채팅 펼치기, 새 메시지 ${unreadCount}개`
+              : collapsed
+                ? "채팅 펼치기"
+                : "채팅 접기"
+          }
         >
           {collapsed ? "+" : "−"}
         </button>
@@ -2681,6 +2717,7 @@ function OnlineChatPanel({
 export default function OnlinePage() {
   const router = useRouter();
   const { preferences } = useAppPreferences();
+  const { autoPassEnabled, setAutoPassEnabled } = useAutoPassPreference();
   const cardImage = useCardImage();
   const mobileGameLayout = useSyncExternalStore(
     subscribeMobileGameLayout,
@@ -2753,6 +2790,7 @@ export default function OnlinePage() {
   const serverOffsetRef = useRef(0);
   const remoteActionSeenIdsRef = useRef(new Set<string>());
   const latestChatSeqRef = useRef(0);
+  const autoPassSyncKeyRef = useRef("");
   const rankChoiceInFlightRef = useRef<number | null>(null);
   const rankMoveTimerRef = useRef<number | null>(null);
   const rankMoveFrameRef = useRef<number | null>(null);
@@ -3502,6 +3540,88 @@ export default function OnlinePage() {
     },
     [busy, sendCommand],
   );
+
+  const syncOnlineAutoPassPreference = useCallback(
+    async (enabled: boolean): Promise<boolean> => {
+      const activeSession = sessionRef.current;
+      const current = snapshotRef.current;
+      if (!activeSession || !current || connection !== "online") return false;
+      const commandId = createCommandId();
+      try {
+        const response = await fetch(
+          `/api/online/rooms/${activeSession.roomCode}/commands`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${activeSession.token}`,
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify({
+              command: {
+                id: commandId,
+                commandId,
+                type: "SET_AUTO_PASS",
+                enabled,
+                expectedRevision: current.revision,
+                baseRevision: current.revision,
+              },
+            }),
+          },
+        );
+        const body: unknown = await response.json().catch(() => ({}));
+        if (sessionRef.current?.token !== activeSession.token) return false;
+        if (!response.ok) {
+          throw new Error(
+            apiErrorMessage(body, "자동 PASS 설정을 저장하지 못했습니다."),
+          );
+        }
+        const result = unwrapSnapshotResponse(body);
+        if (result.snapshot) ingestSnapshot(result.snapshot);
+        ingestChatMessages(result.chatMessages, result.latestChatSeq);
+        ingestRoomEmotes(result.emotes);
+        return true;
+      } catch (reason) {
+        setError(
+          reason instanceof Error
+            ? reason.message
+            : "자동 PASS 설정을 저장하지 못했습니다.",
+        );
+        return false;
+      }
+    },
+    [
+      connection,
+      ingestChatMessages,
+      ingestRoomEmotes,
+      ingestSnapshot,
+    ],
+  );
+
+  useEffect(() => {
+    if (
+      !session?.token ||
+      !snapshot ||
+      connection !== "online" ||
+      snapshot.autoPassEnabled === autoPassEnabled
+    ) {
+      return;
+    }
+    const syncKey = `${session.token}:${autoPassEnabled}`;
+    if (autoPassSyncKeyRef.current === syncKey) return;
+    autoPassSyncKeyRef.current = syncKey;
+    void syncOnlineAutoPassPreference(autoPassEnabled).finally(() => {
+      if (autoPassSyncKeyRef.current === syncKey) {
+        autoPassSyncKeyRef.current = "";
+      }
+    });
+  }, [
+    autoPassEnabled,
+    connection,
+    session?.token,
+    snapshot,
+    syncOnlineAutoPassPreference,
+  ]);
 
   const sendChatMessage = useCallback(
     async (text: string) => {
@@ -5788,6 +5908,18 @@ export default function OnlinePage() {
                 </button>
               ) : (
                 <>
+                  <label className={styles.autoPassToggle}>
+                    <span>자동 PASS</span>
+                    <input
+                      type="checkbox"
+                      checked={autoPassEnabled}
+                      onChange={(event) =>
+                        setAutoPassEnabled(event.target.checked)
+                      }
+                      aria-label="낼 수 있는 패가 없을 때 자동으로 패스"
+                    />
+                    <i aria-hidden="true" />
+                  </label>
                   <button
                     type="button"
                     className={styles.passButton}

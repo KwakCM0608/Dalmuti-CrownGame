@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "dalmuti-pwa";
-const CACHE_VERSION = "2026-08-04-online-round-ready-v18";
+const CACHE_VERSION = "2026-08-14-auto-pass-icon-v19";
 const PRECACHE = `${CACHE_PREFIX}-precache-${CACHE_VERSION}`;
 const RUNTIME = `${CACHE_PREFIX}-runtime-${CACHE_VERSION}`;
 const OFFLINE_URL = "/offline.html";
@@ -11,11 +11,11 @@ const PRECACHE_URLS = [
   "/pwa/icon-512.png",
   "/pwa/icon-maskable-512.png",
   "/pwa/apple-touch-icon.png",
-  "/pwa/icon-v2-192.png",
-  "/pwa/icon-v2-512.png",
-  "/pwa/icon-v2-1024.png",
-  "/pwa/icon-maskable-v2-512.png",
-  "/pwa/apple-touch-icon-v2.png",
+  "/pwa/icon-v3-192.png",
+  "/pwa/icon-v3-512.png",
+  "/pwa/icon-v3-1024.png",
+  "/pwa/icon-maskable-v3-512.png",
+  "/pwa/apple-touch-icon-v3.png",
   "/cards/back.webp",
   "/cards/halloween/back.webp",
   "/themes/halloween/crown.webp",

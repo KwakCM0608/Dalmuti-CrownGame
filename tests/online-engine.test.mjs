@@ -1658,7 +1658,7 @@ test("playing turns use a server-authoritative 30 second deadline and timeout PA
   );
 });
 
-test("a player with fewer cards than the occupied table requires is automatically passed", () => {
+test("auto PASS is publicly indistinguishable from a manual PASS", () => {
   let state = readyEveryone(createFourPlayerLobby());
   state.phase = "playing";
   state.phaseEndsAt = null;
@@ -1706,8 +1706,6 @@ test("a player with fewer cards than the occupied table requires is automaticall
   );
   assert.deepEqual(automaticPass?.payload, {
     playerId: "p1",
-    automatic: true,
-    reason: "insufficient-cards",
     previousTable: {
       rank: 8,
       count: 2,
@@ -1719,6 +1717,39 @@ test("a player with fewer cards than the occupied table requires is automaticall
     },
   });
   assert.equal(automaticPass?.at, 100);
+});
+
+test("a player can disable auto PASS even when no legal response exists", () => {
+  let state = readyEveryone(createFourPlayerLobby());
+  state = command(state, "p1", "SET_AUTO_PASS", { enabled: false }, 20);
+  state.phase = "playing";
+  state.phaseEndsAt = null;
+  state.turnDeadline = 30_000;
+  state.currentIndex = 0;
+  state.actionLockUntil = 100;
+  state.botActionAt = null;
+  state.table = {
+    rank: 8,
+    count: 2,
+    playerId: "p4",
+    cards: [
+      { id: "table-8-a", rank: 8 },
+      { id: "table-8-b", rank: 8 },
+    ],
+  };
+  state.lastPlayedId = "p4";
+  state.hands.p1 = [
+    { id: "p1-nine-a", rank: 9 },
+    { id: "p1-nine-b", rank: 9 },
+  ];
+
+  const eventCount = state.events.length;
+  state = advanceOnlineRoom(state, 100);
+
+  assert.equal(state.players[state.currentIndex].id, "p1");
+  assert.deepEqual(state.passedPlayerIds, []);
+  assert.equal(state.events.length, eventCount);
+  assert.equal(projectOnlineRoom(state, "p1").autoPassEnabled, false);
 });
 
 test("timeout PASS clears an occupied trick and resets the next leader's full deadline", () => {
@@ -1736,9 +1767,9 @@ test("timeout PASS clears an occupied trick and resets the next leader's full de
   };
   state.lastPlayedId = "p4";
   state.hands = {
-    p1: [{ id: "p1-12", rank: 12 }],
-    p2: [{ id: "p2-11", rank: 11 }],
-    p3: [{ id: "p3-10", rank: 10 }],
+    p1: [{ id: "p1-7", rank: 7 }],
+    p2: [{ id: "p2-6", rank: 6 }],
+    p3: [{ id: "p3-5", rank: 5 }],
     p4: [{ id: "p4-9", rank: 9 }],
   };
 

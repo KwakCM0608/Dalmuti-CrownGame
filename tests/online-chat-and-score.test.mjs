@@ -80,12 +80,14 @@ test("each act awards the same fixed chip curve for 4 to 10 players", () => {
 });
 
 test("online emotes use a fixed safe whitelist and a short display window", () => {
-  assert.equal(ONLINE_EMOTES.length, 16);
-  assert.equal(new Set(ONLINE_EMOTES.map((emote) => emote.id)).size, 16);
+  assert.equal(ONLINE_EMOTES.length, 20);
+  assert.equal(new Set(ONLINE_EMOTES.map((emote) => emote.id)).size, 20);
   assert.equal(ONLINE_EMOTE_DURATION_MS, 4_200);
   assert.equal(isOnlineEmoteId("celebrate"), true);
   assert.equal(isOnlineEmoteId("smirk"), true);
   assert.equal(isOnlineEmoteId("popcorn"), true);
+  assert.equal(isOnlineEmoteId("middle-finger"), true);
+  assert.equal(isOnlineEmoteId("clown"), true);
   assert.equal(isOnlineEmoteId("<img src=x onerror=alert(1)>"), false);
   assert.deepEqual(onlineEmoteById("clap"), {
     id: "clap",
@@ -96,6 +98,11 @@ test("online emotes use a fixed safe whitelist and a short display window", () =
     id: "tongue",
     emoji: "😜",
     label: "메롱",
+  });
+  assert.deepEqual(onlineEmoteById("middle-finger"), {
+    id: "middle-finger",
+    emoji: "🖕",
+    label: "가운데 손가락",
   });
   assert.equal(onlineEmoteById("custom"), null);
 });

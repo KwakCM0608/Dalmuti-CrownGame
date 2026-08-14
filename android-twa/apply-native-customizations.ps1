@@ -17,9 +17,9 @@ $launcherTemplatePath = Join-Path $customRoot "java\LauncherActivity.java"
 $launcherPath = Join-Path `
     $generatedRoot `
     "app\src\main\java\lab\dclab\dalmuti\LauncherActivity.java"
-$launcherIconResource = "@mipmap/dalmuti_app_icon_v3"
+$launcherIconResource = "@mipmap/dalmuti_app_icon_v4"
 $systemSplashResource = "@drawable/dalmuti_splash_os_black_v4"
-$nativeProofFileName = "dalmuti-native-assets-v9.json"
+$nativeProofFileName = "dalmuti-native-assets-v10.json"
 
 foreach ($requiredPath in @(
     $resourceSource,
@@ -258,12 +258,12 @@ Get-ChildItem `
 $nativeProof = [ordered]@{
     schemaVersion = 2
     packageId = "lab.dclab.dalmuti"
-    appVersion = "1.0.8"
-    versionCode = 9
+    appVersion = "1.0.9"
+    versionCode = 10
     launcherIconResource = $launcherIconResource
     systemSplashResource = $systemSplashResource
     browserHelperSplashDisabled = $true
-    iconSourceSha256 = "5c953737fb31f5a8ed8e2d7f53a75681e5b37a0fcf8db55a743206260f6d7946"
+    iconSourceSha256 = "80664605da730198b2d59d7d5beb3b1dbf7b837a49e9b560f03b8d73d403081c"
     launcherSourceSha256 = $launcherSourceHash
     resourceTreeSha256 = $resourceTreeHash
 }
@@ -275,6 +275,6 @@ $nativeProofPath = Join-Path $assetTarget $nativeProofFileName
 )
 
 Write-Output (
-    "Applied DALMUTI Android assets v9 with Browser Helper splash disabled: " +
+    "Applied DALMUTI Android assets v10 with Browser Helper splash disabled: " +
     $nativeProofPath
 )

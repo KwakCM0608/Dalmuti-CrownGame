@@ -648,7 +648,7 @@ test("Halloween polish is complete, theme-scoped, and preserves responsive contr
 test("service worker caches theme assets without caching online state", () => {
   const worker = read("public/sw.js");
 
-  assert.match(worker, /2026-08-04-online-round-ready-v18/);
+  assert.match(worker, /2026-08-14-auto-pass-icon-v19/);
   assert.match(worker, /"\/cards\/halloween\/back\.webp"/);
   assert.match(worker, /"\/themes\/halloween\/crown\.webp"/);
   assert.match(worker, /"\/themes\/halloween\/dalmuti-hand-field-atlas-v2\.png"/);

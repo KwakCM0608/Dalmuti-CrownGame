@@ -46,6 +46,7 @@ export type OnlinePlayerState = {
   role: OnlineRole;
   ready: boolean;
   connected: boolean;
+  autoPassEnabled: boolean;
   joinedAt: number;
   score: number;
 };
@@ -147,6 +148,10 @@ export type OnlineCommand =
   | (OnlineCommandBase & {
       type: "SET_READY";
       ready: boolean;
+    })
+  | (OnlineCommandBase & {
+      type: "SET_AUTO_PASS";
+      enabled: boolean;
     })
   | (OnlineCommandBase & {
       type: "ADD_BOT";
@@ -264,6 +269,7 @@ export type OnlineSnapshot = {
   round: number;
   viewerId: string;
   hostId: string;
+  autoPassEnabled: boolean;
   dealSealed: boolean;
   minPlayers: 4;
   maxPlayers: 8;

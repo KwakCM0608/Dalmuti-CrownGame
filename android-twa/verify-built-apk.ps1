@@ -55,10 +55,10 @@ $badging = $badgingLines -join "`n"
 if (
     $badging -notmatch (
         "package: name='lab\.dclab\.dalmuti' " +
-        "versionCode='9' versionName='1\.0\.8'"
+        "versionCode='10' versionName='1\.0\.9'"
     )
 ) {
-    throw "APK package or version does not match DALMUTI Android 1.0.8 (9)."
+    throw "APK package or version does not match DALMUTI Android 1.0.9 (10)."
 }
 
 $resourceTableLines = @(& $resolvedAapt dump resources $resolvedApk 2>&1)
@@ -99,12 +99,12 @@ try {
     $proofEntries = @(
         $entries |
             Where-Object {
-                $_.FullName -eq "assets/dalmuti-native-assets-v9.json"
+                $_.FullName -eq "assets/dalmuti-native-assets-v10.json"
             }
     )
     if ($proofEntries.Count -ne 1) {
         throw (
-            "APK does not contain exactly one DALMUTI v9 packaging proof. " +
+            "APK does not contain exactly one DALMUTI v10 packaging proof. " +
             "Run apply-native-customizations.ps1 before building."
         )
     }
@@ -123,12 +123,12 @@ try {
     $expectedProof = [ordered]@{
         schemaVersion = 2
         packageId = "lab.dclab.dalmuti"
-        appVersion = "1.0.8"
-        versionCode = 9
-        launcherIconResource = "@mipmap/dalmuti_app_icon_v3"
+        appVersion = "1.0.9"
+        versionCode = 10
+        launcherIconResource = "@mipmap/dalmuti_app_icon_v4"
         systemSplashResource = "@drawable/dalmuti_splash_os_black_v4"
         browserHelperSplashDisabled = $true
-        iconSourceSha256 = "5c953737fb31f5a8ed8e2d7f53a75681e5b37a0fcf8db55a743206260f6d7946"
+        iconSourceSha256 = "80664605da730198b2d59d7d5beb3b1dbf7b837a49e9b560f03b8d73d403081c"
         launcherSourceSha256 = "8b5f1f17d5fb3c97f750af951fa5bfd13a3543921b50611bc472362ee45142f3"
     }
     foreach ($entry in $expectedProof.GetEnumerator()) {
@@ -144,8 +144,8 @@ try {
     # compact identifiers. Verify logical Android resource names and density
     # variants through resources.arsc instead of relying on ZIP entry names.
     $expectedResourceCounts = [ordered]@{
-        "lab.dclab.dalmuti:mipmap/dalmuti_app_icon_v3" = 7
-        "lab.dclab.dalmuti:mipmap/dalmuti_app_icon_maskable_v3" = 6
+        "lab.dclab.dalmuti:mipmap/dalmuti_app_icon_v4" = 7
+        "lab.dclab.dalmuti:mipmap/dalmuti_app_icon_maskable_v4" = 6
         "lab.dclab.dalmuti:drawable/dalmuti_splash_os_black_v4" = 2
     }
     foreach ($entry in $expectedResourceCounts.GetEnumerator()) {
@@ -246,7 +246,7 @@ try {
     }
 
     Write-Output (
-        "Verified DALMUTI Android 1.0.8 (9): immediate unbranded launch, " +
+        "Verified DALMUTI Android 1.0.9 (10): immediate unbranded launch, " +
         "black Android 12+ system frame, and customization proof."
     )
 } finally {

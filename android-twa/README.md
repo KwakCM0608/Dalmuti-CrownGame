@@ -30,10 +30,10 @@ committed density-specific launcher icons with
 `scripts/build_android_splash_assets.py` after replacing the versioned icon
 source. The historical splash source remains unreferenced and is not packaged.
 
-The current test package is version `1.0.8` (`versionCode` 9), signed with the
+The current test package is version `1.0.9` (`versionCode` 10), signed with the
 same local test key so it can update the previous test APK in place.
 After building, run `verify-built-apk.ps1 -ApkPath <path-to-apk>`. It requires
-the v9 customization proof, the versioned icon v3, and the black Android 12+
+the v10 customization proof, the borderless versioned icon v4, and the black Android 12+
 placeholder. It also rejects Browser Helper splash metadata and branded splash
 or glow resources.
 
