@@ -11475,7 +11475,7 @@ html[data-theme="halloween"] .game-shell .phase-intro:not(.is-tax):not(.is-tax-s
 @media (display-mode: standalone) and (hover: none) and (pointer: coarse),
   (display-mode: fullscreen) and (hover: none) and (pointer: coarse) {
   .game-shell {
-    --mobile-system-bottom-inset: max(env(safe-area-inset-bottom, 0px), 56px);
+    --mobile-system-bottom-inset: max(env(safe-area-inset-bottom, 0px), 40px);
   }
 
   .game-shell .game-stage,
@@ -11536,8 +11536,24 @@ html[data-theme="halloween"] .game-shell .phase-intro:not(.is-tax):not(.is-tax-s
     (orientation: portrait),
   (display-mode: fullscreen) and (hover: none) and (pointer: coarse) and
     (orientation: portrait) {
+  .game-shell .table-column {
+    /* The dock is viewport-anchored below, so consuming the fallback inset a
+     * second time here only makes the flex children overflow and clip. */
+    padding-bottom: 4px;
+  }
+
+  .game-shell .turn-controls {
+    position: fixed;
+    right: calc(12px + env(safe-area-inset-right, 0px));
+    bottom: var(--mobile-system-bottom-inset);
+    left: calc(12px + env(safe-area-inset-left, 0px));
+    z-index: 76;
+    width: auto;
+    max-width: 720px;
+    margin: 0 auto;
+  }
+
   .game-shell .turn-controls:has(.auto-pass-toggle) {
-    position: relative;
     height: 98px;
     min-height: 98px;
     max-height: 98px;

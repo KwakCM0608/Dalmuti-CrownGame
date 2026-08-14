@@ -242,7 +242,7 @@ test("mobile controls reserve Android navigation space and expose private auto P
   for (const styles of [quickStyles, onlineStyles]) {
     assert.match(
       styles,
-      /--mobile-system-bottom-inset: max\(env\(safe-area-inset-bottom, 0px\), 56px\)/,
+      /--mobile-system-bottom-inset: max\(env\(safe-area-inset-bottom, 0px\), 40px\)/,
     );
     assert.match(
       styles,
@@ -261,6 +261,10 @@ test("mobile controls reserve Android navigation space and expose private auto P
   assert.match(
     onlineStyles,
     /\.selectionCopy > strong,[\s\S]{0,120}\.selectionCopy > small\s*\{[\s\S]{0,100}white-space: nowrap;[\s\S]{0,80}word-break: keep-all;/,
+  );
+  assert.match(
+    onlineStyles,
+    /\.gameChatPanel\s*\{\s*bottom: calc\(var\(--mobile-system-bottom-inset\) \+ 106px\);/,
   );
   assert.match(
     quickStyles,
@@ -282,6 +286,14 @@ test("mobile controls reserve Android navigation space and expose private auto P
     assert.match(
       styles,
       /grid-template-rows: 18px 14px;/,
+    );
+    assert.match(
+      styles,
+      /position: fixed;[\s\S]{0,180}bottom: var\(--mobile-system-bottom-inset\);[\s\S]{0,180}z-index: 76;/,
+    );
+    assert.match(
+      styles,
+      /padding-bottom: 4px;/,
     );
   }
   assert.match(quickPage, /className="auto-pass-toggle"/);

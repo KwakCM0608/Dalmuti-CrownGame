@@ -13904,7 +13904,7 @@
 @media (display-mode: standalone) and (hover: none) and (pointer: coarse),
   (display-mode: fullscreen) and (hover: none) and (pointer: coarse) {
   .gameShell {
-    --mobile-system-bottom-inset: max(env(safe-area-inset-bottom, 0px), 56px);
+    --mobile-system-bottom-inset: max(env(safe-area-inset-bottom, 0px), 40px);
   }
 
   .boardColumn {
@@ -13952,8 +13952,26 @@
     (orientation: portrait),
   (display-mode: fullscreen) and (hover: none) and (pointer: coarse) and
     (orientation: portrait) {
+  .boardColumn {
+    padding-bottom: 4px;
+  }
+
+  .actionBar {
+    position: fixed;
+    right: calc(12px + env(safe-area-inset-right, 0px));
+    bottom: var(--mobile-system-bottom-inset);
+    left: calc(12px + env(safe-area-inset-left, 0px));
+    z-index: 76;
+    width: auto;
+    max-width: 720px;
+    margin: 0 auto;
+  }
+
+  .gameChatPanel {
+    bottom: calc(var(--mobile-system-bottom-inset) + 106px);
+  }
+
   .actionBar:has(.autoPassToggle) {
-    position: relative;
     height: 98px;
     min-height: 98px;
     max-height: 98px;
