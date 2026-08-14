@@ -38,7 +38,7 @@ test("service worker never caches online API or mutation requests", () => {
   const worker = read("public/sw.js");
   const offline = read("public/offline.html");
 
-  assert.match(worker, /2026-08-14-installed-update-prompt-v20/);
+  assert.match(worker, /2026-08-14-update-recovery-v21/);
   assert.match(worker, /icon-v3-512\.png/);
   assert.match(worker, /cards\/halloween\/back\.webp/);
   assert.match(worker, /themes\/halloween\/crown\.webp/);
@@ -54,8 +54,9 @@ test("service worker never caches online API or mutation requests", () => {
   assert.match(worker, /OFFLINE_URL/);
   assert.match(worker, /event\.data\?\.type === "SKIP_WAITING"/);
   assert.doesNotMatch(worker, /\.then\(\(\) => self\.skipWaiting\(\)\)/);
-  assert.match(worker, /existingCaches\.includes\(LEGACY_AUTO_UPDATE_PRECACHE\)/);
+  assert.match(worker, /LEGACY_AUTO_UPDATE_PRECACHES\.some/);
   assert.match(worker, /precache-2026-08-14-auto-pass-icon-v19/);
+  assert.match(worker, /precache-2026-08-14-installed-update-prompt-v20/);
   assert.doesNotMatch(worker, /self\.skipWaiting\(\)[\s\S]*addEventListener\("install"/);
   assert.match(offline, /dalmuti\.preferences\.v1/);
   assert.match(offline, /html\[data-theme="halloween"\]/);
@@ -72,7 +73,10 @@ test("updates are offered only on safe entry screens", () => {
   assert.match(lifecycle, /isSafeInstallScreen/);
   assert.match(lifecycle, /welcome-layer/);
   assert.match(lifecycle, /entryShell/);
-  assert.match(lifecycle, /waitingWorker\.postMessage\(\{ type: "SKIP_WAITING" \}\)/);
+  assert.match(lifecycle, /activeWaitingWorker\.postMessage\(\{ type: "SKIP_WAITING" \}\)/);
+  assert.match(lifecycle, /navigator\.serviceWorker\.getRegistration\("\/"\)/);
+  assert.match(lifecycle, /setTimeout\(\(\) =>/);
+  assert.match(lifecycle, /setUpdating\(false\)/);
   assert.match(lifecycle, /beforeinstallprompt/);
   assert.match(lifecycle, /function isMobileWeb/);
   assert.match(lifecycle, /userAgentData\?\.mobile/);

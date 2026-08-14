@@ -127,11 +127,22 @@ export function PwaLifecycle() {
         const candidate = next.installing;
         if (!candidate) return;
         candidate.addEventListener("statechange", () => {
+          if (cancelled) return;
           if (
             candidate.state === "installed" &&
             navigator.serviceWorker.controller
           ) {
-            setWaitingWorker(next.waiting ?? candidate);
+            setWaitingWorker(next.waiting);
+            return;
+          }
+          if (
+            candidate.state === "activating" ||
+            candidate.state === "activated" ||
+            candidate.state === "redundant"
+          ) {
+            setWaitingWorker((current) =>
+              current === candidate ? next.waiting : current,
+            );
           }
         });
       });
@@ -207,11 +218,37 @@ export function PwaLifecycle() {
     if (choice.outcome !== "accepted") setInstalling(false);
   };
 
-  const applyUpdate = () => {
+  const applyUpdate = async () => {
     if (!waitingWorker || updating) return;
     setUpdating(true);
-    window.dispatchEvent(new Event("dalmuti:pwa-update-start"));
-    waitingWorker.postMessage({ type: "SKIP_WAITING" });
+    try {
+      const registration = await navigator.serviceWorker.getRegistration("/");
+      const activeWaitingWorker = registration?.waiting ?? null;
+      if (!activeWaitingWorker) {
+        setWaitingWorker(null);
+        window.location.reload();
+        return;
+      }
+
+      window.dispatchEvent(new Event("dalmuti:pwa-update-start"));
+      activeWaitingWorker.postMessage({ type: "SKIP_WAITING" });
+
+      window.setTimeout(() => {
+        navigator.serviceWorker
+          .getRegistration("/")
+          .then((latestRegistration) => {
+            if (!latestRegistration?.waiting) {
+              window.location.reload();
+              return;
+            }
+            setWaitingWorker(latestRegistration.waiting);
+            setUpdating(false);
+          })
+          .catch(() => setUpdating(false));
+      }, 5_000);
+    } catch {
+      setUpdating(false);
+    }
   };
 
   if (!safeScreen) return null;

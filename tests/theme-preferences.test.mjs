@@ -167,13 +167,13 @@ test("card profession names follow the selected artwork without renaming player 
     13: "어릿광대",
   });
   assert.deepEqual(HALLOWEEN_CARD_PROFESSION_NAMES, {
-    1: "달무티",
+    1: "위대한 달무티",
     2: "심령대신",
     3: "법무관",
     4: "뱀 남작부인",
     5: "비술사",
     6: "성전기사",
-    7: "실 잣는 자",
+    7: "거미술사",
     8: "장인",
     9: "약제사",
     10: "사육사",
@@ -648,7 +648,7 @@ test("Halloween polish is complete, theme-scoped, and preserves responsive contr
 test("service worker caches theme assets without caching online state", () => {
   const worker = read("public/sw.js");
 
-  assert.match(worker, /2026-08-14-installed-update-prompt-v20/);
+  assert.match(worker, /2026-08-14-update-recovery-v21/);
   assert.match(worker, /"\/cards\/halloween\/back\.webp"/);
   assert.match(worker, /"\/themes\/halloween\/crown\.webp"/);
   assert.match(worker, /"\/themes\/halloween\/dalmuti-hand-field-atlas-v2\.png"/);
