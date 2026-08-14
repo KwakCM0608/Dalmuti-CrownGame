@@ -11533,12 +11533,16 @@
     pointer-events: none;
   }
 
-  .seatRing[data-mobile-layout="true"][data-player-count="4"],
   .seatRing[data-mobile-layout="true"][data-player-count="7"],
   .seatRing[data-mobile-layout="true"][data-player-count="8"] {
     grid-template-columns: repeat(8, minmax(0, 1fr));
   }
 
+  .seatRing[data-mobile-layout="true"][data-player-count="4"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .seatRing[data-mobile-layout="true"][data-player-count="5"],
   .seatRing[data-mobile-layout="true"][data-player-count="6"] {
     grid-template-columns: repeat(6, minmax(0, 1fr));
   }
@@ -13998,7 +14002,9 @@
   }
 
   .gameChatPanel {
-    bottom: calc(var(--mobile-system-bottom-inset) + 106px);
+    position: fixed;
+    right: calc(12px + env(safe-area-inset-right, 0px));
+    bottom: calc(var(--mobile-system-bottom-inset) + 195px);
   }
 
   .actionBar:has(.autoPassToggle) {
@@ -14014,13 +14020,13 @@
 
   .actionBar:has(.autoPassToggle) .selectionCopy {
     position: absolute;
-    top: 6px;
+    top: 7px;
     right: 7px;
     left: 7px;
     display: grid;
     width: auto;
-    height: 36px;
-    min-height: 36px;
+    height: 34px;
+    min-height: 34px;
     grid-template-columns: minmax(86px, 1fr);
     grid-template-rows: 18px 14px;
     align-items: center;
@@ -14050,8 +14056,8 @@
   .actionBar:has(.autoPassToggle) .rankBulkButton {
     width: 100%;
     max-width: none;
-    height: 34px;
-    min-height: 34px;
+    height: 32px;
+    min-height: 32px;
     grid-row: 1 / 3;
     grid-column: 2;
     align-self: center;

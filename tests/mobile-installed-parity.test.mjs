@@ -264,7 +264,7 @@ test("mobile controls reserve Android navigation space and expose private auto P
   );
   assert.match(
     onlineStyles,
-    /\.gameChatPanel\s*\{\s*bottom: calc\(var\(--mobile-system-bottom-inset\) \+ 106px\);/,
+    /\.gameChatPanel\s*\{\s*position: fixed;\s*right: calc\(12px \+ env\(safe-area-inset-right, 0px\)\);\s*bottom: calc\(var\(--mobile-system-bottom-inset\) \+ 195px\);/,
   );
   assert.match(
     quickStyles,
@@ -324,11 +324,11 @@ test("mobile controls reserve Android navigation space and expose private auto P
   );
   assert.match(
     quickStyles,
-    /\.turn-controls:has\(\.auto-pass-toggle\) \.rank-bulk-button\s*\{[\s\S]{0,180}height: 34px;[\s\S]{0,120}min-height: 34px;[\s\S]{0,180}align-self: center;/,
+    /\.turn-controls:has\(\.auto-pass-toggle\) \.rank-bulk-button\s*\{[\s\S]{0,180}height: 32px;[\s\S]{0,120}min-height: 32px;[\s\S]{0,180}align-self: center;/,
   );
   assert.match(
     onlineStyles,
-    /\.actionBar:has\(\.autoPassToggle\) \.rankBulkButton\s*\{[\s\S]{0,180}height: 34px;[\s\S]{0,120}min-height: 34px;[\s\S]{0,180}align-self: center;/,
+    /\.actionBar:has\(\.autoPassToggle\) \.rankBulkButton\s*\{[\s\S]{0,180}height: 32px;[\s\S]{0,120}min-height: 32px;[\s\S]{0,180}align-self: center;/,
   );
   assert.match(quickPage, /className="auto-pass-toggle"/);
   assert.match(onlinePage, /className=\{styles\.autoPassToggle\}/);
@@ -365,6 +365,31 @@ test("installed quick and online seats use matching exterior rails and count ali
   assert.match(
     onlineStyles,
     /Terminal installed-app seat rail[\s\S]*?\.playerSeatSelf[\s\S]*?inset 3px 0 #d5aa4e/,
+  );
+
+  for (const page of [quickPage, onlinePage]) {
+    assert.match(page, /total >= 6 \|\| total === 5[\s\S]{0,80}\? 3/);
+    assert.match(page, /total === 4[\s\S]{0,80}\? 2/);
+  }
+  assert.match(
+    quickStyles,
+    /opponent-row\[data-player-count="4"\][\s\S]{0,100}repeat\(4/,
+  );
+  assert.match(
+    quickStyles,
+    /opponent-row\[data-player-count="5"\],[\s\S]{0,120}data-player-count="6"[\s\S]{0,100}repeat\(6/,
+  );
+  assert.match(
+    onlineStyles,
+    /seatRing\[data-mobile-layout="true"\]\[data-player-count="4"\][\s\S]{0,100}repeat\(4/,
+  );
+  assert.match(
+    onlineStyles,
+    /seatRing\[data-mobile-layout="true"\]\[data-player-count="5"\],[\s\S]{0,140}data-player-count="6"[\s\S]{0,100}repeat\(6/,
+  );
+  assert.match(
+    onlinePage,
+    /dragPositionVersion=\{[\s\S]{0,80}mobileAppLayout \? "installed-portrait-v2" : undefined/,
   );
 });
 

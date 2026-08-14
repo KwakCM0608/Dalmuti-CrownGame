@@ -971,7 +971,15 @@ function seatPosition(rankIndex: number, total: number): CSSProperties {
     total <= 1 ? 270 : 150 + (240 * rankIndex) / Math.max(1, total - 1);
   const radians = (angle * Math.PI) / 180;
   const mobileTopCount =
-    total >= 9 ? 5 : total >= 7 ? 4 : total >= 6 ? 3 : total;
+    total >= 9
+      ? 5
+      : total >= 7
+        ? 4
+        : total >= 6 || total === 5
+          ? 3
+          : total === 4
+            ? 2
+            : total;
   const mobileTopRow = rankIndex < mobileTopCount;
   const mobileRowIndex = mobileTopRow
     ? rankIndex
@@ -2258,6 +2266,7 @@ function formatChatTime(timestamp: number): string {
 function OnlineChatPanel({
   className = "",
   dragStorageKey,
+  dragPositionVersion,
   messages,
   viewerId,
   connected,
@@ -2267,6 +2276,7 @@ function OnlineChatPanel({
 }: {
   className?: string;
   dragStorageKey: "lobby" | "game";
+  dragPositionVersion?: string;
   messages: ChatMessageView[];
   viewerId: string;
   connected: boolean;
@@ -2299,7 +2309,9 @@ function OnlineChatPanel({
     originY: number;
     panelRect: DOMRect;
   } | null>(null);
-  const dragPreferenceKey = `dalmuti.online.chat-position.${dragStorageKey}`;
+  const dragPreferenceKey = `dalmuti.online.chat-position.${dragStorageKey}${
+    dragPositionVersion ? `.${dragPositionVersion}` : ""
+  }`;
 
   const updateDragOffset = useCallback((next: { x: number; y: number }) => {
     dragOffsetRef.current = next;
@@ -5847,6 +5859,9 @@ export default function OnlinePage() {
               key={`game-chat-${mobileAppLayout ? "app" : "web"}`}
               className={styles.gameChatPanel}
               dragStorageKey="game"
+              dragPositionVersion={
+                mobileAppLayout ? "installed-portrait-v2" : undefined
+              }
               messages={chatMessages}
               viewerId={snapshot.viewerId}
               connected={connection === "online"}

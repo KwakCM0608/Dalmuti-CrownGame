@@ -262,7 +262,7 @@ test("ships without the disposable starter preview", async () => {
   );
   assert.match(
     page,
-    /total >= 9 \? 5 : total >= 7 \? 4 : total >= 6 \? 3 : total/,
+    /total >= 6 \|\| total === 5[\s\S]{0,80}\? 3[\s\S]{0,80}total === 4[\s\S]{0,80}\? 2/,
   );
   assert.match(
     page,
@@ -1481,7 +1481,7 @@ test("quick and online modes share fixed chips and balanced mobile rank rows", a
   assert.match(onlinePage, /data-mobile-layout=\{mobileGameLayout \|\| undefined\}/);
   assert.match(
     onlinePage,
-    /total >= 9 \? 5 : total >= 7 \? 4 : total >= 6 \? 3 : total/,
+    /total >= 6 \|\| total === 5[\s\S]{0,80}\? 3[\s\S]{0,80}total === 4[\s\S]{0,80}\? 2/,
   );
   assert.match(
     quickStyles,

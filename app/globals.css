@@ -6713,17 +6713,20 @@ html[data-theme="halloween"] .game-shell .phase-intro.is-great-revolution-swap e
     gap: 4px 3px;
   }
 
-  .game-shell .opponent-row[data-player-count="4"],
   .game-shell .opponent-row[data-player-count="7"],
   .game-shell .opponent-row[data-player-count="8"] {
     grid-template-columns: repeat(8, minmax(0, 1fr));
   }
 
+  .game-shell .opponent-row[data-player-count="4"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .game-shell .opponent-row[data-player-count="5"],
   .game-shell .opponent-row[data-player-count="6"] {
     grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 
-  .game-shell .opponent-row[data-player-count="5"],
   .game-shell .opponent-row[data-player-count="9"],
   .game-shell .opponent-row[data-player-count="10"] {
     grid-template-columns: repeat(10, minmax(0, 1fr));
@@ -6749,6 +6752,12 @@ html[data-theme="halloween"] .game-shell .phase-intro.is-great-revolution-swap e
     translate: none;
   }
 
+  .game-shell
+    .opponent-row[data-player-count="4"]
+    .player-seat:nth-child(n + 3),
+  .game-shell
+    .opponent-row[data-player-count="5"]
+    .player-seat:nth-child(n + 4),
   .game-shell
     .opponent-row[data-player-count="6"]
     .player-seat:nth-child(n + 4),
@@ -11601,13 +11610,13 @@ html[data-theme="halloween"] .game-shell .phase-intro:not(.is-tax):not(.is-tax-s
 
   .game-shell .turn-controls:has(.auto-pass-toggle) .selection-hint {
     position: absolute;
-    top: 6px;
+    top: 7px;
     right: 7px;
     left: 7px;
     display: grid;
     width: auto;
-    height: 36px;
-    min-height: 36px;
+    height: 34px;
+    min-height: 34px;
     grid-template-columns: minmax(86px, 1fr);
     grid-template-rows: 18px 14px;
     align-items: center;
@@ -11639,8 +11648,8 @@ html[data-theme="halloween"] .game-shell .phase-intro:not(.is-tax):not(.is-tax-s
   .game-shell .turn-controls:has(.auto-pass-toggle) .rank-bulk-button {
     width: 100%;
     max-width: none;
-    height: 34px;
-    min-height: 34px;
+    height: 32px;
+    min-height: 32px;
     grid-row: 1 / 3;
     grid-column: 2;
     align-self: center;

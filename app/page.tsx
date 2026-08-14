@@ -324,7 +324,15 @@ function seatPosition(rankIndex: number, total: number): React.CSSProperties {
     total <= 1 ? 270 : 150 + (240 * rankIndex) / Math.max(1, total - 1);
   const radians = (angle * Math.PI) / 180;
   const compactColumns =
-    total >= 9 ? 5 : total >= 7 ? 4 : total >= 6 ? 3 : total;
+    total >= 9
+      ? 5
+      : total >= 7
+        ? 4
+        : total >= 6 || total === 5
+          ? 3
+          : total === 4
+            ? 2
+            : total;
   const bottomCount = Math.max(0, total - compactColumns);
   const isBottomRow = bottomCount > 0 && rankIndex >= compactColumns;
   const compactColumnStart = isBottomRow
