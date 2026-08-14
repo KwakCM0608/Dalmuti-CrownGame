@@ -55,10 +55,10 @@ $badging = $badgingLines -join "`n"
 if (
     $badging -notmatch (
         "package: name='lab\.dclab\.dalmuti' " +
-        "versionCode='10' versionName='1\.0\.9'"
+        "versionCode='11' versionName='1\.0\.10'"
     )
 ) {
-    throw "APK package or version does not match DALMUTI Android 1.0.9 (10)."
+    throw "APK package or version does not match DALMUTI Android 1.0.10 (11)."
 }
 
 $resourceTableLines = @(& $resolvedAapt dump resources $resolvedApk 2>&1)
@@ -99,12 +99,12 @@ try {
     $proofEntries = @(
         $entries |
             Where-Object {
-                $_.FullName -eq "assets/dalmuti-native-assets-v10.json"
+                $_.FullName -eq "assets/dalmuti-native-assets-v11.json"
             }
     )
     if ($proofEntries.Count -ne 1) {
         throw (
-            "APK does not contain exactly one DALMUTI v10 packaging proof. " +
+            "APK does not contain exactly one DALMUTI v11 packaging proof. " +
             "Run apply-native-customizations.ps1 before building."
         )
     }
@@ -123,9 +123,9 @@ try {
     $expectedProof = [ordered]@{
         schemaVersion = 2
         packageId = "lab.dclab.dalmuti"
-        appVersion = "1.0.9"
-        versionCode = 10
-        launcherIconResource = "@mipmap/dalmuti_app_icon_v4"
+        appVersion = "1.0.10"
+        versionCode = 11
+        launcherIconResource = "@mipmap/dalmuti_app_icon_v5"
         systemSplashResource = "@drawable/dalmuti_splash_os_black_v4"
         browserHelperSplashDisabled = $true
         iconSourceSha256 = "80664605da730198b2d59d7d5beb3b1dbf7b837a49e9b560f03b8d73d403081c"
@@ -144,8 +144,8 @@ try {
     # compact identifiers. Verify logical Android resource names and density
     # variants through resources.arsc instead of relying on ZIP entry names.
     $expectedResourceCounts = [ordered]@{
-        "lab.dclab.dalmuti:mipmap/dalmuti_app_icon_v4" = 7
-        "lab.dclab.dalmuti:mipmap/dalmuti_app_icon_maskable_v4" = 6
+        "lab.dclab.dalmuti:mipmap/dalmuti_app_icon_v5" = 7
+        "lab.dclab.dalmuti:mipmap/dalmuti_app_icon_maskable_v5" = 6
         "lab.dclab.dalmuti:drawable/dalmuti_splash_os_black_v4" = 2
     }
     foreach ($entry in $expectedResourceCounts.GetEnumerator()) {
@@ -225,6 +225,10 @@ try {
     foreach ($obsoleteResource in @(
         "mipmap/ic_launcher",
         "mipmap/ic_maskable",
+        "mipmap/dalmuti_app_icon_v3",
+        "mipmap/dalmuti_app_icon_maskable_v3",
+        "mipmap/dalmuti_app_icon_v4",
+        "mipmap/dalmuti_app_icon_maskable_v4",
         "drawable/splash",
         "drawable/splash_glow",
         "drawable/dalmuti_splash_v4",
@@ -246,7 +250,7 @@ try {
     }
 
     Write-Output (
-        "Verified DALMUTI Android 1.0.9 (10): immediate unbranded launch, " +
+        "Verified DALMUTI Android 1.0.10 (11): immediate unbranded launch, " +
         "black Android 12+ system frame, and customization proof."
     )
 } finally {

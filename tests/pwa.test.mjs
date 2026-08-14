@@ -25,10 +25,10 @@ test("manifest exposes a standalone install surface and both game shortcuts", ()
   assert.match(manifest, /scope:\s*"\/"/);
   assert.match(manifest, /display:\s*"standalone"/);
   assert.match(manifest, /background_color:\s*"#000000"/);
-  assert.match(manifest, /icon-v3-192\.png/);
-  assert.match(manifest, /icon-v3-512\.png/);
-  assert.match(manifest, /icon-v3-1024\.png/);
-  assert.match(manifest, /icon-maskable-v3-512\.png/);
+  assert.match(manifest, /icon-v4-192\.png/);
+  assert.match(manifest, /icon-v4-512\.png/);
+  assert.match(manifest, /icon-v4-1024\.png/);
+  assert.match(manifest, /icon-maskable-v4-512\.png/);
   assert.match(manifest, /purpose:\s*"maskable"/);
   assert.match(manifest, /name:\s*"빠른 대전"/);
   assert.match(manifest, /name:\s*"온라인 대전"/);
@@ -38,8 +38,8 @@ test("service worker never caches online API or mutation requests", () => {
   const worker = read("public/sw.js");
   const offline = read("public/offline.html");
 
-  assert.match(worker, /2026-08-14-halloween-dalmuti-name-v22/);
-  assert.match(worker, /icon-v3-512\.png/);
+  assert.match(worker, /2026-08-14-icon-safe-area-v23/);
+  assert.match(worker, /icon-v4-512\.png/);
   assert.match(worker, /cards\/halloween\/back\.webp/);
   assert.match(worker, /themes\/halloween\/crown\.webp/);
   assert.match(worker, /themes\/halloween\/dalmuti-hand-field-atlas-v2\.png/);
@@ -92,7 +92,7 @@ test("updates are offered only on safe entry screens", () => {
   assert.match(lifecycle, /isStandalone\(\) && !waitingWorker/);
   assert.match(lifecycle, /업데이트 설치/);
   assert.match(lifecycle, /installPrompt\.prompt\(\)/);
-  assert.match(lifecycleStyles, /url\("\/pwa\/icon-v3-192\.png"\)/);
+  assert.match(lifecycleStyles, /url\("\/pwa\/icon-v4-192\.png"\)/);
   assert.match(lifecycleStyles, /\.guideBackdrop/);
   assert.match(lifecycleStyles, /env\(safe-area-inset-top\)/);
   assert.doesNotMatch(lifecycleStyles, /brand-dalmuti-crown\.png/);
@@ -127,25 +127,28 @@ test("installed Android app launches immediately without a branded native splash
   const androidSplashTheme = read(
     "android-twa/custom/res/values-v31/styles.xml",
   );
+  const adaptiveIcon = read(
+    "android-twa/custom/res/mipmap-anydpi-v26/dalmuti_app_icon_v5.xml",
+  );
 
-  assert.match(wrapper.iconUrl, /icon-v3-512\.png/);
+  assert.match(wrapper.iconUrl, /icon-v4-512\.png/);
   assert.equal(wrapper.backgroundColor, "#000000");
   assert.equal(wrapper.splashScreenFadeOutDuration, 0);
-  assert.equal(wrapper.appVersionCode, 10);
-  assert.equal(wrapper.appVersion, "1.0.9");
+  assert.equal(wrapper.appVersionCode, 11);
+  assert.equal(wrapper.appVersion, "1.0.10");
   assert.equal(wrapper.startUrl, "/?source=android-twa");
   assert.equal(wrapper.orientation, "default");
   assert.doesNotMatch(webManifest, /orientation:\s*"any"/);
   assert.match(customizer, /customRoot "java\\LauncherActivity\.java"/);
   assert.match(customizer, /android:screenOrientation="unspecified"/);
   assert.match(customizer, /DalmutiLaunchTheme/);
-  assert.match(customizer, /@mipmap\/dalmuti_app_icon_v4/);
+  assert.match(customizer, /@mipmap\/dalmuti_app_icon_v5/);
   assert.match(customizer, /SPLASH_IMAGE_DRAWABLE/);
   assert.match(customizer, /SPLASH_SCREEN_BACKGROUND_COLOR/);
   assert.match(customizer, /SPLASH_SCREEN_FADE_OUT_DURATION/);
   assert.match(customizer, /browserHelperSplashMetadataNames/);
   assert.match(customizer, /browserHelperSplashDisabled = \$true/);
-  assert.match(customizer, /dalmuti-native-assets-v10\.json/);
+  assert.match(customizer, /dalmuti-native-assets-v11\.json/);
   assert.match(customizer, /Native LauncherActivity hash mismatch after copy/);
   assert.match(customizer, /Native resource hash mismatch after copy/);
   assert.match(nativeLauncher, /Settings\.System\.ACCELEROMETER_ROTATION/);
@@ -204,8 +207,8 @@ test("installed Android app launches immediately without a branded native splash
   );
   for (const density of ["mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi"]) {
     for (const file of [
-      "dalmuti_app_icon_v4.png",
-      "dalmuti_app_icon_maskable_v4.png",
+      "dalmuti_app_icon_v5.png",
+      "dalmuti_app_icon_maskable_v5.png",
     ]) {
       assert.equal(
         fs.existsSync(
@@ -236,7 +239,7 @@ test("installed Android app launches immediately without a branded native splash
   }
   assert.equal(
     fs.existsSync(
-      path.join(root, "android-twa/assets/dalmuti-app-icon-v4.png"),
+      path.join(root, "android-twa/assets/dalmuti-app-icon-v5.png"),
     ),
     true,
   );
@@ -250,7 +253,7 @@ test("installed Android app launches immediately without a branded native splash
     fs.existsSync(
       path.join(
         root,
-        "android-twa/custom/res/mipmap-xxxhdpi/dalmuti_app_icon_v4.png",
+        "android-twa/custom/res/mipmap-xxxhdpi/dalmuti_app_icon_v5.png",
       ),
     ),
     true,
@@ -259,28 +262,34 @@ test("installed Android app launches immediately without a branded native splash
     fs.existsSync(
       path.join(
         root,
-        "android-twa/custom/res/mipmap-anydpi-v26/dalmuti_app_icon_v4.xml",
+        "android-twa/custom/res/mipmap-anydpi-v26/dalmuti_app_icon_v5.xml",
       ),
     ),
     true,
   );
-  assert.match(assetBuilder, /dalmuti-app-icon-v4\.png/);
-  assert.match(assetBuilder, /dalmuti_app_icon_v4\.png/);
+  assert.match(assetBuilder, /dalmuti-app-icon-v5\.png/);
+  assert.match(assetBuilder, /dalmuti_app_icon_v5\.png/);
+  assert.match(assetBuilder, /ADAPTIVE_CONTENT_FRACTION = 0\.60/);
+  assert.match(adaptiveIcon, /background[^]*@android:color\/black/);
+  assert.match(
+    adaptiveIcon,
+    /foreground[^]*@mipmap\/dalmuti_app_icon_maskable_v5/,
+  );
   assert.match(assetBuilder, /dalmuti_splash_v4\.png/);
   assert.doesNotMatch(
     assetBuilder,
     /SPLASH_SOURCE|save_splash_glow|ImageFilter/,
   );
   assert.equal(
-    sha256("android-twa/assets/dalmuti-app-icon-v4.png"),
+    sha256("android-twa/assets/dalmuti-app-icon-v5.png"),
     "80664605da730198b2d59d7d5beb3b1dbf7b837a49e9b560f03b8d73d403081c",
   );
-  assert.match(apkVerifier, /dalmuti-native-assets-v10\.json/);
+  assert.match(apkVerifier, /dalmuti-native-assets-v11\.json/);
   assert.match(apkVerifier, /dump badging/);
   assert.match(apkVerifier, /dump resources/);
   assert.match(apkVerifier, /dump xmltree/);
   assert.match(apkVerifier, /dump --values resources/);
-  assert.match(apkVerifier, /mipmap\/dalmuti_app_icon_v4/);
+  assert.match(apkVerifier, /mipmap\/dalmuti_app_icon_v5/);
   assert.match(apkVerifier, /drawable\/dalmuti_splash_v4/);
   assert.match(apkVerifier, /drawable\/dalmuti_splash_glow_v4/);
   assert.match(apkVerifier, /drawable\/dalmuti_splash_os_black_v4/);
@@ -298,8 +307,8 @@ test("installed Android app launches immediately without a branded native splash
   assert.match(apkVerifier, /Compiled LauncherActivity/);
   assert.match(apkVerifier, /Compiled Android 12\+ launch theme/);
   assert.match(apkVerifier, /resources\.arsc/);
-  assert.match(apkVerifier, /appVersion = "1\.0\.9"/);
-  assert.match(apkVerifier, /versionCode = 10/);
+  assert.match(apkVerifier, /appVersion = "1\.0\.10"/);
+  assert.match(apkVerifier, /versionCode = 11/);
   assert.doesNotMatch(androidSplashTheme, /windowSplashScreenBrandingImage/);
   assert.equal(
     fs.existsSync(
@@ -426,11 +435,11 @@ test(
       );
       assert.match(
         customizedManifest,
-        /android:icon="@mipmap\/dalmuti_app_icon_v4"/,
+        /android:icon="@mipmap\/dalmuti_app_icon_v5"/,
       );
       assert.match(
         customizedManifest,
-        /android:roundIcon="@mipmap\/dalmuti_app_icon_v4"/,
+        /android:roundIcon="@mipmap\/dalmuti_app_icon_v5"/,
       );
       assert.doesNotMatch(customizedManifest, /SPLASH_IMAGE_DRAWABLE/);
       assert.doesNotMatch(
@@ -451,28 +460,28 @@ test(
       );
 
       const copiedIcon =
-        "app/src/main/res/mipmap-xxxhdpi/dalmuti_app_icon_v4.png";
+        "app/src/main/res/mipmap-xxxhdpi/dalmuti_app_icon_v5.png";
       assert.equal(
         sha256(path.relative(root, path.join(fixtureRoot, copiedIcon))),
         sha256(
-          "android-twa/custom/res/mipmap-xxxhdpi/dalmuti_app_icon_v4.png",
+          "android-twa/custom/res/mipmap-xxxhdpi/dalmuti_app_icon_v5.png",
         ),
       );
       const proof = JSON.parse(
         fs.readFileSync(
           path.join(
             fixtureRoot,
-            "app/src/main/assets/dalmuti-native-assets-v10.json",
+            "app/src/main/assets/dalmuti-native-assets-v11.json",
           ),
           "utf8",
         ),
       );
       assert.equal(proof.schemaVersion, 2);
-      assert.equal(proof.appVersion, "1.0.9");
-      assert.equal(proof.versionCode, 10);
+      assert.equal(proof.appVersion, "1.0.10");
+      assert.equal(proof.versionCode, 11);
       assert.equal(
         proof.launcherIconResource,
-        "@mipmap/dalmuti_app_icon_v4",
+        "@mipmap/dalmuti_app_icon_v5",
       );
       assert.equal(
         proof.systemSplashResource,
@@ -531,11 +540,11 @@ test("required offline and install assets exist", () => {
     "public/pwa/icon-512.png",
     "public/pwa/icon-maskable-512.png",
     "public/pwa/apple-touch-icon.png",
-    "public/pwa/icon-v3-192.png",
-    "public/pwa/icon-v3-512.png",
-    "public/pwa/icon-v3-1024.png",
-    "public/pwa/icon-maskable-v3-512.png",
-    "public/pwa/apple-touch-icon-v3.png",
+    "public/pwa/icon-v4-192.png",
+    "public/pwa/icon-v4-512.png",
+    "public/pwa/icon-v4-1024.png",
+    "public/pwa/icon-maskable-v4-512.png",
+    "public/pwa/apple-touch-icon-v4.png",
   ]) {
     assert.equal(fs.existsSync(path.join(root, file)), true, `${file} is missing`);
   }

@@ -16,25 +16,25 @@ export default function manifest(): MetadataRoute.Manifest {
     categories: ["games", "entertainment"],
     icons: [
       {
-        src: "/pwa/icon-v3-192.png",
+        src: "/pwa/icon-v4-192.png",
         sizes: "192x192",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: "/pwa/icon-v3-512.png",
+        src: "/pwa/icon-v4-512.png",
         sizes: "512x512",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: "/pwa/icon-v3-1024.png",
+        src: "/pwa/icon-v4-1024.png",
         sizes: "1024x1024",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: "/pwa/icon-maskable-v3-512.png",
+        src: "/pwa/icon-maskable-v4-512.png",
         sizes: "512x512",
         type: "image/png",
         purpose: "maskable",
@@ -48,7 +48,7 @@ export default function manifest(): MetadataRoute.Manifest {
         url: "/",
         icons: [
           {
-            src: "/pwa/icon-v3-192.png",
+            src: "/pwa/icon-v4-192.png",
             sizes: "192x192",
             type: "image/png",
           },
@@ -61,7 +61,7 @@ export default function manifest(): MetadataRoute.Manifest {
         url: "/online",
         icons: [
           {
-            src: "/pwa/icon-v3-192.png",
+            src: "/pwa/icon-v4-192.png",
             sizes: "192x192",
             type: "image/png",
           },

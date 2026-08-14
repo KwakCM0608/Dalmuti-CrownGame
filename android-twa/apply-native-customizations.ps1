@@ -17,9 +17,9 @@ $launcherTemplatePath = Join-Path $customRoot "java\LauncherActivity.java"
 $launcherPath = Join-Path `
     $generatedRoot `
     "app\src\main\java\lab\dclab\dalmuti\LauncherActivity.java"
-$launcherIconResource = "@mipmap/dalmuti_app_icon_v4"
+$launcherIconResource = "@mipmap/dalmuti_app_icon_v5"
 $systemSplashResource = "@drawable/dalmuti_splash_os_black_v4"
-$nativeProofFileName = "dalmuti-native-assets-v10.json"
+$nativeProofFileName = "dalmuti-native-assets-v11.json"
 
 foreach ($requiredPath in @(
     $resourceSource,
@@ -43,7 +43,13 @@ $obsoleteResourceNames = @(
     "dalmuti_splash_v4.png",
     "dalmuti_splash_glow_v4.png",
     "dalmuti_splash_transparent.xml",
-    "dalmuti_splash_transparent_v4.xml"
+    "dalmuti_splash_transparent_v4.xml",
+    "dalmuti_app_icon_v3.png",
+    "dalmuti_app_icon_maskable_v3.png",
+    "dalmuti_app_icon_v4.png",
+    "dalmuti_app_icon_maskable_v4.png",
+    "dalmuti_app_icon_v3.xml",
+    "dalmuti_app_icon_v4.xml"
 )
 Get-ChildItem -LiteralPath $resourceTarget -Recurse -File |
     Where-Object { $_.Name -in $obsoleteResourceNames } |
@@ -258,8 +264,8 @@ Get-ChildItem `
 $nativeProof = [ordered]@{
     schemaVersion = 2
     packageId = "lab.dclab.dalmuti"
-    appVersion = "1.0.9"
-    versionCode = 10
+    appVersion = "1.0.10"
+    versionCode = 11
     launcherIconResource = $launcherIconResource
     systemSplashResource = $systemSplashResource
     browserHelperSplashDisabled = $true
@@ -275,6 +281,6 @@ $nativeProofPath = Join-Path $assetTarget $nativeProofFileName
 )
 
 Write-Output (
-    "Applied DALMUTI Android assets v10 with Browser Helper splash disabled: " +
+    "Applied DALMUTI Android assets v11 with Browser Helper splash disabled: " +
     $nativeProofPath
 )

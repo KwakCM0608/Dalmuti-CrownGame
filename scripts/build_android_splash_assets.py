@@ -15,12 +15,15 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 ASSET_ROOT = ROOT / "android-twa" / "assets"
 OUTPUT_ROOT = ROOT / "android-twa" / "custom" / "res"
-ICON_SOURCE = ASSET_ROOT / "dalmuti-app-icon-v4.png"
+PWA_OUTPUT_ROOT = ROOT / "public" / "pwa"
+ICON_SOURCE = ASSET_ROOT / "dalmuti-app-icon-v5.png"
 EXPECTED_SOURCE_HASHES = {
     ICON_SOURCE: "80664605da730198b2d59d7d5beb3b1dbf7b837a49e9b560f03b8d73d403081c",
 }
-ICON_RESOURCE = "dalmuti_app_icon_v4.png"
-MASKABLE_ICON_RESOURCE = "dalmuti_app_icon_maskable_v4.png"
+ICON_RESOURCE = "dalmuti_app_icon_v5.png"
+MASKABLE_ICON_RESOURCE = "dalmuti_app_icon_maskable_v5.png"
+LEGACY_CONTENT_FRACTION = 0.82
+ADAPTIVE_CONTENT_FRACTION = 0.60
 
 LEGACY_ICON_SIZES = {
     "mdpi": 48,
@@ -63,6 +66,10 @@ def remove_obsolete_generated_resources() -> None:
         "dalmuti_splash_v4.png",
         "dalmuti_splash_glow_v4.png",
         "dalmuti_splash_branding.png",
+        "dalmuti_app_icon_v3.png",
+        "dalmuti_app_icon_maskable_v3.png",
+        "dalmuti_app_icon_v4.png",
+        "dalmuti_app_icon_maskable_v4.png",
     }
     for density in LEGACY_ICON_SIZES:
         for folder in (
@@ -71,23 +78,26 @@ def remove_obsolete_generated_resources() -> None:
         ):
             for obsolete_name in obsolete_names:
                 (folder / obsolete_name).unlink(missing_ok=True)
+    for version in ("v3", "v4"):
+        (
+            OUTPUT_ROOT
+            / "mipmap-anydpi-v26"
+            / f"dalmuti_app_icon_{version}.xml"
+        ).unlink(missing_ok=True)
 
 
-def save_resized(source: Image.Image, target: Path, size: int) -> None:
-    target.parent.mkdir(parents=True, exist_ok=True)
-    source.resize((size, size), Image.Resampling.LANCZOS).save(
-        target,
-        optimize=True,
-    )
-
-
-def save_adaptive_icon(source: Image.Image, target: Path, size: int) -> None:
-    # Adaptive launchers apply circles, squircles, and other masks. Keep the
-    # full title treatment inside the central safe area while retaining the
-    # artwork's own burgundy background around it.
+def save_padded_icon(
+    source: Image.Image,
+    target: Path,
+    size: int,
+    content_fraction: float,
+) -> None:
+    # Android adaptive icons reserve only the central 66 x 66 dp of their
+    # 108 x 108 dp canvas as an always-visible safe zone. Keep the complete
+    # crown and title inside that zone instead of letting the launcher crop it.
     background_colour = source.getpixel((8, 8))
     canvas = Image.new("RGBA", (size, size), background_colour)
-    content_size = round(size * 0.76)
+    content_size = round(size * content_fraction)
     content = source.resize(
         (content_size, content_size),
         Image.Resampling.LANCZOS,
@@ -104,18 +114,40 @@ def main() -> None:
     icon = load_square(ICON_SOURCE)
 
     for density, size in LEGACY_ICON_SIZES.items():
-        save_resized(
+        save_padded_icon(
             icon,
             OUTPUT_ROOT / f"mipmap-{density}" / ICON_RESOURCE,
             size,
+            LEGACY_CONTENT_FRACTION,
         )
 
     for density, size in ADAPTIVE_ICON_SIZES.items():
-        save_adaptive_icon(
+        save_padded_icon(
             icon,
             OUTPUT_ROOT / f"mipmap-{density}" / MASKABLE_ICON_RESOURCE,
             size,
+            ADAPTIVE_CONTENT_FRACTION,
         )
+
+    for size in (192, 512, 1024):
+        save_padded_icon(
+            icon,
+            PWA_OUTPUT_ROOT / f"icon-v4-{size}.png",
+            size,
+            LEGACY_CONTENT_FRACTION,
+        )
+    save_padded_icon(
+        icon,
+        PWA_OUTPUT_ROOT / "icon-maskable-v4-512.png",
+        512,
+        ADAPTIVE_CONTENT_FRACTION,
+    )
+    save_padded_icon(
+        icon,
+        PWA_OUTPUT_ROOT / "apple-touch-icon-v4.png",
+        180,
+        LEGACY_CONTENT_FRACTION,
+    )
 
 if __name__ == "__main__":
     main()
