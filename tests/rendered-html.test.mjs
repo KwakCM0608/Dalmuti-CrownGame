@@ -40,7 +40,7 @@ test("server-renders the playable Dalmuti prototype", async () => {
   assert.match(html, />온라인 모드</);
   assert.match(html, />게임 규칙</);
   assert.match(html, />크레딧</);
-  assert.match(html, /href="\/settings"/);
+  assert.match(html, /class="settings-gear-link/);
   assert.match(html, /aria-label="환경설정"/);
   assert.doesNotMatch(html, /빠른 대전 플레이 인원/);
   assert.match(html, /<link rel="icon" href="\/brand-dalmuti-crown\.png"\/>/);
@@ -105,7 +105,7 @@ test("ships without the disposable starter preview", async () => {
   assert.match(page, />게임 규칙</);
   assert.match(page, />크레딧</);
   assert.match(page, /CreditsDialog/);
-  assert.match(page, /href="\/settings"/);
+  assert.match(page, /<SettingsScreen/);
   assert.match(page, /aria-label="환경설정"/);
   assert.doesNotMatch(page, /SettingsDialog/);
   assert.match(styles, /brand-dalmuti-crown\.png/);

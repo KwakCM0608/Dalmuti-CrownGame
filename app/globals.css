@@ -6732,6 +6732,18 @@ html[data-theme="halloween"] .game-shell .phase-intro.is-great-revolution-swap e
     grid-template-columns: repeat(10, minmax(0, 1fr));
   }
 
+  .game-shell
+    .opponent-row:is(
+      [data-player-count="9"],
+      [data-player-count="10"]
+    )
+    .turn-flag {
+    min-width: 26px;
+    padding-inline: 5px;
+    white-space: nowrap;
+    word-break: keep-all;
+  }
+
   .game-shell .opponent-row .player-seat,
   .game-shell .opponent-row .player-seat.is-human-seat {
     position: relative;
@@ -9498,6 +9510,7 @@ input,
   display: grid;
   width: 42px;
   height: 42px;
+  padding: 0;
   place-items: center;
   justify-self: end;
   border: 1px solid rgba(224, 197, 134, 0.28);
@@ -9506,8 +9519,10 @@ input,
   color: #ddcfb1;
   box-shadow: inset 0 1px rgba(255, 245, 214, 0.045);
   font-size: 20px;
+  font-family: inherit;
   line-height: 1;
   text-decoration: none;
+  cursor: pointer;
   transition:
     border-color 160ms ease,
     background 160ms ease,

@@ -14,6 +14,16 @@
     system-ui, sans-serif;
 }
 
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
 .grain {
   position: fixed;
   inset: 0;

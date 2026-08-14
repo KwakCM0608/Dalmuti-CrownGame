@@ -8,8 +8,6 @@ import {
   useRef,
   useState,
 } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useAppPreferences } from "@/app/components/AppPreferencesProvider";
 import { useAutoPassPreference } from "@/app/components/useAutoPassPreference";
 import HalloweenInkContaminationCanvas from "@/app/components/HalloweenInkContaminationCanvas";
@@ -58,6 +56,7 @@ import {
   CREDITS_DIALOG_ID,
   CreditsDialog,
 } from "@/app/components/CreditsDialog";
+import { SettingsScreen } from "@/app/settings/page";
 
 type LandingView = "main" | "quick-setup";
 
@@ -1743,7 +1742,6 @@ function shouldUseInstalledMobileTransition(): boolean {
 }
 
 export default function Home() {
-  const router = useRouter();
   const { preferences } = useAppPreferences();
   const { autoPassEnabled, setAutoPassEnabled } = useAutoPassPreference();
   const [game, setGame] = useState<GameState | null>(null);
@@ -1756,6 +1754,7 @@ export default function Home() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showRules, setShowRules] = useState(false);
   const [showCredits, setShowCredits] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [mobileRankDrawerOpen, setMobileRankDrawerOpen] = useState(false);
   const [screenTransitioning, setScreenTransitioning] = useState(false);
   const [turnTimer, setTurnTimer] = useState<{
@@ -1806,22 +1805,13 @@ export default function Home() {
     screenTransitionTimersRef.current = [flashTimer];
   }, []);
 
-  const warmSettingsRoute = useCallback(() => {
-    router.prefetch("/settings");
-  }, [router]);
-
   useEffect(() => {
-    // The settings screen is a separate client route. Warm its route chunk as
-    // soon as the main screen hydrates so the first gear tap never waits on a
-    // mobile network round trip.
-    warmSettingsRoute();
-
     for (const theme of ["original", "halloween"] as const) {
       const preview = new Image();
       preview.decoding = "async";
       preview.src = cardArtPath(theme, 1);
     }
-  }, [warmSettingsRoute]);
+  }, []);
 
   useEffect(
     () => () => {
@@ -3340,17 +3330,15 @@ export default function Home() {
           </nav>
         )}
         {!game && landingView === "main" && (
-          <Link
+          <button
+            type="button"
             className="settings-gear-link"
-            href="/settings"
-            prefetch
-            onPointerDown={warmSettingsRoute}
-            onFocus={warmSettingsRoute}
+            onClick={() => setShowSettings(true)}
             aria-label="환경설정"
             title="환경설정"
           >
             <span aria-hidden="true">⚙</span>
-          </Link>
+          </button>
         )}
       </header>
 
@@ -4323,17 +4311,15 @@ export default function Home() {
               role="dialog"
               aria-labelledby="main-menu-title"
             >
-              <Link
+              <button
+                type="button"
                 className="settings-gear-link main-menu-settings-gear-link"
-                href="/settings"
-                prefetch
-                onPointerDown={warmSettingsRoute}
-                onFocus={warmSettingsRoute}
+                onClick={() => setShowSettings(true)}
                 aria-label="환경설정"
                 title="환경설정"
               >
                 <span aria-hidden="true">⚙</span>
-              </Link>
+              </button>
               <span className="welcome-crown" aria-hidden="true" />
               <span className="eyebrow">CHOOSE YOUR TABLE</span>
               <h1 id="main-menu-title">DALMUTI</h1>
@@ -4597,6 +4583,12 @@ export default function Home() {
         )}
       />
       <CreditsDialog open={showCredits} onClose={closeCredits} />
+      {showSettings && (
+        <SettingsScreen
+          embedded
+          onClose={() => setShowSettings(false)}
+        />
+      )}
     </main>
   );
 }

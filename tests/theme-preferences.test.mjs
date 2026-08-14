@@ -271,11 +271,15 @@ test("settings and theme preferences are wired without starting audio", () => {
   assert.match(layout, /data-theme="original"/);
 
   assert.match(home, /className="settings-gear-link"/);
-  assert.match(home, /href="\/settings"/);
+  assert.match(home, /import \{ SettingsScreen \} from "@\/app\/settings\/page"/);
   assert.match(home, /aria-label="환경설정"/);
-  assert.match(home, /useRouter/);
-  assert.match(home, /router\.prefetch\("\/settings"\)/);
-  assert.match(home, /onPointerDown=\{warmSettingsRoute\}/);
+  assert.match(home, /const \[showSettings, setShowSettings\] = useState\(false\)/);
+  assert.equal(
+    (home.match(/onClick=\{\(\) => setShowSettings\(true\)\}/g) ?? []).length,
+    2,
+  );
+  assert.match(home, /showSettings && \([\s\S]{0,160}<SettingsScreen[\s\S]{0,160}embedded/);
+  assert.doesNotMatch(home, /router\.prefetch\("\/settings"\)/);
 
   assert.match(settings, /useAppPreferences/);
   assert.match(settings, /APP_THEMES\.map/);
@@ -608,7 +612,7 @@ test("Halloween polish is complete, theme-scoped, and preserves responsive contr
   assert.match(onlineHalloween, /\.tableGreatRevolution/);
 
   assert.equal(
-    (quickPage.match(/href="\/settings"/g) ?? []).length,
+    (quickPage.match(/onClick=\{\(\) => setShowSettings\(true\)\}/g) ?? []).length,
     2,
     "main screen must expose one responsive settings entry per placement",
   );

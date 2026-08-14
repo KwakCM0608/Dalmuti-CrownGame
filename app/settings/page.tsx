@@ -28,18 +28,35 @@ const THEME_COPY: Record<
   },
 };
 
-export default function SettingsPage() {
+export function SettingsScreen({
+  embedded = false,
+  onClose,
+}: {
+  embedded?: boolean;
+  onClose?: () => void;
+}) {
   const { preferences, updatePreferences } = useAppPreferences();
+  const Shell = embedded ? "div" : "main";
 
   return (
-    <main className={styles.shell}>
+    <Shell
+      className={`${styles.shell} ${embedded ? styles.overlay : ""}`}
+      role={embedded ? "dialog" : undefined}
+      aria-modal={embedded || undefined}
+      aria-labelledby="settings-title"
+    >
       <div className={styles.grain} aria-hidden="true" />
       <header className={styles.header}>
-        <Link className={styles.brand} href="/" aria-label="메인 화면으로 돌아가기">
+        <Link
+          className={styles.brand}
+          href="/"
+          onClick={onClose}
+          aria-label="메인 화면으로 돌아가기"
+        >
           <span className={styles.brandSeal} aria-hidden="true" />
           <strong>DALMUTI</strong>
         </Link>
-        <Link className={styles.back} href="/">
+        <Link className={styles.back} href="/" onClick={onClose}>
           <span aria-hidden="true">←</span>
           메인으로
         </Link>
@@ -153,9 +170,13 @@ export default function SettingsPage() {
 
         <footer className={styles.footer}>
           <span>설정은 브라우저와 설치 앱에서 각각 이 기기에 보관됩니다.</span>
-          <Link href="/">완료</Link>
+          <Link href="/" onClick={onClose}>완료</Link>
         </footer>
       </section>
-    </main>
+    </Shell>
   );
+}
+
+export default function SettingsPage() {
+  return <SettingsScreen />;
 }

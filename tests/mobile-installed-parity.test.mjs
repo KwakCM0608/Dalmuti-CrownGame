@@ -391,6 +391,10 @@ test("installed quick and online seats use matching exterior rails and count ali
     onlinePage,
     /dragPositionVersion=\{[\s\S]{0,80}mobileAppLayout \? "installed-portrait-v2" : undefined/,
   );
+  assert.match(
+    quickStyles,
+    /opponent-row:is\([\s\S]{0,100}data-player-count="9"[\s\S]{0,100}data-player-count="10"[\s\S]{0,100}\.turn-flag\s*\{[\s\S]{0,160}white-space: nowrap;[\s\S]{0,80}word-break: keep-all;/,
+  );
 });
 
 test("installed quick and online openings share fixed card geometry for every player count", () => {
