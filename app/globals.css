@@ -11542,6 +11542,12 @@ html[data-theme="halloween"] .game-shell .phase-intro:not(.is-tax):not(.is-tax-s
     padding-bottom: 4px;
   }
 
+  .game-shell .human-zone:not(.is-finished) {
+    /* Fixed controls no longer participate in normal flow. Reserve their full
+     * block plus the Android navigation inset so the hand ends above them. */
+    padding-bottom: calc(106px + var(--mobile-system-bottom-inset));
+  }
+
   .game-shell .turn-controls {
     position: fixed;
     right: calc(12px + env(safe-area-inset-right, 0px));

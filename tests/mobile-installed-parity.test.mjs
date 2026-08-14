@@ -296,6 +296,14 @@ test("mobile controls reserve Android navigation space and expose private auto P
       /padding-bottom: 4px;/,
     );
   }
+  assert.match(
+    quickStyles,
+    /\.game-shell \.human-zone:not\(\.is-finished\)\s*\{[\s\S]{0,180}padding-bottom: calc\(106px \+ var\(--mobile-system-bottom-inset\)\);/,
+  );
+  assert.match(
+    onlineStyles,
+    /\.ownDock:not\(\.ownDockFinished\)\s*\{\s*padding-bottom: calc\(106px \+ var\(--mobile-system-bottom-inset\)\);/,
+  );
   assert.match(quickPage, /className="auto-pass-toggle"/);
   assert.match(onlinePage, /className=\{styles\.autoPassToggle\}/);
   assert.match(quickPage, /hasLegalCardPlay\(hand, game\.table\)/);

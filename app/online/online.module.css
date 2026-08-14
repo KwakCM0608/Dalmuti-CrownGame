@@ -13956,6 +13956,10 @@
     padding-bottom: 4px;
   }
 
+  .ownDock:not(.ownDockFinished) {
+    padding-bottom: calc(106px + var(--mobile-system-bottom-inset));
+  }
+
   .actionBar {
     position: fixed;
     right: calc(12px + env(safe-area-inset-right, 0px));
