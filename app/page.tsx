@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAppPreferences } from "@/app/components/AppPreferencesProvider";
 import { useAutoPassPreference } from "@/app/components/useAutoPassPreference";
 import HalloweenInkContaminationCanvas from "@/app/components/HalloweenInkContaminationCanvas";
@@ -1734,6 +1735,7 @@ function shouldUseInstalledMobileTransition(): boolean {
 }
 
 export default function Home() {
+  const router = useRouter();
   const { preferences } = useAppPreferences();
   const { autoPassEnabled, setAutoPassEnabled } = useAutoPassPreference();
   const [game, setGame] = useState<GameState | null>(null);
@@ -1795,6 +1797,23 @@ export default function Home() {
     }, 0);
     screenTransitionTimersRef.current = [flashTimer];
   }, []);
+
+  const warmSettingsRoute = useCallback(() => {
+    router.prefetch("/settings");
+  }, [router]);
+
+  useEffect(() => {
+    // The settings screen is a separate client route. Warm its route chunk as
+    // soon as the main screen hydrates so the first gear tap never waits on a
+    // mobile network round trip.
+    warmSettingsRoute();
+
+    for (const theme of ["original", "halloween"] as const) {
+      const preview = new Image();
+      preview.decoding = "async";
+      preview.src = cardArtPath(theme, 1);
+    }
+  }, [warmSettingsRoute]);
 
   useEffect(
     () => () => {
@@ -3316,6 +3335,9 @@ export default function Home() {
           <Link
             className="settings-gear-link"
             href="/settings"
+            prefetch
+            onPointerDown={warmSettingsRoute}
+            onFocus={warmSettingsRoute}
             aria-label="환경설정"
             title="환경설정"
           >
@@ -4296,6 +4318,9 @@ export default function Home() {
               <Link
                 className="settings-gear-link main-menu-settings-gear-link"
                 href="/settings"
+                prefetch
+                onPointerDown={warmSettingsRoute}
+                onFocus={warmSettingsRoute}
                 aria-label="환경설정"
                 title="환경설정"
               >

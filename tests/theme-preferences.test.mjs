@@ -273,6 +273,9 @@ test("settings and theme preferences are wired without starting audio", () => {
   assert.match(home, /className="settings-gear-link"/);
   assert.match(home, /href="\/settings"/);
   assert.match(home, /aria-label="환경설정"/);
+  assert.match(home, /useRouter/);
+  assert.match(home, /router\.prefetch\("\/settings"\)/);
+  assert.match(home, /onPointerDown=\{warmSettingsRoute\}/);
 
   assert.match(settings, /useAppPreferences/);
   assert.match(settings, /APP_THEMES\.map/);
