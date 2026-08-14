@@ -304,6 +304,24 @@ test("mobile controls reserve Android navigation space and expose private auto P
     onlineStyles,
     /\.ownDock:not\(\.ownDockFinished\)\s*\{\s*padding-bottom: calc\(106px \+ var\(--mobile-system-bottom-inset\)\);/,
   );
+  for (const styles of [quickStyles, onlineStyles]) {
+    assert.match(
+      styles,
+      /--installed-portrait-table-height: clamp\([\s\S]{0,180}330px,[\s\S]{0,180}100dvh - var\(--app-header-block\) -[\s\S]{0,120}var\(--mobile-system-bottom-inset\) - 350px[\s\S]{0,120}420px/,
+    );
+    assert.match(
+      styles,
+      /min-height: var\(--installed-portrait-table-height\);\s*max-height: var\(--installed-portrait-table-height\);\s*flex: 0 1 var\(--installed-portrait-table-height\);/,
+    );
+  }
+  assert.match(
+    quickStyles,
+    /\.human-zone:not\(\.is-finished\) \.hand-wrap\s*\{[\s\S]{0,240}position: fixed;[\s\S]{0,240}bottom: calc\(var\(--mobile-system-bottom-inset\) \+ 106px\);/,
+  );
+  assert.match(
+    onlineStyles,
+    /\.ownDock:not\(\.ownDockFinished\) \.handScroller\s*\{[\s\S]{0,240}position: fixed;[\s\S]{0,240}bottom: calc\(var\(--mobile-system-bottom-inset\) \+ 106px\);/,
+  );
   assert.match(quickPage, /className="auto-pass-toggle"/);
   assert.match(onlinePage, /className=\{styles\.autoPassToggle\}/);
   assert.match(quickPage, /hasLegalCardPlay\(hand, game\.table\)/);

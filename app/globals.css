@@ -11539,13 +11539,42 @@ html[data-theme="halloween"] .game-shell .phase-intro:not(.is-tax):not(.is-tax-s
   .game-shell .table-column {
     /* The dock is viewport-anchored below, so consuming the fallback inset a
      * second time here only makes the flex children overflow and clip. */
+    --installed-portrait-table-height: clamp(
+      330px,
+      calc(
+        100dvh - var(--app-header-block) -
+          var(--mobile-system-bottom-inset) - 350px
+      ),
+      420px
+    );
+
     padding-bottom: 4px;
+  }
+
+  .game-shell .felt-table {
+    /* The shared phone rule normally keeps a 420px table. On shorter installed
+     * portrait viewports that minimum leaves no room for the hand and the
+     * viewport-anchored controls. Let only the table contract so the lower
+     * seat rail, full hand and controls remain in document order. */
+    min-height: var(--installed-portrait-table-height);
+    max-height: var(--installed-portrait-table-height);
+    flex: 0 1 var(--installed-portrait-table-height);
   }
 
   .game-shell .human-zone:not(.is-finished) {
     /* Fixed controls no longer participate in normal flow. Reserve their full
      * block plus the Android navigation inset so the hand ends above them. */
     padding-bottom: calc(106px + var(--mobile-system-bottom-inset));
+  }
+
+  .game-shell .human-zone:not(.is-finished) .hand-wrap {
+    position: fixed;
+    right: calc(12px + env(safe-area-inset-right, 0px));
+    bottom: calc(var(--mobile-system-bottom-inset) + 106px);
+    left: calc(12px + env(safe-area-inset-left, 0px));
+    z-index: 20;
+    width: auto;
+    padding-left: 0;
   }
 
   .game-shell .turn-controls {

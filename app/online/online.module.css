@@ -13953,11 +13953,37 @@
   (display-mode: fullscreen) and (hover: none) and (pointer: coarse) and
     (orientation: portrait) {
   .boardColumn {
+    --installed-portrait-table-height: clamp(
+      330px,
+      calc(
+        100dvh - var(--app-header-block) -
+          var(--mobile-system-bottom-inset) - 350px
+      ),
+      420px
+    );
+
     padding-bottom: 4px;
+  }
+
+  .table,
+  .tableRankSelection {
+    min-height: var(--installed-portrait-table-height);
+    max-height: var(--installed-portrait-table-height);
+    flex: 0 1 var(--installed-portrait-table-height);
   }
 
   .ownDock:not(.ownDockFinished) {
     padding-bottom: calc(106px + var(--mobile-system-bottom-inset));
+  }
+
+  .ownDock:not(.ownDockFinished) .handScroller {
+    position: fixed;
+    right: calc(12px + env(safe-area-inset-right, 0px));
+    bottom: calc(var(--mobile-system-bottom-inset) + 106px);
+    left: calc(12px + env(safe-area-inset-left, 0px));
+    z-index: 20;
+    width: auto;
+    padding-left: 0;
   }
 
   .actionBar {
