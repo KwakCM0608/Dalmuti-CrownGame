@@ -54,6 +54,8 @@ test("service worker never caches online API or mutation requests", () => {
   assert.match(worker, /OFFLINE_URL/);
   assert.match(worker, /event\.data\?\.type === "SKIP_WAITING"/);
   assert.doesNotMatch(worker, /\.then\(\(\) => self\.skipWaiting\(\)\)/);
+  assert.match(worker, /existingCaches\.includes\(LEGACY_AUTO_UPDATE_PRECACHE\)/);
+  assert.match(worker, /precache-2026-08-14-auto-pass-icon-v19/);
   assert.doesNotMatch(worker, /self\.skipWaiting\(\)[\s\S]*addEventListener\("install"/);
   assert.match(offline, /dalmuti\.preferences\.v1/);
   assert.match(offline, /html\[data-theme="halloween"\]/);

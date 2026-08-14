@@ -2,6 +2,8 @@ const CACHE_PREFIX = "dalmuti-pwa";
 const CACHE_VERSION = "2026-08-14-installed-update-prompt-v20";
 const PRECACHE = `${CACHE_PREFIX}-precache-${CACHE_VERSION}`;
 const RUNTIME = `${CACHE_PREFIX}-runtime-${CACHE_VERSION}`;
+const LEGACY_AUTO_UPDATE_PRECACHE =
+  `${CACHE_PREFIX}-precache-2026-08-14-auto-pass-icon-v19`;
 const OFFLINE_URL = "/offline.html";
 
 const PRECACHE_URLS = [
@@ -33,6 +35,10 @@ self.addEventListener("install", (event) => {
           if (response.ok) await cache.put(url, response);
         }),
       );
+      const existingCaches = await caches.keys();
+      if (existingCaches.includes(LEGACY_AUTO_UPDATE_PRECACHE)) {
+        await self.skipWaiting();
+      }
     }),
   );
 });
