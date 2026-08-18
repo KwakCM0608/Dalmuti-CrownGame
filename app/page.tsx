@@ -163,6 +163,7 @@ type GameState = {
   round: number;
   revision: number;
   players: Player[];
+  roundStartPlayerIds: string[];
   hands: Record<string, Card[]>;
   scores: Record<string, number>;
   currentIndex: number;
@@ -521,6 +522,7 @@ function createOpeningRound(
     round: 1,
     revision: 0,
     players,
+    roundStartPlayerIds: players.map((player) => player.id),
     hands: Object.fromEntries(players.map((player) => [player.id, []])),
     scores,
     currentIndex: 0,
@@ -597,6 +599,7 @@ function completeOpeningRankSelection(
     phase: "reveal-intro",
     revision: state.revision + 1,
     players,
+    roundStartPlayerIds: players.map((player) => player.id),
     hands,
     currentIndex: 0,
     revolutionHolder: holder?.id ?? null,
@@ -733,6 +736,7 @@ function prepareRound(
     round,
     revision: 0,
     players,
+    roundStartPlayerIds: players.map((player) => player.id),
     hands,
     scores,
     currentIndex: 0,
@@ -4515,8 +4519,14 @@ export default function Home() {
               {game.finishOrder.map((id, index) => {
                 const player = game.players.find((candidate) => candidate.id === id)!;
                 const nextRole = roleForIndex(index, game.players.length);
-                const previousIndex = game.players.findIndex(
-                  (candidate) => candidate.id === id,
+                const storedPreviousIndex = game.roundStartPlayerIds.indexOf(id);
+                const previousIndex =
+                  storedPreviousIndex >= 0
+                    ? storedPreviousIndex
+                    : game.players.findIndex((candidate) => candidate.id === id);
+                const previousRole = roleForIndex(
+                  previousIndex,
+                  game.players.length,
                 );
                 const rankMovement =
                   index < previousIndex
@@ -4527,13 +4537,20 @@ export default function Home() {
                 return (
                   <li
                     key={id}
-                    className={`${id === HUMAN_ID ? "is-you" : ""} ${
+                    className={`result-movement-${rankMovement} ${
+                      id === HUMAN_ID ? "is-you" : ""
+                    } ${
                       index === 0
                         ? "is-first-place"
                         : index === 1
                           ? "is-second-place"
                           : ""
                     }`}
+                    style={
+                      {
+                        "--result-row-index": index,
+                      } as React.CSSProperties
+                    }
                   >
                     <span>{index + 1}</span>
                     <div className="result-player-copy">
@@ -4542,7 +4559,7 @@ export default function Home() {
                         <span
                           className={`result-rank-shift is-${rankMovement}`}
                         >
-                          {ROLE_LABELS[player.role]} → {ROLE_LABELS[nextRole]}
+                          {ROLE_LABELS[previousRole]} → {ROLE_LABELS[nextRole]}
                         </span>
                       </div>
                       <small>

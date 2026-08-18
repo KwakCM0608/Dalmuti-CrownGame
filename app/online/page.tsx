@@ -206,6 +206,7 @@ type SnapshotView = {
   hostId: string;
   autoPassEnabled: boolean;
   players: PlayerView[];
+  roundStartPlayerIds: string[];
   hand: CardView[] | null;
   table: TableView;
   currentPlayerId: string | null;
@@ -270,6 +271,7 @@ const MIN_TRANSITION_POLL_INTERVAL_MS = 48;
 const REMOTE_ACTION_PRESENTATION_GRACE_MS = 300;
 const MAX_REMOTE_ACTION_QUEUE_LENGTH = 3;
 const TURN_DURATION_MS = 30_000;
+const PLAYER_CHAT_BUBBLE_DURATION_MS = 5_200;
 const RANK_MOVE_DURATION_MS = 2_300;
 const GREAT_REVOLUTION_MOVE_PRELUDE_MS = 0;
 const GREAT_REVOLUTION_MOVE_SETTLE_MS = 60;
@@ -709,6 +711,9 @@ function snapshotFrom(
     players: Array.isArray(playersValue)
       ? playersValue.map(playerFrom)
       : [],
+    roundStartPlayerIds: stringArray(
+      publicView.roundStartPlayerIds ?? root.roundStartPlayerIds,
+    ),
     hand:
       handValue === null || handValue === undefined ? null : cardsFrom(handValue),
     table,
@@ -966,20 +971,23 @@ function declaredRevolutionFromEvent(
   };
 }
 
+function mobileTopSeatCount(total: number): number {
+  return total >= 9
+    ? 5
+    : total >= 7
+      ? 4
+      : total >= 6 || total === 5
+        ? 3
+        : total === 4
+          ? 2
+          : total;
+}
+
 function seatPosition(rankIndex: number, total: number): CSSProperties {
   const angle =
     total <= 1 ? 270 : 150 + (240 * rankIndex) / Math.max(1, total - 1);
   const radians = (angle * Math.PI) / 180;
-  const mobileTopCount =
-    total >= 9
-      ? 5
-      : total >= 7
-        ? 4
-        : total >= 6 || total === 5
-          ? 3
-          : total === 4
-            ? 2
-            : total;
+  const mobileTopCount = mobileTopSeatCount(total);
   const mobileTopRow = rankIndex < mobileTopCount;
   const mobileRowIndex = mobileTopRow
     ? rankIndex
@@ -1262,6 +1270,8 @@ function PlayerSeat({
   handRevealElapsedMs = 0,
   isDalmutiHighlighted = false,
   activeEmote = null,
+  activeChat = null,
+  mobileSeatRow,
   roleHidden = false,
   elementRef,
   style,
@@ -1278,6 +1288,8 @@ function PlayerSeat({
   handRevealElapsedMs?: number;
   isDalmutiHighlighted?: boolean;
   activeEmote?: RoomEmoteView | null;
+  activeChat?: ChatMessageView | null;
+  mobileSeatRow?: "top" | "bottom";
   roleHidden?: boolean;
   elementRef?: (element: HTMLElement | null) => void;
   style?: CSSProperties;
@@ -1306,6 +1318,7 @@ function PlayerSeat({
       } ${isDalmutiHighlighted ? styles.playerSeatDalmuti : ""}`}
       style={style}
       data-rank-number={rankNumber}
+      data-mobile-seat-row={mobileSeatRow}
       data-dalmuti-highlighted={isDalmutiHighlighted || undefined}
       aria-label={`${player.name}, ${
         rankNumber ? `현재 서열 ${rankNumber}위, ` : ""
@@ -1347,6 +1360,16 @@ function PlayerSeat({
           aria-label={`${player.name}: ${emote.label}`}
         >
           {emote.emoji}
+        </span>
+      )}
+      {activeChat && (
+        <span
+          key={activeChat.id}
+          className={styles.playerChatBubble}
+          role="status"
+          aria-label={`${player.name}: ${activeChat.text}`}
+        >
+          {activeChat.text}
         </span>
       )}
       {(showHandBacks || isHandRevealing) &&
@@ -2340,21 +2363,22 @@ function OnlineChatPanel({
     const viewportBottom =
       viewportTop + (viewport?.height ?? window.innerHeight);
     const margin = 8;
-    let correctionX = 0;
-    let correctionY = 0;
+    const minimumLeft = viewportLeft + margin;
+    const minimumTop = viewportTop + margin;
+    const maximumLeft = Math.max(
+      minimumLeft,
+      viewportRight - margin - rect.width,
+    );
+    const maximumTop = Math.max(
+      minimumTop,
+      viewportBottom - margin - rect.height,
+    );
+    const targetLeft = Math.min(maximumLeft, Math.max(minimumLeft, rect.left));
+    const targetTop = Math.min(maximumTop, Math.max(minimumTop, rect.top));
+    const correctionX = targetLeft - rect.left;
+    const correctionY = targetTop - rect.top;
 
-    if (rect.left < viewportLeft + margin) {
-      correctionX = viewportLeft + margin - rect.left;
-    } else if (rect.right > viewportRight - margin) {
-      correctionX = viewportRight - margin - rect.right;
-    }
-    if (rect.top < viewportTop + margin) {
-      correctionY = viewportTop + margin - rect.top;
-    } else if (rect.bottom > viewportBottom - margin) {
-      correctionY = viewportBottom - margin - rect.bottom;
-    }
-
-    if (correctionX || correctionY) {
+    if (Math.abs(correctionX) > 0.5 || Math.abs(correctionY) > 0.5) {
       updateDragOffset({
         x: dragOffsetRef.current.x + correctionX,
         y: dragOffsetRef.current.y + correctionY,
@@ -2409,8 +2433,30 @@ function OnlineChatPanel({
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(keepChatInsideViewport);
-    return () => window.cancelAnimationFrame(frame);
-  }, [collapsed, keepChatInsideViewport]);
+    const settleTimer = window.setTimeout(() => {
+      keepChatInsideViewport();
+      saveDragOffset();
+    }, 220);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(settleTimer);
+    };
+  }, [collapsed, keepChatInsideViewport, saveDragOffset]);
+
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel || typeof ResizeObserver === "undefined") return;
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(keepChatInsideViewport);
+    });
+    observer.observe(panel);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [keepChatInsideViewport]);
 
   const updateChatScrollPreference = useCallback(() => {
     const messageList = messageListRef.current;
@@ -3931,6 +3977,21 @@ export default function OnlinePage() {
     }
     return active;
   }, [effectiveClock, roomEmotes]);
+  const activeChatsByPlayerId = useMemo(() => {
+    const active: Record<string, ChatMessageView> = {};
+    for (const message of chatMessages) {
+      if (
+        message.sentAt <= effectiveClock + 250 &&
+        message.sentAt + PLAYER_CHAT_BUBBLE_DURATION_MS > effectiveClock
+      ) {
+        const existing = active[message.playerId];
+        if (!existing || message.sentAt >= existing.sentAt) {
+          active[message.playerId] = message;
+        }
+      }
+    }
+    return active;
+  }, [chatMessages, effectiveClock]);
   const turnStartsAt =
     snapshot?.phase === "playing" && snapshot.turnDeadline !== null
       ? snapshot.turnDeadline - TURN_DURATION_MS
@@ -5545,6 +5606,13 @@ export default function OnlinePage() {
                       player.id === dalmutiHighlightPlayerId
                     }
                     activeEmote={activeEmotesByPlayerId[player.id] ?? null}
+                    activeChat={activeChatsByPlayerId[player.id] ?? null}
+                    mobileSeatRow={
+                      displayedRankIndex <
+                      mobileTopSeatCount(tableRankedPlayers.length)
+                        ? "top"
+                        : "bottom"
+                    }
                     roleHidden={isRankSelectionPhase}
                     elementRef={(element) =>
                       bindSeatElement(player.id, element)
@@ -6102,10 +6170,21 @@ export default function OnlinePage() {
             <h2>제 {snapshot.round}막의 새로운 계급</h2>
             <ol>
               {sortedFinishers.map((player, index) => {
-                const priorRankIndex = snapshot.players.findIndex(
-                  (candidate) => candidate.id === player.id,
+                const roundStartPlayerIds =
+                  snapshot.roundStartPlayerIds.length === snapshot.players.length
+                    ? snapshot.roundStartPlayerIds
+                    : snapshot.players.map((candidate) => candidate.id);
+                const storedPriorRankIndex = roundStartPlayerIds.indexOf(player.id);
+                const priorRankIndex =
+                  storedPriorRankIndex >= 0
+                    ? storedPriorRankIndex
+                    : snapshot.players.findIndex(
+                        (candidate) => candidate.id === player.id,
+                      );
+                const previousRole = roleLabelForRank(
+                  priorRankIndex,
+                  sortedFinishers.length,
                 );
-                const previousRole = roleLabel(player.role);
                 const nextRole = roleLabelForRank(
                   index,
                   sortedFinishers.length,
@@ -6119,14 +6198,31 @@ export default function OnlinePage() {
                 return (
                   <li
                     key={player.id}
-                    className={`${player.id === me?.id ? styles.resultSelf : ""} ${
+                    className={`${styles.resultMovementRow} ${
+                      rankDirection === "up"
+                        ? styles.resultMovementUp
+                        : rankDirection === "down"
+                          ? styles.resultMovementDown
+                          : styles.resultMovementSame
+                    } ${player.id === me?.id ? styles.resultSelf : ""} ${
                       index === 0
                         ? styles.resultFirst
                         : index === 1
                           ? styles.resultSecond
                           : ""
                     }`}
-                    aria-label={`${index + 1}위 ${player.name}, ${previousRole}에서 ${nextRole}, 누적 ${player.score}칩`}
+                    style={
+                      {
+                        "--result-row-index": index,
+                      } as CSSProperties
+                    }
+                    aria-label={`${index + 1}위 ${player.name}, ${previousRole}에서 ${nextRole}, ${
+                      rankDirection === "up"
+                        ? "서열 상승"
+                        : rankDirection === "down"
+                          ? "서열 하락"
+                          : "서열 유지"
+                    }, 누적 ${player.score}칩`}
                   >
                     <span>{index + 1}</span>
                     <p>
@@ -6149,6 +6245,13 @@ export default function OnlinePage() {
                         <i>→</i>
                         {nextRole}
                       </small>
+                      <span className={styles.resultMovementLabel}>
+                        {rankDirection === "up"
+                          ? "↑ 서열 상승"
+                          : rankDirection === "down"
+                            ? "↓ 서열 하락"
+                            : "— 서열 유지"}
+                      </span>
                     </p>
                     <em>{player.score}칩</em>
                   </li>

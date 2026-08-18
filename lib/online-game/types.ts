@@ -225,6 +225,7 @@ export type OnlineRoomState = {
   round: number;
   hostId: string;
   players: OnlinePlayerState[];
+  roundStartPlayerIds: string[];
   hands: Record<string, OnlineCard[]>;
   dealSealed: boolean;
   currentIndex: number;
@@ -274,6 +275,7 @@ export type OnlineSnapshot = {
   minPlayers: 4;
   maxPlayers: 8;
   players: OnlineSnapshotPlayer[];
+  roundStartPlayerIds: string[];
   hand: OnlineCard[] | null;
   table: OnlineTable | null;
   currentPlayerId: string | null;

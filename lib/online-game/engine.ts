@@ -201,6 +201,9 @@ function cloneRoom(state: OnlineRoomState): OnlineRoomState {
       connected: player.isBot === true ? true : player.connected,
       autoPassEnabled: player.autoPassEnabled !== false,
     })),
+    roundStartPlayerIds: Array.isArray(state.roundStartPlayerIds)
+      ? [...state.roundStartPlayerIds]
+      : state.players.map((player) => player.id),
     hands: Object.fromEntries(
       Object.entries(state.hands).map(([id, hand]) => [id, [...hand]]),
     ),
@@ -406,6 +409,7 @@ function resetRoomToLobby(state: OnlineRoomState): void {
   state.phaseEndsAt = null;
   state.turnDeadline = null;
   state.round = 0;
+  state.roundStartPlayerIds = [];
   state.currentIndex = 0;
   state.table = null;
   state.lastPlayedId = null;
@@ -800,6 +804,7 @@ function startRound(
     ...player,
     ready: true,
   }));
+  state.roundStartPlayerIds = state.players.map((player) => player.id);
   if (round > 1) state.rankSelection = null;
   if (!useSealedDeal || !state.dealSealed) {
     sealDeal(state, at, deps);
@@ -1839,6 +1844,7 @@ export function createOnlineRoom(
     round: 0,
     hostId: host.id,
     players: [host],
+    roundStartPlayerIds: [],
     hands: {},
     dealSealed: false,
     currentIndex: 0,
@@ -2489,6 +2495,11 @@ export function projectOnlineRoom(
       finishedPlace: finishPlaces.get(player.id) ?? null,
       score: player.score,
     })),
+    roundStartPlayerIds:
+      Array.isArray(state.roundStartPlayerIds) &&
+      state.roundStartPlayerIds.length === state.players.length
+        ? [...state.roundStartPlayerIds]
+        : state.players.map((player) => player.id),
     hand: handIsVisible(state.phase) ? [...state.hands[actorId]] : null,
     table: state.table
       ? { ...state.table, cards: [...state.table.cards] }

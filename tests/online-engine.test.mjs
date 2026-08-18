@@ -2349,6 +2349,8 @@ test("a first-act great revolution reverses ranks before the no-tax intro", () =
   state.phase = "revolution";
   state.phaseEndsAt = 10_000;
   state.round = 1;
+  state.roundStartPlayerIds = [...originalOrder];
+  state.hands = Object.fromEntries(originalOrder.map((playerId) => [playerId, []]));
   state.revolutionHolderId = greatPeon.id;
   state.durations = { ...state.durations, ...durations };
 
@@ -2410,6 +2412,15 @@ test("a first-act great revolution reverses ranks before the no-tax intro", () =
     state.players.map((player) => player.id),
     [...originalOrder].reverse(),
     "players move only when the rank-swap announcement starts",
+  );
+  assert.deepEqual(
+    state.roundStartPlayerIds,
+    originalOrder,
+    "the result baseline must retain the ranks from before the great revolution",
+  );
+  assert.deepEqual(
+    projectOnlineRoom(state, greatPeon.id).roundStartPlayerIds,
+    originalOrder,
   );
   assert.deepEqual(
     state.players.map((player) => player.role),

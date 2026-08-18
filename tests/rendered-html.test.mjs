@@ -806,6 +806,8 @@ test("quick and online tables expose the enhanced timed and rank feedback", asyn
   assert.match(quickPage, /className="opening-rank-confirmation-body"/);
   assert.match(quickPage, /className="great-revolution-field-effect"/);
   assert.match(quickPage, /className=\{`result-rank-shift is-\$\{rankMovement\}`\}/);
+  assert.match(quickPage, /game\.roundStartPlayerIds\.indexOf\(id\)/);
+  assert.match(quickPage, /result-movement-\$\{rankMovement\}/);
   assert.match(quickStyles, /\.table-column > \.turn-countdown/);
   assert.match(quickStyles, /\.result-rank-shift\.is-up/);
   assert.match(quickStyles, /\.result-rank-shift\.is-down/);
@@ -820,11 +822,15 @@ test("quick and online tables expose the enhanced timed and rank feedback", asyn
   assert.match(onlinePage, /styles\.tableDalmutiBurst/);
   assert.match(onlinePage, /styles\.rankShiftEffect/);
   assert.match(onlinePage, /styles\.resultRoleChange/);
+  assert.match(onlinePage, /snapshot\.roundStartPlayerIds/);
+  assert.match(onlinePage, /styles\.resultMovementLabel/);
   assert.match(onlinePage, /greatRevolutionActive/);
   assert.match(onlineStyles, /\.turnCountdown\s*\{[^}]*z-index:\s*28/s);
   assert.match(onlineStyles, /\.tableGreatRevolution/);
   assert.match(onlineStyles, /\.resultRoleUp/);
   assert.match(onlineStyles, /\.resultRoleDown/);
+  assert.match(onlineStyles, /@keyframes onlineResultRankRise/);
+  assert.match(quickStyles, /@keyframes quickResultRankFall/);
   assert.match(
     onlineStyles,
     /@media \(max-width: 820px\)[\s\S]*\.turnCountdown\s*\{[^}]*position: absolute;[^}]*top: 104px;[^}]*right: 13px;[^}]*left: auto;/,
@@ -1385,6 +1391,10 @@ test("online chat is room-scoped and score rails use compact casino chips", asyn
   assert.match(onlinePage, /chatShouldFollowLatestRef/);
   assert.match(onlinePage, /onScroll=\{updateChatScrollPreference\}/);
   assert.match(onlineStyles, /\.playerEmote\s*\{/);
+  assert.match(onlineStyles, /\.playerChatBubble\s*\{/);
+  assert.match(onlinePage, /activeChat=\{activeChatsByPlayerId\[player\.id\]/);
+  assert.match(onlinePage, /new ResizeObserver/);
+  assert.match(onlinePage, /data-mobile-seat-row=\{mobileSeatRow\}/);
   assert.match(onlinePage, /onEmote=\{sendEmote\}/);
   assert.match(onlinePage, /activeEmote=\{activeEmotesByPlayerId/);
   assert.match(chatRoute, /authenticateOnlineRoomRequest/);
